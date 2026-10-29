@@ -1,0 +1,62 @@
+name: moodwall
+x-app: &app
+  image: moodwall-backend:local
+  build:
+    context: ./backend
+    target: runtime
+  environment: &app-env
+    MOODWALL_DATABASE_URL: postgresql://moodwall_app:${APP_DB_PASSWORD:?Run dev_setup.py}@db:5432/moodwall
+    MOODWALL_PUBLIC_ORIGIN: ${MOODWALL_PUBLIC_ORIGIN:-http://localhost:8000}
+    MOODWALL_BOARD_ID: ${MOODWALL_BOARD_ID:-10000000-0000-4000-8000-000000000001}
+    MOODWALL_SECRET_KEY: ${MOODWALL_SECRET_KEY:?Run dev_setup.py}
+    MOODWALL_QR_KEY: ${MOODWALL_QR_KEY:?Run dev_setup.py}
+    MOODWALL_ENVIRONMENT: ${MOODWALL_ENVIRONMENT:-development}
+    MOODWALL_ANALYZER: ${MOODWALL_ANALYZER:-fake}
+  init: true
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: moodwall
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run dev_setup.py}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Run dev_setup.py}
+    ports: ["127.0.0.1:55432:5432"]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./infra/postgres-init.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d moodwall"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+  migrate:
+    <<: *app
+    environment:
+      <<: *app-env
+      MOODWALL_MIGRATION_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Run dev_setup.py}@db:5432/moodwall
+    command: ["python", "-m", "app.migrate"]
+    restart: "no"
+    profiles: ["tools"]
+  api:
+    <<: *app
+    ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/live', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+  cli:
+    <<: *app
+    command: ["python", "-m", "app.cli", "--help"]
+    restart: "no"
+    profiles: ["tools"]
+volumes:
+  db-data:

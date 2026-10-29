@@ -1,0 +1,50 @@
+name: backend
+on:
+  push:
+    paths: ["backend/**", "clients/display/**", "docs/openapi.json", "infra/**", "scripts/**", "compose.yaml", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", "clients/display/**", "docs/openapi.json", "infra/**", "scripts/**", "compose.yaml", ".github/workflows/backend.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: moodwall_test
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d moodwall_test"
+          --health-interval 3s --health-timeout 2s --health-retries 20
+    env:
+      MOODWALL_DATABASE_URL: postgresql://postgres:synthetic-ci-only@127.0.0.1:5432/moodwall_test
+      MOODWALL_TEST_DB_URL: postgresql://postgres:synthetic-ci-only@127.0.0.1:5432/moodwall_test
+      MOODWALL_ENVIRONMENT: test
+      MOODWALL_SECRET_KEY: synthetic-ci-session-01234567890123456789
+      MOODWALL_QR_KEY: synthetic-ci-qr-key-01234567890123456789
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Display bubble lifetime and reload policy
+        run: node --test clients/display/bubble-cache.test.mjs
+      - run: docker build --target test -t moodwall-test ./backend
+      - name: Static checks
+        run: |
+          docker run --rm moodwall-test python -m ruff check .
+          docker run --rm moodwall-test python -m ruff format --check .
+      - name: Migrate isolated database
+        run: >-
+          docker run --rm --network host
+          -e MOODWALL_DATABASE_URL -e MOODWALL_ENVIRONMENT
+          -e MOODWALL_SECRET_KEY -e MOODWALL_QR_KEY
+          moodwall-test python -m app.migrate
+      - name: Unit, PostgreSQL, HTTP and Linux worker tests
+        run: >-
+          docker run --rm --network host -e MOODWALL_TEST_DB_URL
+          -v "$GITHUB_WORKSPACE/docs:/srv/docs:ro"
+          moodwall-test python -m pytest -q -p no:cacheprovider

@@ -1,0 +1,400 @@
+{
+  "ambientCount": 10000,
+  "ambientIndex": "submissions_ambient_order_idx",
+  "businessDate": "2026-10-29",
+  "database": "moodwall_review_test",
+  "indexRestored": true,
+  "notes": [
+    "Counts and OFFSET still scan O(n) entries; deep offsets are not constant time.",
+    "The materialized page paginates IDs/timestamps before joining at most 40 content rows.",
+    "The change bounds returned content to 40 ambient cards and active display row locks.",
+    "Timings depend on cache and this synthetic local dataset; no timing threshold is asserted."
+  ],
+  "seedRows": 10000,
+  "serverVersion": 170008,
+  "syntheticParticipants": 10000,
+  "syntheticRowsRemoved": true,
+  "withAmbientIndex": {
+    "count": {
+      "buffers": {
+        "Shared Dirtied Blocks": 0,
+        "Shared Hit Blocks": 417,
+        "Shared Read Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "executionMs": 8.597,
+      "indexNames": [],
+      "planningMs": 0.362,
+      "returnedRows": 1,
+      "rootNode": "Aggregate",
+      "scanNodes": [
+        {
+          "actualRows": 10000,
+          "heapFetches": null,
+          "indexName": null,
+          "loops": 1,
+          "nodeType": "Seq Scan",
+          "relationName": "submissions",
+          "rowsRemovedByFilter": 0
+        }
+      ],
+      "sortNodes": []
+    },
+    "pages": {
+      "0": {
+        "buffers": {
+          "Shared Dirtied Blocks": 0,
+          "Shared Hit Blocks": 123,
+          "Shared Read Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "executionMs": 1.494,
+        "indexNames": [
+          "submissions_ambient_order_idx",
+          "submissions_pkey"
+        ],
+        "planningMs": 6.385,
+        "returnedRows": 40,
+        "rootNode": "Nested Loop",
+        "scanNodes": [
+          {
+            "actualRows": 40,
+            "heapFetches": 0,
+            "indexName": "submissions_ambient_order_idx",
+            "loops": 1,
+            "nodeType": "Index Only Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 40,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "CTE Scan",
+            "relationName": null,
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 1,
+            "heapFetches": null,
+            "indexName": "submissions_pkey",
+            "loops": 40,
+            "nodeType": "Index Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          }
+        ],
+        "sortNodes": []
+      },
+      "5000": {
+        "buffers": {
+          "Shared Dirtied Blocks": 0,
+          "Shared Hit Blocks": 164,
+          "Shared Read Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "executionMs": 1.652,
+        "indexNames": [
+          "submissions_ambient_order_idx",
+          "submissions_pkey"
+        ],
+        "planningMs": 0.622,
+        "returnedRows": 40,
+        "rootNode": "Nested Loop",
+        "scanNodes": [
+          {
+            "actualRows": 5040,
+            "heapFetches": 0,
+            "indexName": "submissions_ambient_order_idx",
+            "loops": 1,
+            "nodeType": "Index Only Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 40,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "CTE Scan",
+            "relationName": null,
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 1,
+            "heapFetches": null,
+            "indexName": "submissions_pkey",
+            "loops": 40,
+            "nodeType": "Index Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          }
+        ],
+        "sortNodes": []
+      },
+      "9960": {
+        "buffers": {
+          "Shared Dirtied Blocks": 0,
+          "Shared Hit Blocks": 205,
+          "Shared Read Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "executionMs": 2.972,
+        "indexNames": [
+          "submissions_ambient_order_idx",
+          "submissions_pkey"
+        ],
+        "planningMs": 0.618,
+        "returnedRows": 40,
+        "rootNode": "Nested Loop",
+        "scanNodes": [
+          {
+            "actualRows": 10000,
+            "heapFetches": 0,
+            "indexName": "submissions_ambient_order_idx",
+            "loops": 1,
+            "nodeType": "Index Only Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 40,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "CTE Scan",
+            "relationName": null,
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 1,
+            "heapFetches": null,
+            "indexName": "submissions_pkey",
+            "loops": 40,
+            "nodeType": "Index Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          }
+        ],
+        "sortNodes": []
+      }
+    },
+    "previousFullSnapshot": {
+      "buffers": {
+        "Shared Dirtied Blocks": 0,
+        "Shared Hit Blocks": 417,
+        "Shared Read Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "executionMs": 21.215,
+      "indexNames": [],
+      "planningMs": 0.618,
+      "returnedRows": 10000,
+      "rootNode": "Sort",
+      "scanNodes": [
+        {
+          "actualRows": 10000,
+          "heapFetches": null,
+          "indexName": null,
+          "loops": 1,
+          "nodeType": "Seq Scan",
+          "relationName": "submissions",
+          "rowsRemovedByFilter": 0
+        }
+      ],
+      "sortNodes": [
+        {
+          "actualRows": 10000,
+          "loops": 1,
+          "method": "quicksort",
+          "nodeType": "Sort",
+          "spaceKb": 3483,
+          "spaceType": "Memory"
+        }
+      ]
+    }
+  },
+  "withoutAmbientIndex": {
+    "pages": {
+      "0": {
+        "buffers": {
+          "Shared Dirtied Blocks": 0,
+          "Shared Hit Blocks": 537,
+          "Shared Read Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "executionMs": 9.318,
+        "indexNames": [
+          "submissions_pkey"
+        ],
+        "planningMs": 2.586,
+        "returnedRows": 40,
+        "rootNode": "Nested Loop",
+        "scanNodes": [
+          {
+            "actualRows": 10000,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "Seq Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 40,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "CTE Scan",
+            "relationName": null,
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 1,
+            "heapFetches": null,
+            "indexName": "submissions_pkey",
+            "loops": 40,
+            "nodeType": "Index Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          }
+        ],
+        "sortNodes": [
+          {
+            "actualRows": 40,
+            "loops": 1,
+            "method": "top-N heapsort",
+            "nodeType": "Sort",
+            "spaceKb": 27,
+            "spaceType": "Memory"
+          }
+        ]
+      },
+      "5000": {
+        "buffers": {
+          "Shared Dirtied Blocks": 0,
+          "Shared Hit Blocks": 537,
+          "Shared Read Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "executionMs": 9.634,
+        "indexNames": [
+          "submissions_pkey"
+        ],
+        "planningMs": 0.769,
+        "returnedRows": 40,
+        "rootNode": "Nested Loop",
+        "scanNodes": [
+          {
+            "actualRows": 10000,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "Seq Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 40,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "CTE Scan",
+            "relationName": null,
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 1,
+            "heapFetches": null,
+            "indexName": "submissions_pkey",
+            "loops": 40,
+            "nodeType": "Index Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          }
+        ],
+        "sortNodes": [
+          {
+            "actualRows": 5040,
+            "loops": 1,
+            "method": "quicksort",
+            "nodeType": "Sort",
+            "spaceKb": 1088,
+            "spaceType": "Memory"
+          }
+        ]
+      },
+      "9960": {
+        "buffers": {
+          "Shared Dirtied Blocks": 0,
+          "Shared Hit Blocks": 537,
+          "Shared Read Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "executionMs": 10.618,
+        "indexNames": [
+          "submissions_pkey"
+        ],
+        "planningMs": 0.572,
+        "returnedRows": 40,
+        "rootNode": "Nested Loop",
+        "scanNodes": [
+          {
+            "actualRows": 10000,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "Seq Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 40,
+            "heapFetches": null,
+            "indexName": null,
+            "loops": 1,
+            "nodeType": "CTE Scan",
+            "relationName": null,
+            "rowsRemovedByFilter": 0
+          },
+          {
+            "actualRows": 1,
+            "heapFetches": null,
+            "indexName": "submissions_pkey",
+            "loops": 40,
+            "nodeType": "Index Scan",
+            "relationName": "submissions",
+            "rowsRemovedByFilter": 0
+          }
+        ],
+        "sortNodes": [
+          {
+            "actualRows": 10000,
+            "loops": 1,
+            "method": "quicksort",
+            "nodeType": "Sort",
+            "spaceKb": 1088,
+            "spaceType": "Memory"
+          }
+        ]
+      }
+    }
+  }
+}
