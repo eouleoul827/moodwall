@@ -35,8 +35,8 @@ jobs:
       - run: docker build --target test -t moodwall-test ./backend
       - name: Static checks
         run: |
-          docker run --rm moodwall-test python -m ruff check .
-          docker run --rm moodwall-test python -m ruff format --check .
+          docker run --rm moodwall-test python -m ruff check --no-cache .
+          docker run --rm moodwall-test python -m ruff format --check --no-cache .
       - name: Migrate isolated database
         run: >-
           docker run --rm --network host
