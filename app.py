@@ -1,48 +1,45 @@
-# 무드월 감정 분류 API - 전광판 PC 운영용
-# 같은 PC의 Node 서버만 접속하도록 127.0.0.1로 실행합니다.
-# 실행: python -m uvicorn app:app --host 127.0.0.1 --port 8000
+"""Local HTTP wrapper around the fine-tuned KcELECTRA model. Text is classified, never stored."""
+
+from __future__ import annotations
+
+import logging
 import os
 import time
-import logging
 
 import torch
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from pydantic import BaseModel, ConfigDict
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-# 전광판 화면(브라우저 애니메이션)이 끊기지 않도록 CPU 코어를 2개만 사용
+_MODEL_DIR = os.getenv("SLM_MODEL_DIR", "./moodwall_model")
+_MAX_CHARS = 30
+
+# Leave CPU for the display browser running on the same machine.
 torch.set_num_threads(int(os.getenv("SLM_THREADS", "2")))
+logging.basicConfig(filename="slm.log", level=logging.INFO, format="%(asctime)s %(message)s", encoding="utf-8")
+_log = logging.getLogger("slm")
 
-MODEL_DIR = os.getenv("SLM_MODEL_DIR", "./moodwall_model")
+_tokenizer = AutoTokenizer.from_pretrained(_MODEL_DIR, local_files_only=True)
+_model = AutoModelForSequenceClassification.from_pretrained(_MODEL_DIR, local_files_only=True)
+_model.eval()
+_UNSAFE = _model.config.label2id["부적절"]
 
-# 로그에는 멘션 원문을 남기지 않음 (원문은 Node 서버 DB에서만 관리)
-logging.basicConfig(
-    filename="slm.log",
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    encoding="utf-8",
-)
-
-tok = AutoTokenizer.from_pretrained(MODEL_DIR)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
-model.eval()
-INAPP_ID = model.config.label2id["부적절"]
-
-app = FastAPI(title="Moodwall SLM")
+app = FastAPI(title="moodwall-slm")
 
 
-def run(text: str):
-    enc = tok(text, truncation=True, max_length=64, return_tensors="pt")
-    with torch.inference_mode():
-        return torch.softmax(model(**enc).logits, dim=-1)[0]
+class ClassifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-
-run("준비 운동")  # 첫 요청이 느리지 않도록 미리 한 번 실행
-logging.info("model loaded from %s, threads=%d", MODEL_DIR, torch.get_num_threads())
-
-
-class Mention(BaseModel):
     text: str
+
+
+def _probs(text: str) -> torch.Tensor:
+    inputs = _tokenizer(text, truncation=True, max_length=64, return_tensors="pt")
+    with torch.inference_mode():
+        return torch.softmax(_model(**inputs).logits, dim=-1)[0]
+
+
+_probs("warmup")
 
 
 @app.get("/health")
@@ -51,19 +48,26 @@ def health():
 
 
 @app.post("/classify")
-def classify(m: Mention):
-    text = m.text.strip()[:30]
+def classify(body: ClassifyRequest):
+    text = body.text.strip()[:_MAX_CHARS]
     if not text:
         raise HTTPException(status_code=400, detail="empty text")
-    start = time.perf_counter()
-    prob = run(text)
-    i = int(prob.argmax())
+
+    started = time.perf_counter()
+    probs = _probs(text)
+    best = int(probs.argmax())
     result = {
-        "label": model.config.id2label[i],
-        "score": round(float(prob[i]), 4),
-        "inappropriate_score": round(float(prob[INAPP_ID]), 4),
-        "ms": round((time.perf_counter() - start) * 1000),
+        "label": _model.config.id2label[best],
+        "score": round(probs[best].item(), 4),
+        "inappropriate_score": round(probs[_UNSAFE].item(), 4),
+        "ms": round((time.perf_counter() - started) * 1000),
     }
-    logging.info("label=%s score=%.3f inapp=%.3f ms=%d",
-                 result["label"], result["score"], result["inappropriate_score"], result["ms"])
+    # Metrics only; the submitted text is not written to the log.
+    _log.info(
+        "label=%s score=%.3f unsafe=%.3f ms=%d",
+        result["label"],
+        result["score"],
+        result["inappropriate_score"],
+        result["ms"],
+    )
     return result

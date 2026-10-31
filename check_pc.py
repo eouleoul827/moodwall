@@ -1,25 +1,33 @@
-# 전광판 PC에서 모델이 충분히 빠른지 확인하는 스크립트
-# 실행: python check_pc.py
-import os, time, platform
+"""Measure load time and per-sentence CPU latency on the target machine."""
+
+import os
+import time
+
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-torch.set_num_threads(2)
-print("OS:", platform.platform())
-print("CPU 코어 수:", os.cpu_count(), "/ 사용할 스레드:", torch.get_num_threads())
+_MODEL_DIR = os.getenv("SLM_MODEL_DIR", "./moodwall_model")
+_SAMPLES = ("민지야 생일 축하해!!", "과제 너무 많아 지친다", "내일 축제 개기대됨ㅋㅋ", "오늘 학식 맛있었다")
 
-t = time.perf_counter()
-tok = AutoTokenizer.from_pretrained("./moodwall_model")
-model = AutoModelForSequenceClassification.from_pretrained("./moodwall_model").eval()
-print(f"모델 로딩: {time.perf_counter() - t:.1f}초")
 
-texts = ["민지야 생일 축하해!!", "과제 너무 많아 지친다", "내일 축제 개기대됨ㅋㅋ", "오늘 학식 맛있었다"] * 25
-times = []
-with torch.inference_mode():
-    for s in texts:
-        t = time.perf_counter()
-        model(**tok(s, return_tensors="pt", truncation=True, max_length=64))
-        times.append((time.perf_counter() - t) * 1000)
-times = times[5:]  # 처음 몇 번은 느리므로 제외
-print(f"문장당 평균 {sum(times)/len(times):.0f}ms, 가장 느림 {max(times):.0f}ms")
-print("평균 300ms 이하면 전광판용으로 충분합니다.")
+def main():
+    torch.set_num_threads(int(os.getenv("SLM_THREADS", "2")))
+    print(f"cpu={os.cpu_count()} threads={torch.get_num_threads()}")
+
+    started = time.perf_counter()
+    tokenizer = AutoTokenizer.from_pretrained(_MODEL_DIR, local_files_only=True)
+    model = AutoModelForSequenceClassification.from_pretrained(_MODEL_DIR, local_files_only=True).eval()
+    print(f"load={time.perf_counter() - started:.1f}s")
+
+    times = []
+    with torch.inference_mode():
+        for i in range(105):
+            started = time.perf_counter()
+            model(**tokenizer(_SAMPLES[i % len(_SAMPLES)], return_tensors="pt"))
+            times.append((time.perf_counter() - started) * 1000)
+    times = sorted(times[5:])  # first calls include warmup
+    print(f"avg={sum(times) / len(times):.0f}ms p95={times[94]:.0f}ms max={times[-1]:.0f}ms")
+
+
+if __name__ == "__main__":
+    main()

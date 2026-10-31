@@ -1,112 +1,67 @@
-# 무드월 SLM (감정 분류)
+# slm
 
-학생이 쓴 멘션(30자 이내)을 읽고 **어떤 감정인지**와 **전광판에 띄워도 되는 글인지**를 판단하는 모델입니다.
-무드월 파이프라인의 4번 단계(감정 분류 + 저격/비방 판별)를 맡습니다.
+학생 멘션을 8개 라벨로 분류하는 KcELECTRA(`beomi/KcELECTRA-base-v2022`) 파인튜닝 모델과 로컬 테스트용 HTTP 래퍼다. 백엔드 worker 연결은 `backend/inference/student_model.py`가 담당하며, 이 폴더의 API는 모델 단독 확인과 CPU 측정에 쓴다.
 
-```
-요청:  {"text": "지민아 생일 축하해"}
-응답:  {"label": "축하", "score": 0.95, "inappropriate_score": 0.01, "ms": 45}
-```
-
-- `label`: 감정 라벨 (아래 8개 중 하나)
-- `score`: 그 라벨일 확률 (0~1)
-- `inappropriate_score`: 부적절한 글일 확률 (0~1)
-- `ms`: 판단에 걸린 시간 (밀리초)
-
-## 폴더 구조
+라벨은 축하·기쁨·응원·설렘·피곤·슬픔·화남·부적절이다. 부적절은 백엔드 계약에서 감정이 아니라 공개 적합성 점수로 변환된다.
 
 ```
-moodwall-slm/
-├─ README.md                  이 문서
-├─ train/
-│  └─ moodwall_train_v0.ipynb Colab 학습 노트북 (데이터 합치기 → 학습 → 평가 → 저장)
-├─ data/
-│  └─ seed_data.csv           학습용 시드 문장 300개 (text, label)
-└─ api/                       전광판 PC에서 실행하는 파일
-   ├─ app.py                  감정 분류 API 서버 (FastAPI)
-   ├─ requirements.txt        설치할 라이브러리 목록
-   ├─ check_pc.py             PC에서 모델 속도 측정
-   └─ start_slm.bat           서버 실행 + 꺼지면 자동 재시작 (Windows)
+slm/
+  train/moodwall_train_v0.ipynb   Colab(T4) 학습
+  data/seed_data.csv              시드 문장 300개
+  api/app.py                      로컬 HTTP 래퍼
+  api/check_pc.py                 로딩·지연 측정
+  api/start_slm.bat               Windows 상시 실행
+  api/requirements.txt
 ```
 
-학습된 모델(`moodwall_model/`, 약 500MB)은 깃허브 용량 제한 때문에 저장소에 없습니다.
-구글 드라이브 `내 드라이브/moodwall_model.zip`에 보관합니다.
+가중치(`moodwall_model/`, 약 500MB)는 Git에 넣지 않고 드라이브로 전달한다.
 
-## 라벨 8개
+## 학습
 
-| 라벨 | CSV 값 | 뜻 | 애니메이션 |
-| --- | --- | --- | --- |
-| 축하 | congrats | 누군가의 좋은 일을 축하 | 폭죽 |
-| 기쁨 | joy | 이미 일어난 일이 좋음 | 하트 |
-| 응원 | cheer | 앞으로 할 일을 잘하라고 힘을 줌 | 반짝임 |
-| 설렘 | excited | 아직 안 온 일이 기대됨 | 미정 |
-| 피곤 | tired | 지침, 졸림, 귀찮음 | 미정 |
-| 슬픔 | sad | 아쉬움, 우울, 서운함 | 비 |
-| 화남 | angry | 상황·일에 대한 짜증 (특정인 아님) | 미정 |
-| 부적절 | inappropriate | 특정인 저격·비방, 혐오, 성적 내용, 개인정보 | 표시 안 함 |
+Colab에서 노트북을 열고 런타임을 T4 GPU로 바꾼 뒤 순서대로 실행한다. 3번 셀에서 `seed_data.csv`를 업로드하면 9번 셀이 `moodwall_model.zip`과 `test_set_v0.csv`를 드라이브에 저장한다. `test_set_v0.csv`는 이후 버전 비교에 고정해서 쓴다.
 
-헷갈릴 때는 부적절 → 축하 → 응원 → 나머지 감정 순서로 먼저 해당하는 것을 고릅니다.
-자세한 기준은 팀 공유 문서 "무드월 감정 라벨 기준표"를 따릅니다.
+## 실행
 
-## 사용 방법
-
-### 1. 모델 학습 (Colab)
-
-1. colab.research.google.com → 파일 → 노트 업로드 → `train/moodwall_train_v0.ipynb`
-2. 런타임 → 런타임 유형 변경 → **T4 GPU**
-3. 위에서부터 셀을 하나씩 실행 (Shift+Enter). 3번 셀에서 `data/seed_data.csv` 업로드
-4. 마지막 셀이 구글 드라이브에 `moodwall_model.zip`, `test_set_v0.csv` 저장
-
-### 2. 전광판 PC에 설치 (Windows)
-
-1. `C:\moodwall-slm` 폴더를 만들고 `api/` 안의 파일 4개를 복사
-2. 드라이브의 `moodwall_model.zip`을 같은 폴더에 압축 해제
-   (`C:\moodwall-slm\moodwall_model\config.json`이 있어야 함)
-3. Python 3.11 설치 ("Add python.exe to PATH" 체크)
-4. `C:\moodwall-slm`에서 명령 프롬프트를 열고:
+`api/`의 파일과 압축을 푼 `moodwall_model/`을 한 디렉터리에 두고 Python 3.11 이상에서 실행한다.
 
 ```
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate            # macOS: source venv/bin/activate
 pip install -r requirements.txt
 python check_pc.py
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-5. 실행 테스트: `start_slm.bat` 더블클릭 → 브라우저에서 http://127.0.0.1:8000/docs
-6. 자동 실행: 작업 스케줄러에 `start_slm.bat`을 "시작할 때" 실행으로 등록
-   ("다음 시간 이상 작업이 실행되면 중지"는 반드시 해제)
+Intel macOS는 PyTorch 최신 빌드가 없으므로 `requirements.txt` 대신 다음 조합을 설치한다.
 
-## 서버(Node) 연동
+```
+pip install "torch==2.2.2" "numpy<2" "transformers==4.44.2" fastapi uvicorn
+```
 
-| 항목 | 내용 |
-| --- | --- |
-| 주소 | `POST http://127.0.0.1:8000/classify` (같은 PC에서만 접속 가능) |
-| 상태 확인 | `GET http://127.0.0.1:8000/health` → `{"status": "ok"}` |
-| 빈 문자열 | 400 에러 |
+Windows 상시 운영은 `start_slm.bat`을 작업 스케줄러의 "시작할 때" 트리거로 등록한다. 기본 설정의 3일 실행 제한은 해제한다.
 
-판정 규칙 (위에서부터 먼저 맞는 것 하나 적용, v0 기본값):
+## HTTP
 
-| 순서 | 조건 | 처리 |
-| --- | --- | --- |
-| 1 | 응답 없음 (1초 초과, 에러) | 표시하지 않고 관리자 확인 대기 |
-| 2 | label이 부적절 | 표시하지 않음, 관리자 화면에 기록 |
-| 3 | inappropriate_score ≥ 0.3 | 표시하지 않고 관리자 확인 대기 |
-| 4 | score < 0.6 | 기본 애니메이션 |
-| 5 | 그 외 | 라벨별 애니메이션 |
+`127.0.0.1`에만 바인딩한다. 원문은 로그에 남기지 않고 라벨·점수·처리 시간만 `slm.log`에 기록한다.
 
-## 데이터 출처
+```
+GET  /health    -> {"status": "ok"}
+POST /classify  {"text": "합격 축하해!"}
+             -> {"label": "축하", "score": 0.95, "inappropriate_score": 0.01, "ms": 45}
+```
 
-| 데이터 | 사용 | 비고 |
-| --- | --- | --- |
-| 시드 문장 (`data/seed_data.csv`) | 8개 라벨 각 20~40문장 | 팀 작성, 실명 없음 (OO 처리) |
-| [Smilegate UnSmile](https://github.com/smilegate-ai/korean_unsmile_dataset) | 부적절 문장 40개 | 학습 시 원본 주소에서 직접 내려받음 (저장소에 재배포하지 않음). 라이선스 확인 중 |
-| AI Hub 감성 대화 말뭉치 | v1부터 사용 예정 | 이용 신청 중 |
-| 베이스 모델 [beomi/KcELECTRA-base-v2022](https://huggingface.co/beomi/KcELECTRA-base-v2022) | 파인튜닝 | |
+빈 문자열은 400이다. 30자를 넘는 입력은 잘라서 분류한다.
 
-## 버전 기록
+## 측정
 
-| 버전 | 학습 데이터 | 상태 |
-| --- | --- | --- |
-| v0 | 시드 300 + UnSmile 40 | 전체 흐름 검증용 (실사용 정확도 낮음) |
-| v1 | + 팀원 문장 라벨당 300, AI Hub | 예정 |
-| v2 | + 베타 기간 실제 멘션 | 예정 |
+Intel MacBook Pro, 2 threads 기준 로딩 1.0초, 문장당 평균 51ms, 최대 131ms다.
+
+## 데이터
+
+- `seed_data.csv`: 팀 작성 문장 300개. 실명은 `OO`로 가렸다.
+- 부적절 문장 40개는 [Smilegate UnSmile](https://github.com/smilegate-ai/korean_unsmile_dataset) train v1.0에서 학습 시점에 직접 받는다. 저장소에 재배포하지 않으며 사용 조건은 확인 중이다.
+- AI Hub 감성 대화 말뭉치는 이용 신청 상태다.
+
+## 한계
+
+v0은 시드 문장만으로 학습한 파이프라인 확인용이다. 안전성 평가셋이 없으므로 학생 공개 운영에 쓰지 않는다.
