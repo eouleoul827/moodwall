@@ -5,6 +5,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -16,6 +17,17 @@ from app.db import Database, db_time
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+@pytest.fixture(scope="session")
+def real_student_analyzer():
+    configured = os.environ.get("MOODWALL_TEST_MODEL_MANIFEST")
+    if not configured:
+        pytest.skip("Set MOODWALL_TEST_MODEL_MANIFEST to an explicitly prepared local v0 bundle")
+    from tools.check_student_model import load_local_analyzer
+
+    analyzer, _path, _manifest = load_local_analyzer(Path(configured))
+    return analyzer
 
 
 @pytest.fixture

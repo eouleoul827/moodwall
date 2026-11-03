@@ -1,9 +1,9 @@
 name: backend
 on:
   push:
-    paths: ["backend/**", "clients/display/**", "docs/openapi.json", "infra/**", "scripts/**", "compose.yaml", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "clients/display/**", "docs/openapi.json", "infra/**", "scripts/**", "compose*.yaml", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["backend/**", "clients/display/**", "docs/openapi.json", "infra/**", "scripts/**", "compose.yaml", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "clients/display/**", "docs/openapi.json", "infra/**", "scripts/**", "compose*.yaml", ".github/workflows/backend.yml"]
 permissions:
   contents: read
 jobs:

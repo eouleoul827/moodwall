@@ -16,4 +16,6 @@ node_modules/
 *.pt
 *.pth
 *.bin
+/models/
+/.local/
 !backend/app/resources/*.json

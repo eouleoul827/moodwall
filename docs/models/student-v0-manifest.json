@@ -1,0 +1,17 @@
+{
+  "artifacts": {
+    "config.json": "9ccce5b4b1bf5deb320bbb4fede704d1190e55df88c9a6436164531a81af9e50",
+    "model.safetensors": "0c45710941f29d873dfb5a521fa49b075e0d16d7db6de8bff999c645a2a77d81",
+    "tokenizer.json": "276f7c6ad3d09d1b34bdc92cf294ab8aea9017387734eae4db4f60419f148a7b",
+    "tokenizer_config.json": "3cfbb173107c0d1668eb08657cddba58563c9daa94f7229006d08c40e5e75bb3"
+  },
+  "inference_policy_version": "student-review-only-v1",
+  "model_bundle_version": "student-emotion-v0-0c45710941f2",
+  "student_model": {
+    "cpu_threads": 2,
+    "kind": "electra-emotion-v0",
+    "max_length": 64,
+    "safety_policy": "review-only",
+    "schema_version": "1"
+  }
+}

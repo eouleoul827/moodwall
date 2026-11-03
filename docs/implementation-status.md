@@ -1,6 +1,6 @@
 # 현재 구현 상태와 남은 수락
 
-기준일: 2026-10-29. 현재 저장소에는 백엔드 애플리케이션 코드가 있다. 이전 설계 문서의 “구현 전” 문구는 작성 당시의 상태이며, 현재 코드·실행 증거는 이 문서와 실제 소스를 확인한다. **설계 가지 102개 전체의 완료·학생 대상 출시 가능·ASVS 전체 준수를 선언하는 문서가 아니다.**
+기준일: 2026-11-03. 현재 저장소에는 백엔드 애플리케이션과 실제 학생 모델 v0의 개발용 연결 코드가 있다. 이전 설계 문서의 “구현 전” 문구는 작성 당시의 상태이며, 현재 코드·실행 증거는 이 문서와 실제 소스를 확인한다. **설계 가지 102개 전체의 완료·학생 대상 출시 가능·ASVS 전체 준수를 선언하는 문서가 아니다.**
 
 ## 구현한 코드
 
@@ -11,6 +11,7 @@
 | 접수·최근 60분 한도 | [제출](../backend/app/submissions.py), [정책](../backend/app/domain.py) | 실제 PostgreSQL 동시성·멱등성·원자적 job 등록 |
 | 규칙 필터·결과 확정 | [필터](../backend/app/profanity.py), [검수](../backend/app/moderation.py) | 운영 사전·근거·모델 판정·제재·기한 경합 |
 | 영속 큐·독립 작업자 | [큐](../backend/app/queue.py), [supervisor](../backend/app/worker.py) | 실제 Linux hang·강제 종료·readiness·다음 작업 복구 |
+| 학생 모델 v0 개발 연결 | [CPU 추론](../backend/inference/student_model.py), [bundle 준비](../backend/tools/prepare_student_model.py), [검증 도구](../backend/tools/check_student_model.py) | 실제 가중치·해시·Linux 큐 소비 확인. 현재 모든 결과는 검토 필요이며, 독립 평가·게시 허용 기준·목표 서버 측정은 남음 |
 | 전광판 상태 | [표시](../backend/app/display.py), SSE 라우터 | 승인 즉시 일반 말풍선·100개 전송 페이지·DB1시간/로컬투명자정·숨김·기기 세대·재접속·실제화면 |
 | 운영 제어 | [운영자](../backend/app/operator.py) | 권한·숨김·서명 커서·제재 복구 재전송·감사 |
 | 최초 실행·DB 변경 | [CLI](../backend/app/cli.py), [migration](../backend/app/migrate.py), [Alembic](../backend/app/migrations) | 빈 DB·재실행·upgrade·DB 역할·초기 중단 |
@@ -22,7 +23,7 @@
 ## 아직 연결·구현·운영 검증이 필요한 것
 
 - 학생 작성·QR 스캔 처리·전광판·운영자 React 화면과 애니메이션. 현재 API 실행은 전광판 웹 화면이 자동으로 생긴다는 뜻이 아니다.
-- 실제 AI 담당의 모듈·가중치·manifest·고정 평가·서버 CPU/RSS 측정. 현재 기본 어댑터는 개발용 fake다.
+- 실제 AI의 독립 평가·게시 허용 기준·목표 서버의 CPU/RSS 측정. 기본 어댑터는 개발용 fake이며, 로컬 학생 모델 v0의 실제 추론·해시 manifest·검토 필요 결과 연결은 추가했다. [모델 연결 현황](student-model-integration.md)
 - 검토·확장한 운영용 금칙 사전과 양성/음성 평가. 시작 사전은 production에서 차단한다.
 - 클라우드 공급자·자원·공개 도메인·DNS·HTTPS·학교망·실제 노트북/패널 지속 시험. 로컬 Compose는 localhost용이다.
 - 운영 로그의 14일 보관·외부 백업·격리 복원 sanitize·복원 훈련. DB 보관 정리와 큐 종료 작업 정리는 구현했지만 실제 운영 스케줄·모니터링·백업은 별도 설정이 필요하다.
@@ -30,7 +31,13 @@
 
 실제 챗봇 UI·모델·외부 프로그램 연동은 첫 범위에서 제외한다. CHATBOT enum·mode API의 렌더 전환 계약은 예약되어 있지만 실제 챗봇이 없다는 이유로 독립 무드월 개발을 기다리지 않는다. 멘션 검수 AI는 별개로 필수 연결 대상이다.
 
-## 최신 변경: 강조·4개 제한 없이 일반 말풍선
+## 최신 변경: 실제 학생 모델 v0 개발 연결
+
+2026-11-03 실제 로컬 가중치를 CPU 추론 어댑터에 연결했다. Linux 모델 이미지·PostgreSQL 16 격리 DB의 백엔드 전체 **348개 통과(225.01초)**를 확인했다. 실제 작업자가 모델을 로드하고 READY를 등록한 뒤 큐의 글을 소비해 `NEEDS_REWRITE`로 저장하고 정상 종료하는 검사도 포함한다. torch가 없는 기본 CI 이미지에서는 새 어댑터·bundle·계약 검사 **99개 통과**를 확인했다. Windows 실모델 포함 검사는 99개 통과·symlink 권한 검사 3개 생략이다. 실행 방법·고정 버전·관찰한 오탐·측정 범위는 [모델 연결 기록](student-model-integration.md)에 있다. 이 수치는 로컬 검증이며 원격 PR의 새 CI 실행 결과가 아니다.
+
+v0는 평가된 허용 경계가 없어 항상 `UNCERTAIN`을 반환하며, production 로딩을 거절한다. React 화면 연결·공개 운영 수락과 구분한다. 아래 10월 29일 수치는 이전 변경의 이력이다.
+
+## 이전 변경: 강조·4개 제한 없이 일반 말풍선
 
 현재 정책은 **승인 즉시 일반 떠다니는 말풍선 → 접수 1시간에 DB 원문 삭제·받은 내용은 투명 말풍선 → 다음 KST 자정 정리**다. 강조 슬롯·남은 강조 시간·승인 표시 대기·DISPLAY_BUSY를 제거했다. OpenAPI 0.7.0은 `bubbles`의 100개 전송 페이지, `snapshotAt`·`bubbleTotalCount`·`nextCursor`, 카드의 `acceptedAt`을 제공한다. 100개는 표시 상한이 아니며 매 동기화에서 첫 페이지부터 끝까지 수집한다. 현재 schema head는 `0005_floating_bubbles`다. [전체 흐름](service-flow.md)을 따른다.
 
@@ -93,4 +100,4 @@ Python 3.12·PostgreSQL 16·Linux Docker에서 실행했다. 예전 설계 명�
 | API 계약·CI 구성 | OpenAPI0.4.0·27개 operationId 및 DB/문서 검사 통과. GitHub Actions workflow는 추가했으며 원격 실행·push는 하지 않음 |
 | 실제 AI·프론트·학교 현장·클라우드 | 미완료, 위 연결·운영 입력 필요 |
 
-현재 변경은 로컬 작업물이며 이 문서 작성이 Git commit·GitHub push·외부 서버 배포를 수행하지는 않는다.
+이 문서는 구현·로컬 검증 기록이다. 최신 업로드와 원격 CI 상태는 저장소의 PR·GitHub Actions에서 확인하며, 저장소 업로드와 외부 서버 배포는 구분한다.

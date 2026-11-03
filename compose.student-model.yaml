@@ -1,0 +1,24 @@
+# Local development only: v0 executes real inference but does not approve posts.
+# Prepare ./models/student-v0 before enabling this optional override.
+services:
+  api:
+    environment:
+      MOODWALL_MODEL_BUNDLE_VERSION: ${STUDENT_MODEL_BUNDLE_VERSION:-student-emotion-v0-0c45710941f2}
+      MOODWALL_INFERENCE_POLICY_VERSION: student-review-only-v1
+  worker:
+    image: moodwall-student-model:local
+    build:
+      context: ./backend
+      target: student-model
+    environment:
+      MOODWALL_ANALYZER: inference.student_model:create_analyzer
+      MOODWALL_MODEL_MANIFEST_PATH: /opt/student-model/manifest.json
+      MOODWALL_MODEL_BUNDLE_VERSION: ${STUDENT_MODEL_BUNDLE_VERSION:-student-emotion-v0-0c45710941f2}
+      MOODWALL_INFERENCE_POLICY_VERSION: student-review-only-v1
+    volumes:
+      - type: bind
+        source: ./models/student-v0
+        target: /opt/student-model
+        read_only: true
+        bind:
+          create_host_path: false

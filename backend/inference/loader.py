@@ -2,11 +2,22 @@
 
 import hashlib
 import importlib
+import inspect
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from inference.contracts import AnalysisInput, AnalysisResult
 from inference.fake import FakeAnalyzer
+
+
+@dataclass(frozen=True)
+class AnalyzerContext:
+    """Verified local bundle and deployment scope passed to opted-in factories."""
+
+    manifest_path: Path
+    manifest: dict
+    environment: str
 
 
 def load_analyzer(settings):
@@ -43,7 +54,11 @@ def load_analyzer(settings):
                 raise ValueError("artifact hash mismatch")
         # Reviewed local plugin modules must not load models at import time.
         # All local artifact checks finish before the configured factory runs.
-        analyzer = factory()
+        if "context" in inspect.signature(factory).parameters:
+            analyzer = factory(context=AnalyzerContext(manifest_path, manifest, settings.environment))
+        else:
+            # Existing reviewed plugins can keep their parameterless factory.
+            analyzer = factory()
     result = AnalysisResult.model_validate(analyzer.analyze(AnalysisInput(text="연결 확인")))
     if (
         result.model_bundle_version != settings.model_bundle_version

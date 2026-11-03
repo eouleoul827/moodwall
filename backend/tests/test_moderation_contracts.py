@@ -120,3 +120,40 @@ def test_real_artifacts_are_verified_before_factory_executes(tmp_path, monkeypat
     with pytest.raises(ValueError, match="hash mismatch"):
         load_analyzer(settings)
     assert len(calls) == 1, "factory ran before the corrupted artifact was rejected"
+
+
+def test_context_factory_receives_the_verified_bundle_and_deployment(tmp_path, monkeypatch):
+    artifact = tmp_path / "model.fixture"
+    artifact.write_bytes(b"synthetic local model")
+    manifest = {
+        "model_bundle_version": "context-v1",
+        "inference_policy_version": "review-only-v1",
+        "artifacts": {artifact.name: hashlib.sha256(artifact.read_bytes()).hexdigest()},
+    }
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    module = types.ModuleType("moodwall_context_plugin")
+    received = []
+
+    def factory(*, context):
+        received.append(context)
+        return FakeAnalyzer(context.manifest["model_bundle_version"], context.manifest["inference_policy_version"])
+
+    module.factory = factory
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    settings = SimpleNamespace(
+        analyzer=module.__name__ + ":factory",
+        environment="test",
+        model_manifest_path=str(manifest_path),
+        model_bundle_version="context-v1",
+        inference_policy_version="review-only-v1",
+    )
+    load_analyzer(settings)
+    assert len(received) == 1
+    assert received[0].manifest_path == manifest_path.resolve()
+    assert received[0].manifest == manifest
+    assert received[0].environment == "test"
+    artifact.write_bytes(b"changed artifact")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        load_analyzer(settings)
+    assert len(received) == 1

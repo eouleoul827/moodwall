@@ -115,7 +115,9 @@ docker run --rm moodwall-backend-tests python -m pytest -q -m "not integration"
 
 AI 담당은 [AI 요청서](../docs/ai-team-request.md)와 [실제 입출력 모델](inference/contracts.py)에 맞는 동기식 `analyze(AnalysisInput) -> AnalysisResult` 객체를 제공한다. 안전성·감정은 구분하며 모델 결과로 학생 제재를 직접 실행하지 않는다. 일반 백엔드는 큐·timeout·게시·제재·저장·배포를 담당한다.
 
-실제 모델 연결 설정의 형태는 다음과 같다. 아래 이름·경로는 예시이고 모델 코드·가중치는 아직 제공된 것이 아니다.
+학생 모델 v0의 실제 CPU 연결 코드와 선택적 Docker 실행 환경을 추가했다. 원본 모델을 보존하는 bundle 준비, 해시 검증, 합성 예시 실행 방법은 [실제 모델 연결·검증 가이드](../docs/student-model-integration.md)를 따른다. v0는 `UNCERTAIN`을 반환하므로 학생에게 `NEEDS_REWRITE`로 보이며 게시 승인과 제재를 만들지 않는다. 기본 fake 실행은 그대로다.
+
+아래는 향후 평가를 마친 모델의 설정 형태를 설명하는 예시다. 이름·경로만 설정해서 모델 파일이나 평가 결과가 생기지는 않는다.
 
 ```dotenv
 MOODWALL_ANALYZER=inference.student_model:create_analyzer
@@ -127,6 +129,8 @@ MOODWALL_LEXICON_VERSION=school-lexicon-v1
 ```
 
 일반 백엔드가 검토한 로컬 모듈의 factory만 설정하며, API 입력으로 모듈·경로·다운로드 URL을 받지 않는다. 모듈은 import할 때 모델을 로드하지 않고 factory에서 로드한다. manifest는 `model_bundle_version`, `inference_policy_version`, `artifacts`에 상대 경로→SHA-256을 담는다. loader는 경로 경계·해시·버전을 검사한 뒤 factory를 호출하고 warmup 결과를 검증한다. 모델과 사전 파일은 worker 이미지 또는 읽기 전용 로컬 마운트에 준비한다. 설정 경로만 바꿔 실제 파일이 생기지는 않는다.
+
+새 factory는 `create_analyzer(*, context)`로 검증된 `AnalyzerContext`를 받을 수 있다. `context`에는 manifest 절대 경로·내용·실행 환경이 들어 있다. 기존 인자 없는 factory도 지원한다. v0는 이 경로로 전달된 bundle만 로드하며 별도 환경변수로 다른 가중치를 선택하지 않는다.
 
 AI 담당은 코드뿐 아니라 의존성·고정 모델 artifact·평가 보고서·CPU 처리 시간과 메모리를 전달한다. 사전은 일반 백엔드가 검토·확장하고 버전·양성/음성 fixture·출처를 함께 관리한다. `starter_only` 표시만 수정하는 것으로 품질 검증을 대체하지 않는다. 실제 학생 공개 전에는 모델 평가·검수 누락·정상 문장 오차단·장애 복구를 확인한다.
 
