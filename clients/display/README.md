@@ -47,7 +47,9 @@ displaySync.resetAuthentication();
 displaySync.disconnect();
 ```
 
-`BubbleCache.synchronize(page, performance.now())`를 직접 호출할 수도 있지만, 반드시 성공적으로 인증된 서버 응답만 넣어야 한다. 저장소의 내용을 먼저 그리지 않는다. `view()`를 주기적으로 호출해 1시간 경계와 자정을 반영한다. 반환형은 `{ visible, bubbles, totalCount }`이며 `bubbles`의 각 항목에는 `phase: "FLOATING" | "AMBIENT"`가 붙는다. `totalCount`는 현재 표시 가능한 당일 로컬 캐시 수이므로 서버의 현재 원문 수 `bubbleTotalCount`와 다를 수 있다.
+`BubbleCache.synchronize(page, receivedAt, requestStartedAt)`를 직접 호출할 수도 있지만, 반드시 성공적으로 인증된 서버 응답만 넣어야 한다. `requestStartedAt`은 요청 직전, `receivedAt`은 응답 JSON을 모두 읽은 직후의 `performance.now()`다. 5초 이상 걸린 응답이나 역전된 시각은 적용하지 않고 화면을 가린다. 기존 두 인자 호출도 지원하지만 요청 소요 시간을 0으로 취급하므로, 호출자가 지연 검사를 끝낸 응답에만 사용한다. 일반 연결에는 요청 시간 측정과 timeout을 포함한 `DisplaySynchronizer`를 사용한다.
+
+저장소의 내용을 먼저 그리지 않는다. `view()`를 주기적으로 호출해 1시간 경계와 자정을 반영한다. 반환형은 `{ visible, bubbles, totalCount }`이며 `bubbles`의 각 항목에는 `phase: "FLOATING" | "AMBIENT"`가 붙는다. `totalCount`는 현재 표시 가능한 당일 로컬 캐시 수이므로 서버의 현재 원문 수 `bubbleTotalCount`와 다를 수 있다.
 
 ## 전체 페이지 동기화
 
@@ -55,9 +57,11 @@ displaySync.disconnect();
 
 `DisplaySynchronizer.synchronize()`가 이 순서를 처리한다. 응답 전체의 `snapshotAt`은 같은 값이어야 하며 각 페이지의 `serverNow`와 `revision`은 최신 값일 수 있다. 다음 페이지 요청이 `422 INVALID_CURSOR`라면 첫 페이지부터 한 번 다시 수집한다. 다른 422 또는 반복된 커서 오류는 호출자에게 전달하고 화면을 가린다. 이미 받은 글은 오류만으로 지우지 않는다.
 
+각 페이지 요청은 JSON 해석까지 5초 미만이어야 한다. 5초 timeout은 `AbortController`로 실제 요청을 중단하고 `DISPLAY_REQUEST_TIMEOUT` 오류를 반환한다. transport가 abort를 무시해도 대기 Promise는 종료되며 늦게 온 결과는 적용하지 않는다. 브라우저 중단으로 timer 실행이 늦어져도 수신 시점의 monotonic 소요 시간을 다시 검사한다. 실패하면 당일 캐시를 보존한 채 화면을 가리고, 재접속 시 첫 페이지부터 다시 동기화한다. 이 동작은 polling 예약 주기인 10초보다 짧으며 QR·SSE 요청의 timeout은 별도 호출자가 관리한다.
+
 동기화가 끝난 뒤 다음 polling을 예약하고, SSE 조회와 polling을 합쳐 불필요하게 중첩하지 않는 편이 좋다. 새 동기화가 시작되면 이전 요청을 abort하고 epoch도 바꾸므로, abort를 무시한 오래된 응답도 적용할 수 없다. 현재 요청의 401/403은 저장 내용을 지우며, 이전 요청의 늦은 401은 새 인증의 화면을 지우지 않는다. 페어링 교체·세션 재검증 시작 때는 `resetAuthentication()`을 호출해야 한다. 이 모듈은 SSE·QR·mode 제어 요청의 수명까지 관리하지 않으므로 프론트가 해당 요청도 같은 인증 경계에서 정리해야 한다.
 
-30초 온라인 lease가 만료되거나 PAUSED/CHATBOT이면 화면 내용을 숨기고 당일 캐시는 유지한다. heartbeat로 lease를 갱신하고 새로 인증한 state를 받아 복원한다. 오프라인 동안 자정이 지나면 재접속 여부와 관계없이 `view()` 호출에서 이전 날짜 내용을 비운다. 서버 시각 + `performance.now()`를 기준으로 경계를 계산하며 늦은 응답 때문에 투명 전환 시계가 뒤로 가지 않는다.
+30초 온라인 lease가 만료되거나 PAUSED/CHATBOT이면 화면 내용을 숨기고 당일 캐시는 유지한다. heartbeat로 lease를 갱신하고 새로 인증한 state를 받아 복원한다. 오프라인 동안 자정이 지나면 재접속 여부와 관계없이 `view()` 호출에서 이전 날짜 내용을 비운다. 서버가 요청 시작 뒤에 `serverNow`를 채집한다는 계약 아래, 수신 시각의 서버 시각 상한을 `serverNow + 전체 요청 소요 시간(RTT)`으로 잡고 이후 `performance.now()`로 경과 시간을 더한다. 네트워크 지연 때문에 lease·1시간·자정 경계가 늦어지는 일을 막는 보수적 정책이다. 응답 생성 뒤의 지연만 따로 알 수 없으므로 최대 해당 RTT만큼, 항상 5초 미만으로 화면 숨김·투명 전환·자정 캐시 정리가 앞당겨질 수 있다. 서버의 DB 보관 기한은 바뀌지 않는다. 기존에 추정한 시각보다 뒤로 가지 않도록 보정도 유지한다.
 
 ## 저장과 제한
 
@@ -75,4 +79,4 @@ Node 24에서 다음 명령으로 실행한다. 외부 패키지는 필요 없�
 node --test clients/display/bubble-cache.test.mjs
 ```
 
-테스트는 5개 동시 승인, 105개 전체 페이지 수신, 모든 캐시 반환, 1시간 투명 전환, 자정 초기화, 인증 후 복원, 숨김·기기 세대, 커서 재시작, 오래된 인증 응답 차단, 저장 실패를 확인한다. 주입한 저장소로 수행하는 Node 테스트이므로 실제 브라우저의 영구 저장·용량·종료/재시작 시험을 대신하지 않는다.
+테스트는 5개 동시 승인, 105개 전체 페이지 수신, 모든 캐시 반환, 1시간 투명 전환, 자정 초기화, 인증 후 복원, 숨김·기기 세대, 커서 재시작, 오래된 인증 응답 차단, 저장 실패를 확인한다. 지연된 첫 응답·재접속의 lease 복구 차단, RTT를 반영한 lease·1시간·자정 경계, timer timeout·실제 abort·abort 무시 후의 늦은 성공/401, 인증 초기화 시 대기 종료도 검사한다. 주입한 저장소·시계·timer로 수행하는 Node 테스트이므로 실제 브라우저의 영구 저장·용량·종료/재시작 시험을 대신하지 않는다.

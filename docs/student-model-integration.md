@@ -14,7 +14,7 @@
 | 추론 | CPU 2스레드, eval, inference_mode, 8개 softmax 확률 검증 |
 | 라이브러리 | Python 3.12, torch 2.14.1+cpu, transformers 5.21.0 |
 | 가중치 SHA-256 | `0c45710941f29d873dfb5a521fa49b075e0d16d7db6de8bff999c645a2a77d81` |
-| bundle 버전 | `student-emotion-v0-0c45710941f2` |
+| 기존 릴리스 bundle 버전 | `student-emotion-v0-0c45710941f2` |
 | 추론 정책 버전 | `student-review-only-v1` |
 
 [모델 의존성](../backend/requirements-model.lock)은 기본 API 이미지와 분리한다. Dockerfile도 의존성 설치를 소스 복사보다 먼저 수행하므로, 코드 수정 때 CPU 라이브러리를 다시 설치하지 않는다. 모델은 worker에서 한 번 로드한다. 별도 AI HTTP 서버나 8000번 포트를 추가하지 않는다. loader가 각 파일의 SHA-256·경로·버전을 확인한 뒤 `create_analyzer(*, context)`를 호출하고 준비 추론을 실행한다. 누락·불일치 가중치를 무작위 초기화로 대신하는 로딩도 거절한다. 선택한 로컬 파일만 읽고 원격 모델 코드나 pickle 가중치를 사용하지 않는다. [Hugging Face 모델 로딩](https://huggingface.co/docs/transformers/main_classes/model)
@@ -46,7 +46,9 @@ $env:HF_HUB_DISABLE_TELEMETRY = '1'
 Pop-Location
 ```
 
-[준비 도구](../backend/tools/prepare_student_model.py)는 원본을 보존하며 4개 파일과 해시 manifest를 새 폴더에 복사한다. 같은 bundle은 재실행할 수 있고, 다른 내용의 기존 폴더는 덮어쓰지 않는다. 해시 검증 대상 폴더에는 추가 설정 파일·보고서·캐시를 넣지 않는다. `models/`와 `.local/`은 Git에서 제외된다. 다른 가중치를 전달받으면 별도 목적지에 준비하고 출력된 버전으로 설정을 맞춘다.
+[준비 도구](../backend/tools/prepare_student_model.py)는 원본을 보존하며 4개 파일과 해시 manifest를 새 폴더에 복사한다. 같은 bundle은 재실행할 수 있고, 다른 내용의 기존 폴더는 덮어쓰지 않는다. 해시 검증 대상 폴더에는 추가 설정 파일·보고서·캐시를 넣지 않는다. `models/`와 `.local/`은 Git에서 제외된다.
+
+새로 준비하는 bundle은 4개 artifact의 이름·SHA-256을 정렬한 JSON 전체로 식별자를 만든다. 가중치가 같아도 토크나이저·설정이 달라지면 `student-emotion-v0-bundle-…` 버전이 바뀐다. `bundle_identity`에 전체 digest와 알고리즘도 기록한다. 이미 배포한 위 릴리스는 원래 ID·manifest·ZIP을 유지하며 로더에서 계속 검증할 수 있다. 준비 도구를 같은 기존 bundle에 재실행해도 검증 후 보존하므로 기존 파일을 다시 쓰지 않는다.
 
 [확인 도구](../backend/tools/check_student_model.py)는 고정 합성 문장 9개와 같은 문장의 준비 후 추론 20회만 사용한다. 출력은 모델·런타임 버전, 파일 해시, 전체 분류 점수, 시간, 계약 검사 결과다. 학생 문장이나 `.env`를 읽지 않는다. 이 보고서는 정확도·안전성 평가 보고서가 아니다.
 
@@ -57,11 +59,16 @@ Pop-Location
 먼저 [백엔드 실행 가이드](../backend/README.md)의 설정 생성·DB migration·운영자 생성 절차를 수행한다. 준비한 bundle이 있는 상태에서 저장소 루트에서 실행한다.
 
 ```powershell
+$env:STUDENT_MODEL_BUNDLE_DIR = './models/student-v0'
+$bundleManifest = Get-Content -LiteralPath "$env:STUDENT_MODEL_BUNDLE_DIR/manifest.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$env:STUDENT_MODEL_BUNDLE_VERSION = $bundleManifest.model_bundle_version
 docker compose -f compose.yaml -f compose.student-model.yaml up --build -d db api worker
 docker compose -f compose.yaml -f compose.student-model.yaml logs --tail 50 worker
 ```
 
-[선택적 Compose 설정](../compose.student-model.yaml)은 worker만 CPU 모델 이미지로 실행하고 bundle을 읽기 전용으로 마운트한다. API·worker의 모델·정책 버전을 함께 맞춰 readiness를 확인한다. 다른 가중치의 bundle을 쓴다면 준비 도구가 출력한 `model_bundle_version`을 `STUDENT_MODEL_BUNDLE_VERSION`에 지정한다. Linux 작업자 warmup 기본 제한은 180초다. 기본 실행으로 돌아갈 때는 두 서비스를 함께 다시 만든다.
+[선택적 Compose 설정](../compose.student-model.yaml)은 worker만 CPU 모델 이미지로 실행하고 bundle을 읽기 전용으로 마운트한다. API·worker의 모델·정책 버전을 함께 맞춰 readiness를 확인한다. 기본값은 기존 릴리스의 `models/student-v0`와 버전이다. 직접 새 bundle을 준비했거나 다른 폴더를 사용한다면 **경로와 manifest의 버전을 둘 다** 지정한다. 경로는 manifest 파일이 들어 있는 bundle 폴더이며, 상대 경로는 저장소 루트 기준이다.
+
+다른 bundle은 위 명령의 `STUDENT_MODEL_BUNDLE_DIR`를 그 폴더로 바꾼 뒤 같은 순서로 manifest를 읽어 실행한다. 버전만 바꾸면 기존 폴더가 선택되므로 readiness 검증이 실패한다. 이 변수는 개발 세션 설정이며 실제 `.env`를 저장소에 넣지 않는다. Linux 작업자 warmup 기본 제한은 180초다. 기본 실행으로 돌아갈 때는 두 서비스를 함께 다시 만든다.
 
 ```powershell
 docker compose up --build -d --force-recreate api worker

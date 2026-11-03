@@ -222,7 +222,7 @@ test("same-millisecond server samples across three pages do not reject the local
     return page([mention({ id: id(n) })], START, { bubbleTotalCount: 3, nextCursor: n === 3 ? null : String(n + 1) });
   } });
   assert.deepEqual(await sync.synchronize(), { completed: true, pages: 3 });
-  assert.equal(cache.view(3).totalCount, 3);
+  assert.equal(cache.view(tick).totalCount, 3);
 });
 
 test("INVALID_CURSOR restarts from the first page once and retains already observed bubbles", async () => {
@@ -322,4 +322,139 @@ test("repeated cursors or changed snapshot boundaries fail closed instead of loo
     await assert.rejects(sync.synchronize(), changed ? /snapshot changed/ : /Repeated display cursor/);
     assert.equal(cache.view(0).visible, false);
   }
+});
+
+test("a delayed first response cannot revive a lease that expired in transit", async () => {
+  const cache = new BubbleCache({ boardId: BOARD });
+  let mono = 0, signal;
+  const sync = new DisplaySynchronizer({ cache, now: () => mono, fetchPage: async options => {
+    signal = options.signal;
+    mono = 60_000;
+    return page([mention()]);
+  } });
+  await assert.rejects(sync.synchronize(), { name: "TimeoutError", code: "DISPLAY_REQUEST_TIMEOUT" });
+  assert.equal(signal.aborted, true);
+  assert.equal(cache.view(mono).visible, false);
+  assert.equal(cache.cards.size, 0);
+});
+
+test("a delayed reconnect hides the view and preserves the previously received day cache", async () => {
+  const storage = new Storage();
+  const cache = new BubbleCache({ boardId: BOARD, storage });
+  cache.synchronize(page([mention()]), 0);
+  cache.disconnect();
+  let mono = 1000;
+  const sync = new DisplaySynchronizer({ cache, now: () => mono, fetchPage: async () => {
+    mono += 60_000;
+    return state(START + 1000, { revision: 2 });
+  } });
+  await assert.rejects(sync.synchronize(), { code: "DISPLAY_REQUEST_TIMEOUT" });
+  assert.equal(cache.view(mono).visible, false);
+  assert.equal(cache.cards.get(ID).content, CONTENT);
+  assert.equal(storage.values.size, 1);
+});
+
+test("an authentication error received after the RTT limit is a timeout rather than a fresh revocation", async () => {
+  const cache = new BubbleCache({ boardId: BOARD });
+  cache.synchronize(page([mention()]), 0);
+  let mono = 0;
+  const sync = new DisplaySynchronizer({ cache, now: () => mono, fetchPage: async () => {
+    mono = 60_000;
+    throw Object.assign(Error("stale auth response"), { status: 401 });
+  } });
+  await assert.rejects(sync.synchronize(), { code: "DISPLAY_REQUEST_TIMEOUT" });
+  assert.equal(cache.cards.size, 1);
+  assert.equal(cache.view(mono).visible, false);
+});
+
+test("request timing bounds a short response latency without extending the lease", async () => {
+  const cache = new BubbleCache({ boardId: BOARD });
+  let mono = 100;
+  const sync = new DisplaySynchronizer({ cache, now: () => mono, fetchPage: async () => {
+    mono += 1000;
+    return page([mention()], START, { onlineLeaseUntil: iso(START + 1500) });
+  } });
+  assert.equal((await sync.synchronize()).completed, true);
+  assert.equal(cache.view(1599).visible, true);
+  assert.equal(cache.view(1600).visible, false);
+});
+
+test("direct synchronization adds the full RTT for one-hour phase and midnight boundaries", () => {
+  const cache = new BubbleCache({ boardId: BOARD });
+  assert.equal(cache.synchronize(page([mention()], START + HOUR - 500), 1000, 0), true);
+  assert.equal(cache.view(1000).bubbles[0].phase, "AMBIENT");
+  assert.equal(cache.view(1000).bubbles[0].content, CONTENT);
+
+  const storage = new Storage();
+  const midnight = new BubbleCache({ boardId: BOARD, storage });
+  assert.equal(midnight.synchronize(page([mention()], MIDNIGHT - 500), 1000, 0), true);
+  assert.equal(midnight.view(1000).visible, false);
+  assert.equal(midnight.cards.size, 0);
+  assert.equal(storage.values.size, 0);
+});
+
+test("direct synchronization rejects invalid or expired timing without deleting day content", () => {
+  for (const startedAt of [NaN, Infinity, 1001, -4000, -59_000]) {
+    const cache = new BubbleCache({ boardId: BOARD });
+    cache.synchronize(page([mention()]), 0);
+    assert.equal(cache.synchronize(state(), 1000, startedAt), false);
+    assert.equal(cache.view(1000).visible, false);
+    assert.equal(cache.cards.size, 1);
+  }
+  const legacy = new BubbleCache({ boardId: BOARD });
+  assert.equal(legacy.synchronize(page([mention()]), 1000), true);
+  assert.equal(legacy.view(1000).bubbles[0].phase, "FLOATING");
+});
+
+test("a real timeout aborts a hanging transport even when it ignores AbortSignal", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const cache = new BubbleCache({ boardId: BOARD });
+  cache.synchronize(page([mention()]), 0);
+  let signal;
+  const sync = new DisplaySynchronizer({ cache, now: () => 0, fetchPage: options => {
+    signal = options.signal;
+    return new Promise(() => {});
+  } });
+  const pending = assert.rejects(sync.synchronize(), { code: "DISPLAY_REQUEST_TIMEOUT" });
+  t.mock.timers.tick(4999);
+  assert.equal(signal.aborted, false);
+  t.mock.timers.tick(1);
+  await pending;
+  assert.equal(signal.aborted, true);
+  assert.equal(signal.reason.name, "TimeoutError");
+  assert.equal(cache.view(0).visible, false);
+  assert.equal(cache.cards.size, 1);
+});
+
+test("timeout settles independently and late old responses cannot change a newer session", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const rejectLate of [false, true]) {
+    const cache = new BubbleCache({ boardId: BOARD });
+    let resolve, reject, calls = 0;
+    const sync = new DisplaySynchronizer({ cache, now: () => 0, fetchPage: () => {
+      calls++;
+      if (calls === 1) return new Promise((done, fail) => { resolve = done; reject = fail; });
+      return Promise.resolve(page([mention({ id: id(2) })]));
+    } });
+    const old = assert.rejects(sync.synchronize(), { code: "DISPLAY_REQUEST_TIMEOUT" });
+    t.mock.timers.tick(5000);
+    await old;
+    sync.resetAuthentication();
+    await sync.synchronize();
+    if (rejectLate) reject(Object.assign(Error("old revoked session"), { status: 401 }));
+    else resolve(page([mention()], START, { revision: 99 }));
+    await Promise.resolve();
+    assert.deepEqual(cache.view(0).bubbles.map(value => value.id), [id(2)]);
+  }
+});
+
+test("authentication reset settles an abort-ignoring request without waiting for its transport", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const cache = new BubbleCache({ boardId: BOARD });
+  const sync = new DisplaySynchronizer({ cache, now: () => 0, fetchPage: () => new Promise(() => {}) });
+  const pending = sync.synchronize();
+  sync.resetAuthentication();
+  assert.deepEqual(await pending, { completed: false, pages: 0 });
+  t.mock.timers.tick(5000);
+  assert.equal(cache.view(0).visible, false);
 });

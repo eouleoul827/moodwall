@@ -17,7 +17,7 @@ services:
       MOODWALL_INFERENCE_POLICY_VERSION: student-review-only-v1
     volumes:
       - type: bind
-        source: ./models/student-v0
+        source: ${STUDENT_MODEL_BUNDLE_DIR:-./models/student-v0}
         target: /opt/student-model
         read_only: true
         bind:

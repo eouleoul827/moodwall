@@ -8,6 +8,7 @@ const DECIMAL = /^(0|[1-9][0-9]{0,18})$/;
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 const KST = 9 * HOUR;
+const REQUEST_TIMEOUT_MS = 5_000;
 
 function timestamp(value) {
   const result = typeof value === "string" ? Date.parse(value) : NaN;
@@ -115,8 +116,13 @@ export class BubbleCache {
     } catch { this.storageAvailable = false; } // Preserve memory when storage is blocked or full.
   }
 
-  synchronize(snapshot, monotonicNow) {
+  synchronize(snapshot, monotonicNow, requestStartedAt = monotonicNow) {
     if (!Number.isFinite(monotonicNow)) throw new TypeError("A monotonic timestamp is required");
+    const roundTrip = Number.isFinite(requestStartedAt) ? monotonicNow - requestStartedAt : NaN;
+    if (!Number.isFinite(roundTrip) || roundTrip < 0 || roundTrip >= REQUEST_TIMEOUT_MS) {
+      this.disconnect();
+      return false;
+    }
     let next, incoming;
     try {
       next = context(snapshot, this.boardId);
@@ -143,6 +149,10 @@ export class BubbleCache {
       else this.#removeStored();
     }
     this.sampledNow = next.now;
+    // The server sampled time after the request started. Adding the whole RTT
+    // is a conservative upper bound at receipt, so transport latency cannot
+    // extend a lease, the one-hour phase or the previous KST day.
+    next.now += roundTrip;
     // A delayed response must never rewind the transparent transition or midnight.
     if (this.scope && next.businessDate === this.scope.businessDate &&
         next.deviceGeneration === this.scope.deviceGeneration) {
@@ -222,6 +232,44 @@ export class DisplaySynchronizer {
   resetAuthentication() { this.#invalidate(); this.cache.clear(); }
   disconnect() { this.#invalidate(); this.cache.disconnect(); }
 
+  async #fetchPage(cursor, controller) {
+    const startedAt = this.now();
+    if (!Number.isFinite(startedAt)) throw new TypeError("Invalid display request timing");
+    const timeout = Object.assign(new Error("Display request exceeded 5000ms"), {
+      name: "TimeoutError", code: "DISPLAY_REQUEST_TIMEOUT",
+    });
+    let timer, onAbort;
+    const cancelled = new Promise((_, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      timer = setTimeout(() => controller.abort(timeout), REQUEST_TIMEOUT_MS);
+    });
+    try {
+      // Keep the transport call synchronous for callers, but capture synchronous
+      // throws before racing it against cancellation.
+      const request = new Promise(resolve => resolve(this.fetchPage({ cursor, signal: controller.signal })));
+      let page, transportError, failed = false;
+      try { page = await Promise.race([request, cancelled]); }
+      catch (error) { transportError = error; failed = true; }
+      if (controller.signal.aborted) throw controller.signal.reason;
+      const receivedAt = this.now();
+      if (!Number.isFinite(startedAt) || !Number.isFinite(receivedAt) || receivedAt < startedAt) {
+        throw new TypeError("Invalid display request timing");
+      }
+      // Also check elapsed time when the browser was suspended and its timer
+      // callback has not run yet. An abort-ignoring transport cannot rejoin.
+      if (receivedAt - startedAt >= REQUEST_TIMEOUT_MS) {
+        controller.abort(timeout);
+        throw timeout;
+      }
+      if (failed) throw transportError;
+      return { page, startedAt, receivedAt };
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", onAbort);
+    }
+  }
+
   async synchronize() {
     this.#invalidate();
     const epoch = this.epoch;
@@ -232,10 +280,10 @@ export class DisplaySynchronizer {
     const seen = new Set();
     try {
       while (pages < 10_000) {
-        let page;
-        try { page = await this.fetchPage({ cursor, signal: controller.signal }); }
+        let sample;
+        try { sample = await this.#fetchPage(cursor, controller); }
         catch (error) {
-          if (!current()) return { completed: false, pages };
+          if (epoch !== this.epoch) return { completed: false, pages };
           if (cursor !== null && !restarted && error?.status === 422 && error?.code === "INVALID_CURSOR") {
             cursor = null;
             snapshotAt = null;
@@ -246,10 +294,11 @@ export class DisplaySynchronizer {
           throw error;
         }
         if (!current()) return { completed: false, pages };
+        const { page, startedAt, receivedAt } = sample;
         if (snapshotAt !== null && page?.snapshotAt !== snapshotAt) {
           throw new TypeError("Display page snapshot changed during pagination");
         }
-        if (!this.cache.synchronize(page, this.now())) {
+        if (!this.cache.synchronize(page, receivedAt, startedAt)) {
           throw new TypeError("Invalid or stale display page");
         }
         pages++;
@@ -261,7 +310,7 @@ export class DisplaySynchronizer {
       }
       throw new TypeError("Display page limit exceeded");
     } catch (error) {
-      if (!current()) return { completed: false, pages };
+      if (epoch !== this.epoch) return { completed: false, pages };
       if (error?.status === 401 || error?.status === 403) this.resetAuthentication();
       else this.cache.disconnect();
       throw error;

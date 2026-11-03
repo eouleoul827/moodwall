@@ -117,10 +117,10 @@ AI 담당은 [AI 요청서](../docs/ai-team-request.md)와 [실제 입출력 모
 
 학생 모델 v0의 실제 CPU 연결 코드와 선택적 Docker 실행 환경을 추가했다. 원본 모델을 보존하는 bundle 준비, 해시 검증, 합성 예시 실행 방법은 [실제 모델 연결·검증 가이드](../docs/student-model-integration.md)를 따른다. v0는 `UNCERTAIN`을 반환하므로 학생에게 `NEEDS_REWRITE`로 보이며 게시 승인과 제재를 만들지 않는다. 기본 fake 실행은 그대로다.
 
-아래는 향후 평가를 마친 모델의 설정 형태를 설명하는 예시다. 이름·경로만 설정해서 모델 파일이나 평가 결과가 생기지는 않는다.
+아래는 향후 평가를 마친 모델의 설정 형태를 설명하는 예시다. `inference.school_model`은 아직 구현되지 않은 예시 이름이며, AI 담당이 평가된 정책을 가진 별도 어댑터를 제공해야 한다. 현재 `inference.student_model`은 개발·검토 전용이라 이름·버전만 바꿔 운영용으로 전환할 수 없다. 로컬 v0 실행에는 위 모델 연결 가이드의 Compose 설정을 사용한다.
 
 ```dotenv
-MOODWALL_ANALYZER=inference.student_model:create_analyzer
+MOODWALL_ANALYZER=inference.school_model:create_analyzer
 MOODWALL_MODEL_MANIFEST_PATH=/srv/models/student-v1/manifest.json
 MOODWALL_MODEL_BUNDLE_VERSION=student-v1
 MOODWALL_INFERENCE_POLICY_VERSION=inference-v1

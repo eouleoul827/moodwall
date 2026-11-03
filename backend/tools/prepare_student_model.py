@@ -85,13 +85,22 @@ def _stream(path: Path, writer: BinaryIO | None = None) -> str:
     return digest.hexdigest()
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise PreparationError("Configuration JSON must not contain duplicate fields")
+        document[key] = value
+    return document
+
+
 def _read_json(path: Path) -> dict:
     _regular_file(path)
     with path.open("rb") as reader:
         payload = reader.read(JSON_LIMIT + 1)
     if len(payload) > JSON_LIMIT:
         raise PreparationError("Configuration JSON exceeds the supported size")
-    document = json.loads(payload)
+    document = json.loads(payload, object_pairs_hook=_unique_json_object)
     if not isinstance(document, dict):
         raise PreparationError("Configuration JSON must be an object")
     return document
@@ -105,11 +114,18 @@ def _validate_config(directory: Path) -> None:
         raise PreparationError("Checkpoint labels must match the student eight-class order")
 
 
-def _manifest(hashes: dict[str, str]) -> dict:
+def _canonical_json(document: dict) -> bytes:
+    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode(
+        "ascii"
+    )
+
+
+def _legacy_manifest(hashes: dict[str, str]) -> dict:
+    """The exact pre-bundle-digest shape, accepted only for existing folders."""
     return {
         "model_bundle_version": "student-emotion-v0-" + hashes["model.safetensors"][:12],
         "inference_policy_version": "student-review-only-v1",
-        "artifacts": hashes,
+        "artifacts": dict(hashes),
         "student_model": {
             "schema_version": "1",
             "kind": "electra-emotion-v0",
@@ -120,18 +136,46 @@ def _manifest(hashes: dict[str, str]) -> dict:
     }
 
 
-def _identical(destination: Path, manifest: dict) -> bool:
+def _manifest(hashes: dict[str, str]) -> dict:
+    if hashes.keys() != set(ARTIFACTS) or any(
+        not isinstance(value, str) or len(value) != 64 or any(char not in "0123456789abcdef" for char in value)
+        for value in hashes.values()
+    ):
+        raise PreparationError("Bundle identity requires SHA-256 hashes of exactly the four supported artifacts")
+    # The tokenizer and its configuration change inference even when weight
+    # bytes do not. Every artifact participates in the deployment identity.
+    digest = hashlib.sha256(_canonical_json(hashes)).hexdigest()
+    manifest = _legacy_manifest(hashes)
+    manifest["model_bundle_version"] = "student-emotion-v0-bundle-" + digest[:16]
+    manifest["bundle_identity"] = {
+        "schema_version": "1",
+        "algorithm": "sha256",
+        "canonicalization": "sorted-artifact-sha256-json-v1",
+        "digest": digest,
+    }
+    return manifest
+
+
+def _existing_identical_manifest(destination: Path, manifest: dict) -> dict | None:
     _no_links(destination)
     if not destination.is_dir():
-        return False
+        return None
     if {entry.name for entry in destination.iterdir()} != {*ARTIFACTS, "manifest.json"}:
-        return False
+        return None
     try:
-        if _read_json(destination / "manifest.json") != manifest:
-            return False
-        return all(_stream(destination / name) == manifest["artifacts"][name] for name in ARTIFACTS)
+        existing = _read_json(destination / "manifest.json")
+        # Canonical JSON equality also distinguishes 2.0/2 and true/1. Only
+        # exact known metadata is compatible; unknown or edited fields fail.
+        if _canonical_json(existing) not in (
+            _canonical_json(manifest),
+            _canonical_json(_legacy_manifest(manifest["artifacts"])),
+        ):
+            return None
+        if not all(_stream(destination / name) == manifest["artifacts"][name] for name in ARTIFACTS):
+            return None
+        return existing
     except (OSError, ValueError):
-        return False
+        return None
 
 
 def _publish(staging: Path, destination: Path) -> None:
@@ -160,9 +204,10 @@ def prepare_bundle(source: Path, destination: Path) -> dict[str, str]:
     _validate_config(source)
     if destination.exists():
         manifest = _manifest({name: _stream(source / name) for name in ARTIFACTS})
-        if not _identical(destination, manifest):
+        existing = _existing_identical_manifest(destination, manifest)
+        if existing is None:
             raise PreparationError("Destination already exists and is not an identical bundle; overwrite is refused")
-        return _result(destination, manifest)
+        return _result(destination, existing)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     _no_links(destination.parent)
@@ -185,8 +230,10 @@ def prepare_bundle(source: Path, destination: Path) -> dict[str, str]:
         try:
             _publish(staging, destination)
         except OSError as error:
-            if error.errno in (errno.EEXIST, errno.ENOTEMPTY) and _identical(destination, manifest):
-                return _result(destination, manifest)
+            if error.errno in (errno.EEXIST, errno.ENOTEMPTY):
+                existing = _existing_identical_manifest(destination, manifest)
+                if existing is not None:
+                    return _result(destination, existing)
             raise
         return _result(destination, manifest)
     finally:
