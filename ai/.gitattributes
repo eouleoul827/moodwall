@@ -1,0 +1,2 @@
+data/seed_data.csv -text
+train/moodwall_train_v0.ipynb text eol=lf

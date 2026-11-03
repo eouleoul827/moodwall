@@ -1,6 +1,0 @@
-# Windows/Linux CPU runtime. Intel macOS: see README.
---extra-index-url https://download.pytorch.org/whl/cpu
-fastapi
-uvicorn
-transformers
-torch
