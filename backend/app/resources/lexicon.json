@@ -1,0 +1,44 @@
+{
+  "lexicon_version": "lexicon-v1",
+  "normalization_version": "modern-hangul-jamo-v1",
+  "starter_only": true,
+  "provenance": "Team-authored synthetic starter rules; review and expand before student production use.",
+  "rules": [
+    {
+      "rule_id": "ko-explicit-001",
+      "key": [
+        "ㅆ",
+        "ㅣ",
+        "ㅂ",
+        "ㅏ",
+        "ㄹ"
+      ],
+      "scope": "EXACT_TOKEN",
+      "separator_after_keys": [
+        1
+      ],
+      "optional_insert_after": {
+        "key_index": 1,
+        "token": "ㅣ",
+        "max": 1
+      },
+      "evidence": "CONFIRMED"
+    },
+    {
+      "rule_id": "ko-explicit-002",
+      "key": [
+        "ㅅ",
+        "ㅣ",
+        "ㅂ",
+        "ㅏ",
+        "ㄹ"
+      ],
+      "scope": "EXACT_TOKEN",
+      "separator_after_keys": [
+        1
+      ],
+      "evidence": "CONFIRMED"
+    }
+  ],
+  "sha256": "c7ce3259887b0c262e02f12750d5640efbb512061ccc730db99ad8d7b6f99ee1"
+}

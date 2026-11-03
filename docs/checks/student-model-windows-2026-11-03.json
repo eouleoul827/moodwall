@@ -1,0 +1,262 @@
+{
+  "report_schema_version": "1",
+  "started_at": "2026-11-03T06:30:52.443489+00:00",
+  "purpose": "Local execution, contract check and synthetic timing only",
+  "safety_policy": "review-only",
+  "public_display_authorized": false,
+  "model_bundle_version": "student-emotion-v0-0c45710941f2",
+  "inference_policy_version": "student-review-only-v1",
+  "manifest_sha256": "d9e38f51f980b0e89e00b5446f7ebfdd5ea4f1f86a84fecd8d9de515539b81f8",
+  "verified_artifacts": {
+    "config.json": {
+      "sha256": "9ccce5b4b1bf5deb320bbb4fede704d1190e55df88c9a6436164531a81af9e50",
+      "size_bytes": 1362
+    },
+    "model.safetensors": {
+      "sha256": "0c45710941f29d873dfb5a521fa49b075e0d16d7db6de8bff999c645a2a77d81",
+      "size_bytes": 511155824
+    },
+    "tokenizer.json": {
+      "sha256": "276f7c6ad3d09d1b34bdc92cf294ab8aea9017387734eae4db4f60419f148a7b",
+      "size_bytes": 1310689
+    },
+    "tokenizer_config.json": {
+      "sha256": "3cfbb173107c0d1668eb08657cddba58563c9daa94f7229006d08c40e5e75bb3",
+      "size_bytes": 404
+    }
+  },
+  "runtime": {
+    "python": "3.12.5",
+    "torch": "2.14.1+cpu",
+    "transformers": "5.21.0",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 12, GenuineIntel",
+    "logical_cpus": 8,
+    "cpu_threads": 2,
+    "device": "cpu",
+    "max_length": 64
+  },
+  "load_hash_verification_and_warmup_ms": 62399.516600000425,
+  "examples": [
+    {
+      "case": "celebration",
+      "synthetic_text": "합격 진심으로 축하해!",
+      "grapheme_count": 12,
+      "codepoint_count": 12,
+      "input_sha256": "ba9725eedc12d0a8df880343818817e97b07804d0ebd73b886a05386be098652",
+      "elapsed_ms": 209.6503999982815,
+      "label": "축하",
+      "emotion_mapping": "CELEBRATION",
+      "uncalibrated_top_score": 0.9738602042198181,
+      "uncalibrated_inappropriate_score": 0.005325626581907272,
+      "probabilities_by_label": {
+        "축하": 0.9738602042198181,
+        "기쁨": 0.002982018981128931,
+        "응원": 0.004988995846360922,
+        "설렘": 0.0020320801995694637,
+        "피곤": 0.002582929562777281,
+        "슬픔": 0.0059627327136695385,
+        "화남": 0.0022652926854789257,
+        "부적절": 0.005325626581907272
+      }
+    },
+    {
+      "case": "joy",
+      "synthetic_text": "오늘 점심이 맛있어서 행복해",
+      "grapheme_count": 15,
+      "codepoint_count": 15,
+      "input_sha256": "455560b7697233dda63ac0ea5c8b73d88b14cf5a038c323baaaa7dc32f25c6bf",
+      "elapsed_ms": 164.74579999885464,
+      "label": "기쁨",
+      "emotion_mapping": "JOY",
+      "uncalibrated_top_score": 0.963580846786499,
+      "uncalibrated_inappropriate_score": 0.0007477684412151575,
+      "probabilities_by_label": {
+        "축하": 0.0020920445676892996,
+        "기쁨": 0.963580846786499,
+        "응원": 0.0030721400398761034,
+        "설렘": 0.005815548822283745,
+        "피곤": 0.0026103940326720476,
+        "슬픔": 0.018539628013968468,
+        "화남": 0.0035415547899901867,
+        "부적절": 0.0007477684412151575
+      }
+    },
+    {
+      "case": "support",
+      "synthetic_text": "발표 잘할 수 있어 힘내!",
+      "grapheme_count": 14,
+      "codepoint_count": 14,
+      "input_sha256": "7b762df2103c60541319361de41e90ca7df21f9da1d6c7662c44256a2e804bb6",
+      "elapsed_ms": 200.61949999944773,
+      "label": "응원",
+      "emotion_mapping": "SUPPORT",
+      "uncalibrated_top_score": 0.967191755771637,
+      "uncalibrated_inappropriate_score": 0.004191732034087181,
+      "probabilities_by_label": {
+        "축하": 0.0112793929874897,
+        "기쁨": 0.003309639636427164,
+        "응원": 0.967191755771637,
+        "설렘": 0.0056274146772921085,
+        "피곤": 0.0022756813559681177,
+        "슬픔": 0.002945506479591131,
+        "화남": 0.003178831422701478,
+        "부적절": 0.004191732034087181
+      }
+    },
+    {
+      "case": "excitement",
+      "synthetic_text": "내일 축제가 너무 기대돼",
+      "grapheme_count": 13,
+      "codepoint_count": 13,
+      "input_sha256": "6929538f348b30fdfb9f828d54912956b64f59d4ef304d0e2ffd11008a28f41a",
+      "elapsed_ms": 185.29359999956796,
+      "label": "설렘",
+      "emotion_mapping": "EXCITEMENT",
+      "uncalibrated_top_score": 0.9563430547714233,
+      "uncalibrated_inappropriate_score": 0.007845280691981316,
+      "probabilities_by_label": {
+        "축하": 0.0031781112775206566,
+        "기쁨": 0.006496022455394268,
+        "응원": 0.006328182760626078,
+        "설렘": 0.9563430547714233,
+        "피곤": 0.003984840586781502,
+        "슬픔": 0.011408242397010326,
+        "화남": 0.004416338633745909,
+        "부적절": 0.007845280691981316
+      }
+    },
+    {
+      "case": "tired",
+      "synthetic_text": "과제가 많아서 너무 피곤해",
+      "grapheme_count": 14,
+      "codepoint_count": 14,
+      "input_sha256": "616ce5b7c5945a71c27487b67fe889ea750217132602557c52b1880a2eb4fbbd",
+      "elapsed_ms": 205.65689999966708,
+      "label": "피곤",
+      "emotion_mapping": "TIRED",
+      "uncalibrated_top_score": 0.9400959610939026,
+      "uncalibrated_inappropriate_score": 0.008393347263336182,
+      "probabilities_by_label": {
+        "축하": 0.004033446311950684,
+        "기쁨": 0.004481449257582426,
+        "응원": 0.0036395376082509756,
+        "설렘": 0.0033965674228966236,
+        "피곤": 0.9400959610939026,
+        "슬픔": 0.022528963163495064,
+        "화남": 0.013430744409561157,
+        "부적절": 0.008393347263336182
+      }
+    },
+    {
+      "case": "sadness",
+      "synthetic_text": "친구랑 못 만나서 슬퍼",
+      "grapheme_count": 12,
+      "codepoint_count": 12,
+      "input_sha256": "74f8ab8c8db20da109e91eed8e7a30609125e2924b9c368ddd6985b43a266632",
+      "elapsed_ms": 192.55799999882584,
+      "label": "슬픔",
+      "emotion_mapping": "SADNESS",
+      "uncalibrated_top_score": 0.9416114091873169,
+      "uncalibrated_inappropriate_score": 0.0009420302812941372,
+      "probabilities_by_label": {
+        "축하": 0.007017827592790127,
+        "기쁨": 0.01777283474802971,
+        "응원": 0.004234908148646355,
+        "설렘": 0.00999117735773325,
+        "피곤": 0.014659407548606396,
+        "슬픔": 0.9416114091873169,
+        "화남": 0.00377040752209723,
+        "부적절": 0.0009420302812941372
+      }
+    },
+    {
+      "case": "anger",
+      "synthetic_text": "버스 놓쳐서 정말 화나네",
+      "grapheme_count": 13,
+      "codepoint_count": 13,
+      "input_sha256": "4d187b6cc83bfd59a09a8bccce6cb4795de740a7def36f685e825cf7264f12d5",
+      "elapsed_ms": 168.5780000007071,
+      "label": "화남",
+      "emotion_mapping": "ANGER",
+      "uncalibrated_top_score": 0.9616820216178894,
+      "uncalibrated_inappropriate_score": 0.0075333015993237495,
+      "probabilities_by_label": {
+        "축하": 0.0023047549184411764,
+        "기쁨": 0.007938100025057793,
+        "응원": 0.00475503783673048,
+        "설렘": 0.004410456866025925,
+        "피곤": 0.00669244397431612,
+        "슬픔": 0.004683829843997955,
+        "화남": 0.9616820216178894,
+        "부적절": 0.0075333015993237495
+      }
+    },
+    {
+      "case": "safety_review",
+      "synthetic_text": "OO야 너는 여기서 빠져",
+      "grapheme_count": 13,
+      "codepoint_count": 13,
+      "input_sha256": "545dcd332e157f73956e081c3f582948ef031eea2c5b187dd10b903c821dcac4",
+      "elapsed_ms": 166.9997000008152,
+      "label": "부적절",
+      "emotion_mapping": null,
+      "uncalibrated_top_score": 0.9768153429031372,
+      "uncalibrated_inappropriate_score": 0.9768153429031372,
+      "probabilities_by_label": {
+        "축하": 0.0053855907171964645,
+        "기쁨": 0.0008627959759905934,
+        "응원": 0.004781775642186403,
+        "설렘": 0.004830893594771624,
+        "피곤": 0.0032690877560526133,
+        "슬픔": 0.0011868085712194443,
+        "화남": 0.0028676455840468407,
+        "부적절": 0.9768153429031372
+      }
+    },
+    {
+      "case": "unicode_30_graphemes",
+      "synthetic_text": " 기분좋아👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦 ",
+      "grapheme_count": 30,
+      "codepoint_count": 174,
+      "input_sha256": "fb4fd5cae100afdece3c82602e98631cb819949d2b3964de13828a6113d464d3",
+      "elapsed_ms": 362.8078999990976,
+      "label": "부적절",
+      "emotion_mapping": null,
+      "uncalibrated_top_score": 0.928037166595459,
+      "uncalibrated_inappropriate_score": 0.928037166595459,
+      "probabilities_by_label": {
+        "축하": 0.015311290509998798,
+        "기쁨": 0.003323072101920843,
+        "응원": 0.009255983866751194,
+        "설렘": 0.008784928359091282,
+        "피곤": 0.018250571563839912,
+        "슬픔": 0.004985473584383726,
+        "화남": 0.012051432393491268,
+        "부적절": 0.928037166595459
+      }
+    }
+  ],
+  "contract_check": {
+    "verdict": "UNCERTAIN",
+    "reason_codes": [
+      "INSUFFICIENT_CONTEXT"
+    ],
+    "emotion": null
+  },
+  "benchmark": {
+    "case": "celebration",
+    "scope": "Twenty sequential warm predictions of one fixed synthetic sentence",
+    "samples": 20,
+    "p50_ms": 155.71140000065498,
+    "p95_ms": 234.49840000102995,
+    "max_ms": 248.37470000056783,
+    "p95_method": "nearest rank"
+  },
+  "limitations": [
+    "Scenario names describe synthetic inputs and are not verified ground-truth labels.",
+    "Softmax outputs are uncalibrated; no safety threshold is selected by this check.",
+    "No accuracy, harmful-content recall, false-blocking rate or deployment safety is evaluated.",
+    "Timing applies to this machine and these inputs; it is not a service-level load test."
+  ]
+}
