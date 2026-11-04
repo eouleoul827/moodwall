@@ -104,6 +104,7 @@ async def settle_board(conn, board: dict[str, Any], now: datetime) -> bool:
         """WITH candidates AS (
                SELECT id FROM submissions WHERE board_id=%s
                AND display_status='FLOATING'
+               AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=submissions.id)
                AND (business_date<%s OR accepted_at<=%s)
                ORDER BY accepted_at,id LIMIT 100 FOR UPDATE
            ) UPDATE submissions s SET display_status='EXPIRED'
@@ -162,6 +163,7 @@ class DisplayService:
             "finalized_at<=%s",
             "moderation_status='APPROVED'",
             "display_status='FLOATING'",
+            "NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=submissions.id)",
             "NOT EXISTS (SELECT 1 FROM operator_audit_logs a WHERE a.board_id=submissions.board_id "
             "AND a.target_id=submissions.id AND a.action='HIDE_SUBMISSION' "
             "AND a.occurred_at>=%s AND a.occurred_at<%s)",
@@ -280,6 +282,12 @@ class DisplayService:
             await conn.execute(
                 "UPDATE board_runtime SET mode=%s,state_version=state_version+1 WHERE id=%s", (mode, board["id"])
             )
+            board["mode"] = mode
+            # Preserve even a rapid CHATBOT -> MOODWALL transition as an
+            # interruption, using the same board lock as the mode update.
+            from app.playback import PlaybackService
+
+            await PlaybackService(self.db, self.settings, None).settle_mode_change(conn, board, now)
         return await self.state(actor)
 
     async def reconcile(self) -> int:

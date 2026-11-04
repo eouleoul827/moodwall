@@ -1,6 +1,50 @@
-# 전광판의 당일 말풍선 캐시
+# 전광판 재생과 당일 말풍선 캐시
 
-`bubble-cache.mjs`는 React와 독립된 상태·페이지 동기화 모듈이다. 실제 React 화면, 로그인·페어링 화면, SSE 연결, heartbeat와 애니메이션 렌더러는 프론트 담당이 연결해야 한다.
+**현재 v2 연결 모듈:** `playback-controller.mjs`, `playback-bubble-cache.mjs`, `playback-browser.mjs`를 새 API 0.8.0과 함께 사용한다. [로컬 구현 가이드](../../docs/playback-local-implementation.md)와 [15초 재생 설계](../../docs/playback-design.md)를 따른다. 아래 별도 v1 설명의 `bubble-cache.mjs`는 이전 호환 모듈이다.
+
+## v2 React 연결
+
+```js
+import { createMoodwallDisplayRuntime } from "./playback-browser.mjs";
+
+const runtime = createMoodwallDisplayRuntime({
+  boardId, // 현재 인증한 전광판 UUID
+  csrfToken: () => currentDisplayCsrfToken,
+  renderer: {
+    async prepare(item, { signal }) {
+      await document.fonts.ready;
+      await prepareTheme(item.sceneId, item.sceneVersion, { signal });
+    },
+    show(item) { drawSceneAndText(item); },
+    hide() { clearFullscreenScene(); },
+  },
+  renderBubbles(view) { drawFloatingBubbles(view); },
+  onProblem(error) { showOperatorConnectionNotice(error.code); },
+});
+runtime.start();
+// SSE state.changed를 받으면 runtime.refresh() 호출.
+// 컴포넌트 종료 시 runtime.stop(). 재페어링/인증 해지 시 resetAuthentication().
+```
+
+위의 함수는 렌더러를 설명하는 예시다. 실제 [React 전광판](../../frontend/src/display/DisplayApp.jsx)은 글꼴 준비·동기 DOM 반영·배경 효과·말풍선을 연결했다. `show()`는 실제 DOM 반영을 끝낸 뒤 반환해야 한다. React 상태 갱신 예약만 하고 반환하면 첫 프레임 기준이 맞지 않을 수 있다. 본문은 React 텍스트 노드나 `textContent`로 넣고 HTML로 해석하지 않는다. 자산 준비가 abort되면 렌더러도 중단해야 한다.
+
+컨트롤러는 탭마다 새 UUID를 만들고 heartbeat·claim·start·첫 프레임·15초·complete를 연결한다. 준비가 끝나고 첫 프레임을 표시한 뒤 monotonic 시계로 15초를 센다. 완료 결과가 불명확하면 같은 명령 키·본문으로 재전송하고 다음 글을 먼저 재생하지 않는다. 새 글 수신은 현재 글의 15초를 줄이지 않는다.
+
+서버의 첫 프레임 보고 시각부터도 15초가 지나야 완료할 수 있으므로 네트워크 지연만큼 실제 노출이 조금 길어질 수 있다. 정확히 15.000초 또는 실제 HDMI 출력의 확인을 보장하지 않는다. 탭 가려짐·프레임 중단·숨김·모드 변경·인증 만료는 안전하게 중단한다. 45초 시도 watchdog과 한 번의 재생 복구는 서버가 관리한다.
+
+v2 캐시는 첫 시작 승인부터 1시간인 `contentDeleteAt` 뒤에 내용이 같은 AMBIENT 말풍선으로 바꾼다. `renderBubbles`는 `view.visible`과 각 말풍선의 `phase`를 적용한다. 새 기기·자정·기기 세대·명시적 숨김은 캐시를 지우며 빈 서버 목록만으로 지우지 않는다. v2 저장소는 v1과 분리되어 기존 내용을 가져오지 않는다. 재생 소유권이 없는 두 번째 탭을 전광판으로 쓰지 않는다.
+
+현재 factory는 완료 말풍선 페이지를 5초 간격으로 수집하고, 재생 중 상태를 확인하며, idle에서도 heartbeat를 보낸다. 자체 UI·QR 이미지·SSE 연결·페어링 화면·배경 아트는 포함하지 않는다.
+
+```sh
+node --test clients/display/bubble-cache.test.mjs clients/display/playback-controller.test.mjs clients/display/playback-bubble-cache.test.mjs clients/student/submission-client.test.mjs
+```
+
+## v1 호환 모듈
+
+이 아래는 이전 API와 `bubble-cache.mjs`의 동작이다. 새 v2 흐름에 타이머만 붙여 섞지 않는다.
+
+`bubble-cache.mjs`는 이전 v1의 React 독립 상태·페이지 동기화 모듈이다. 새 [React 화면](../../frontend/README.md)은 위 v2 모듈로 페어링·SSE·heartbeat·렌더러를 연결한다. 아래 설명과 예시는 v1 호환 경로에 적용한다.
 
 승인된 글은 처음부터 일반 말풍선으로 떠다닌다. 강조 단계, 4개 슬롯, 표시 차례 대기는 없다.
 

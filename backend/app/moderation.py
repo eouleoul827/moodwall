@@ -90,6 +90,14 @@ class ModerationService:
                 }
 
     async def finalize(self, claim: dict, outcome) -> None:
+        await self._finalize(claim, outcome)
+        # Publish in a separate board-owned transaction, after participant locks
+        # have been released. Reconciliation repairs a crash before this hook.
+        from app.playback import PlaybackService
+
+        await PlaybackService(self.db, self.settings, None, None).sync_submission(claim["id"])
+
+    async def _finalize(self, claim: dict, outcome) -> None:
         async with self.db.connection() as conn:
             async with conn.transaction():
                 row, usage = await self._lock(conn, claim["id"])
@@ -152,6 +160,7 @@ class ModerationService:
                     await self._terminal(conn, row, now, "FAILED", "INVALID_MODEL_OUTPUT")
                     return
                 allowed = result.safety.verdict == "ALLOW"
+                receipt = await one(conn, "SELECT id FROM submission_receipts WHERE id=%s", (row["id"],))
                 await conn.execute(
                     """UPDATE submissions SET moderation_status=%s,finalized_at=%s,
                     processing_run_token=NULL,processing_started_at=NULL,processing_lease_until=NULL,
@@ -166,7 +175,7 @@ class ModerationService:
                         result.inference_policy_version,
                         result.emotion.label if result.emotion else None,
                         result.emotion.source if result.emotion else None,
-                        "FLOATING" if allowed else "NONE",
+                        ("QUEUED" if receipt else "FLOATING") if allowed else "NONE",
                         row["id"],
                     ),
                 )

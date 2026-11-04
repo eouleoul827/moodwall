@@ -20,7 +20,7 @@ from inference.fake import FakeAnalyzer
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "app" / "resources" / "openapi.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-CONTRACT_SHA256 = "0418df0d0188f8879558a59c2fbb4fa96f2db9e7f380276bccd02894454f93d6"
+CONTRACT_SHA256 = "47af9f3e3710f152e24a3bba0a98fcee8c97f47c3125e19156ab3db8a6de721c"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 PRIVATE_FIELDS = {
     "participantId",
@@ -88,11 +88,11 @@ def test_packaged_contract_matches_pinned_and_repository_copy():
         for method, entry in path.items()
         if method in METHODS
     ]
-    assert len(operations) == len(set(operations)) == 27
+    assert len(operations) == len(set(operations)) == 37
 
 
 def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
-    assert CONTRACT["info"]["version"] == "0.7.0"
+    assert CONTRACT["info"]["version"] == "0.8.0"
     assert CONTRACT["components"]["schemas"]["DisplayState"]["properties"]["bubbles"]["maxItems"] == 100
     assert "slot" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
     assert "remainingMs" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
@@ -109,7 +109,13 @@ def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
     assert {"removedIds", "cacheResetToken", "deviceGeneration"} <= set(state["required"])
     assert {"snapshotAt", "bubbles", "bubbleTotalCount", "nextCursor"} <= set(state["required"])
     assert not {"spotlights", "ambient", "queuedCount", "ambientTotalCount"}.intersection(state["properties"])
-    assert CONTRACT["components"]["schemas"]["DisplayStatus"]["enum"] == ["NONE", "FLOATING", "EXPIRED", "HIDDEN"]
+    assert CONTRACT["components"]["schemas"]["DisplayStatus"]["enum"] == [
+        "NONE",
+        "QUEUED",
+        "FLOATING",
+        "EXPIRED",
+        "HIDDEN",
+    ]
     operation = CONTRACT["paths"]["/api/display/state"]["get"]
     cursor = next(parameter for parameter in operation["parameters"] if parameter["name"] == "cursor")
     assert cursor["in"] == "query" and cursor["schema"]["maxLength"] == 2048
@@ -123,6 +129,73 @@ def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
 
 def _parsed_time(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _schema_validator(name):
+    return Draft202012Validator(
+        {"$ref": f"#/components/schemas/{name}", "components": CONTRACT["components"]},
+        format_checker=FormatChecker(),
+    )
+
+
+def test_v2_receipt_survives_purge_without_source_or_model_private_fields():
+    receipt = dict(
+        CONTRACT["paths"]["/api/v2/submissions"]["post"]["responses"]["202"]["content"]["application/json"]["example"]
+    )
+    receipt.update(
+        processingStatus="APPROVED",
+        presentationStatus="DONE",
+        lastDisplayStatus="DONE",
+        userStatus="SHOWN",
+        contentStatus="PURGED",
+        firstStartAuthorizedAt="2026-11-04T03:00:02Z",
+        contentDeleteAt="2026-11-04T04:00:02Z",
+        completedAt="2026-11-04T03:00:18Z",
+    )
+    validator = _schema_validator("SubmissionReceipt")
+    validator.validate(receipt)
+    assert not {"content", "emojiId", "emotion", "participantId", "score"}.intersection(receipt)
+    assert list(validator.iter_errors({**receipt, "content": "must not leak"}))
+
+
+def test_v2_playback_identity_and_scene_contracts_reject_stale_shape_errors():
+    claim = _schema_validator("PlaybackClaimRequest")
+    command = _schema_validator("PlaybackCommandRequest")
+    identity = {"clientInstanceId": str(uuid4()), "deviceGeneration": "1", "playbackEpoch": "1"}
+    claim.validate(identity)
+    claim.validate({"clientInstanceId": identity["clientInstanceId"], "deviceGeneration": "1"})
+    command.validate(identity)
+    assert list(command.iter_errors({"clientInstanceId": identity["clientInstanceId"], "deviceGeneration": "1"}))
+    for invalid in (1, "-1", "01", "1.0", "1" * 20):
+        assert list(command.iter_errors({**identity, "playbackEpoch": invalid}))
+    assert list(command.iter_errors({**identity, "unexpected": True}))
+    interrupt = _schema_validator("PlaybackInterruptRequest")
+    interrupt.validate({**identity, "reason": "PAGE_HIDDEN"})
+    assert list(interrupt.iter_errors({**identity, "reason": "pretend-completed"}))
+
+
+def test_heartbeat_version_is_optional_and_both_response_versions_are_documented():
+    request = _schema_validator("HeartbeatRequest")
+    base = {"clientInstanceId": str(uuid4())}
+    request.validate(base)
+    request.validate({**base, "displayProtocolVersion": "2"})
+    assert list(request.iter_errors({**base, "displayProtocolVersion": "3"}))
+    media = CONTRACT["paths"]["/api/display/heartbeat"]["post"]["responses"]["200"]["content"]["application/json"]
+    assert {entry["$ref"] for entry in media["schema"]["oneOf"]} == {
+        "#/components/schemas/HeartbeatResponse",
+        "#/components/schemas/PlaybackState",
+    }
+    validator = Draft202012Validator(
+        {**media["schema"], "components": CONTRACT["components"]}, format_checker=FormatChecker()
+    )
+    for example in media["examples"].values():
+        validator.validate(example["value"])
+    attempt = media["examples"]["v2"]["value"]["attempt"]
+    attempt_validator = _schema_validator("PlaybackAttempt")
+    attempt_validator.validate(attempt)
+    for field in ("presentationStatus", "reasonCode"):
+        assert list(attempt_validator.iter_errors({key: value for key, value in attempt.items() if key != field}))
+    assert list(validator.iter_errors({"displayProtocolVersion": "2", "serverNow": "2026-11-04T03:00:00Z"}))
 
 
 @pytest.mark.integration
@@ -142,7 +215,7 @@ async def test_runtime_operation_methods_and_normalized_paths_match_contract(sys
         if not operation_id:
             continue
         actual.extend((operation_id, method.lower(), normalize(route.path)) for method in route.methods)
-    assert len(actual) == len(set(actual)) == 27
+    assert len(actual) == len(set(actual)) == 37
     assert set(actual) == expected
 
 

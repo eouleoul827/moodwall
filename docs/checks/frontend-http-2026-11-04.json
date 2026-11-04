@@ -1,0 +1,41 @@
+{
+  "startedAt": "2026-11-04T13:24:46.523Z",
+  "completedAt": "2026-11-04T13:25:04.420Z",
+  "kind": "real HTTP + shipped Node adapters",
+  "analyzer": "FakeAnalyzer via temporary Windows queue harness; Linux supervisor not exercised",
+  "api": "http://127.0.0.1:18080",
+  "origin": "http://127.0.0.1:5173",
+  "checks": [
+    {
+      "name": "QR admission and isolated student/display/operator cookie sessions"
+    },
+    {
+      "name": "202 completion card, same UUID retry 200, exactly one quota slot"
+    },
+    {
+      "name": "Changed body with same key conflicts; another student cannot read receipt"
+    },
+    {
+      "name": "Lost HTTP acknowledgement recovers by receipt lookup without a new post"
+    },
+    {
+      "name": "Actual queue/rules/fake emotion processing reaches READY before display"
+    },
+    {
+      "name": "Claim retry is idempotent; emotion theme and immutable +1h TTL; early completion rejected"
+    },
+    {
+      "name": "New READY message waits and cannot replace active playback"
+    },
+    {
+      "name": "Real >=15-second wait completes using previously rejected same command key",
+      "elapsedMs": 15386
+    },
+    {
+      "name": "Real snapshot accepted by shipped paginated cache and produces same-content bubble"
+    },
+    {
+      "name": "Operator hide propagates tombstone to existing cache; unstarted hidden item releases quota"
+    }
+  ]
+}

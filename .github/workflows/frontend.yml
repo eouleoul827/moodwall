@@ -1,0 +1,31 @@
+name: frontend
+on:
+  push:
+    paths: ["frontend/**", "clients/**", ".github/workflows/frontend.yml"]
+  pull_request:
+    paths: ["frontend/**", "clients/**", ".github/workflows/frontend.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: React student, display and operator integration
+        run: npm test
+      - name: Shared recovery and display protocol
+        run: node --test ../clients/*.test.mjs ../clients/display/*.test.mjs ../clients/student/*.test.mjs
+      - name: Build production screens and local assets
+        run: npm run build

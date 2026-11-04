@@ -1,5 +1,7 @@
 # 데이터·동시성·장애 복구 설계
 
+현재 DB head는 `0006_playback_receipts`다. 새 [v2 로컬 구현](playback-local-implementation.md)과 [15초 재생 설계](playback-design.md)는 영수증 분리·READY 순번·재생 시도·최초 시작 승인 기준 만료를 사용한다. [schema.sql](schema.sql)도 0006을 포함한다. 아래 기존 제출 중심·접수 후 1시간 설명은 v1 호환 경로에 적용하며, v2 원문 삭제 후에도 본문 없는 영수증을 접수 후 24시간 유지한다.
+
 상태: 구현 전 기준안 · 검토일: 2026-10-29 · 대상: 학교 1곳·전광판 1대
 
 이 문서는 [`schema.sql`](schema.sql)의 의미와 서비스가 지켜야 할 규칙을 정한다. SQL은 새 PostgreSQL 16+ DB에 적용할 기준 DDL이며 실행 완료된 애플리케이션이나 운영 마이그레이션은 아니다. Procrastinate 자체 테이블은 고정한 라이브러리 버전의 마이그레이션으로 생성한다. 별도 Redis·Supabase 서비스는 전제하지 않는다.

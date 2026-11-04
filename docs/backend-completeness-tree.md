@@ -56,7 +56,7 @@
 - **D02** 정상·경계: 지정 White_Space trim과 NFC 뒤 1~30 grapheme를 센다; 실패·복구: 공백만·31자·거대 결합 문자열을 거절한다; 수락: 한글 자모·결합 이모지의 프론트/서버 공통 예문이 일치한다. [Unicode 정책](profanity-policy.md)
 - **D03** 정상·경계: 표시·DB·AI 입력은 같은 display_text다; 실패·복구: 검색 자모 뷰로 원문을 덮어쓰지 않는다; 수락: ZWJ·variation selector는 정상 보존하고 줄바꿈·일반/양방향 제어문자는 거절한다. [문장 정규화](profanity-policy.md)
 - **D04** 정상·경계: 승인 문장은 HTML이 아닌 텍스트로 표시한다; 실패·복구: 마크업·URL·스크립트가 실행되지 않는다; 수락: CSP와 실제 빌드·SSE·애니메이션을 함께 확인한다. [출력 보안](security-and-operations.md)
-- **D05** 정상·경계: emojiId는 서버의 고정 허용 목록에서 고른다; 실패·복구: 임의 HTML·외부 이미지 URL·알 수 없는 ID를 거절한다; 수락: 작성·검수·전광판이 같은 ID와 기본값 계약을 쓴다. [HTTP 명세](openapi.json)
+- **D05** 정상·경계: v1 emojiId와 v2 감정 sceneId·animationId는 각각 서버의 고정 허용 목록을 쓴다; 실패·복구: 임의 HTML·외부 이미지 URL·알 수 없는 ID를 거절한다; 수락: v2 학생 입력은 content만 받으며 테마는 검수 결과에서 만든다. [HTTP 명세](openapi.json)
 - **D06** 정상·경계: 신규 의도는 UUID Idempotency-Key와 정규화 본문 fingerprint를 사용한다; 실패·복구: 같은 키·다른 본문은 409다; 수락: 동시 재전송이 제출·쿼터 점유·job 하나만 만든다. [멱등 접수](data-and-recovery.md)
 - **D07** 정상·경계: 기존 key 조회는 새 입장·정지·혼잡 검사보다 먼저다; 실패·복구: timeout·5xx·응답 유실에는 같은 키·본문을 유지한다; 수락: 처음 202·기존 요청 200이며 추가 차감·제재가 없다. [재전송 계약](backend-contracts.md)
 - **D08** 정상·경계: 오류는 RFC 9457 Problem·안전한 code·requestId로 통일한다; 실패·복구: 프록시 HTML·빈 응답도 결과 미확정으로 처리한다; 수락: 예외·검증 응답과 로그에 입력·SQL·자격이 노출되지 않는다. [HTTP 오류](backend-contracts.md)
@@ -65,7 +65,7 @@
 ## E. 최근 60분 한도·쿨다운·당일 제재 — 9개
 
 - **E01** 정상·경계: accepted_at의 열린 60분 하한과 닫힌 현재 상한으로 센다; 실패·복구: 정각·자정·승인 시각으로 reset하지 않는다; 수락: 정확히 60분이 된 접수가 창에서 빠진다. [rolling 조회](data-and-recovery.md)
-- **E02** 정상·경계: PENDING·PROCESSING·APPROVED만 3회 점유한다; 실패·복구: 그 밖의 terminal은 반환하고 숨긴 승인은 유지한다; 수락: 학생·운영자 사용량 조회와 실제 새 접수 판정이 같은 식을 쓴다. [쿼터](data-and-recovery.md)
+- **E02** 정상·경계: v1 PENDING·PROCESSING·APPROVED와 v2 RESERVED·CONSUMED를 중복 없이 최근 60분에 합산한다; 실패·복구: v2 시작 전 실패는 반환하고 최초 시작 뒤 숨김·중단은 소비를 유지한다; 수락: 원문 삭제 뒤에도 학생·운영자·새 접수의 사용량이 일치한다. [쿼터](playback-local-implementation.md)
 - **E03** 정상·경계: 같은 참여자의 접수·최종화를 참여자 행으로 직렬화한다; 실패·복구: 없는 daily_usage는 UPSERT 후 잠근다; 수락: 최초 동시 요청에도 검수 중 1개·최근 점유 3개 이하다. [잠금 순서](data-and-recovery.md)
 - **E04** 정상·경계: 신규 의도는 10초 간격·참여자당 미확정 1개다; 실패·복구: 같은 키 재시도는 쿨다운에서 제외한다; 수락: 409·429에서 새 제출·job·위반이 생기지 않는다. [접수 트랜잭션](data-and-recovery.md)
 - **E05** 정상·경계: 잠금 뒤 DB 시각으로 날짜·허가·정지·기한을 결정한다; 실패·복구: 자정 변경이면 전체 rollback 후 재시도한다; 수락: 시계 역행·잠금 지연에 날짜·accepted_at·기한이 모순되지 않는다. [DB 시간](data-and-recovery.md)
@@ -101,24 +101,24 @@
 ## H. DB 일관성·삭제·보관 — 8개
 
 - **H01** 정상·경계: PK/FK/CHECK/부분 UNIQUE가 업무·실행 상태를 보강한다; 실패·복구: 잘못된 직접 저장을DB가 거절한다; 수락: DDL 부정 사례와 실제 동시성 시험을 따로 통과한다. [스키마](schema.sql)
-- **H02** 정상·경계: 제재는 daily_usage, rolling 한도는 제출 이력에서 유도한다; 실패·복구: 별도 승인/예약 카운터를 복구하지 않는다; 수락: 운영자 복구 후 역사상 strike 합계와 현재 위반 수 차이를 허용한다. [데이터 모델](data-and-recovery.md)
+- **H02** 정상·경계: 제재는 daily_usage, 개인 rolling 한도는 v1 제출·v2 영수증에서 유도한다; 실패·복구: 전광판 수용량 카운터와 개인 작성 한도를 혼동하지 않는다; 수락: 예약 해제는 한 번만 수행하고 운영자 제재 복구가 개인 소비를 되돌리지 않는다. [데이터 모델](playback-local-implementation.md)
 - **H03** 정상·경계: 고정 SQL·파라미터와 짧은 트랜잭션을 사용한다; 실패·복구: 모델·SSE·외부 요청 중 잠금을 유지하지 않는다; 수락: timeout·교착 뒤 전체 rollback과 정상 풀 반환이 확인된다. [SQL 접근](backend-owner-plan.md)
 - **H04** 정상·경계: 큐·참여자 경로와 표시 경로의 잠금 순서를 지킨다; 실패·복구: 표시 잠금 뒤 참여자 잠금을 추가하지 않는다; 수락: 접수·최종화·숨김·정리의 경합에 교착·부분 갱신이 없다. [잠금 표](data-and-recovery.md)
-- **H05** 정상·경계: 접수 1시간에 제출 행·원문·멱등 결과를 삭제하며 로그 14일·제재 집계30일·감사90일은 별도로 관리한다; 실패·복구: 미확정 제출은 먼저 검수 기한 만료하고 당일 제재는 원문과 함께 삭제하지 않는다; 수락: 정확한 1시간 조회 제외·작은 배치 DELETE·백업 잔존 범위를 점검한다. [보관](security-and-operations.md)
+- **H05** 정상·경계: v2 원문은 최초 시작 승인 +1시간, 본문 없는 영수증은 접수 +24시간이다. v1은 접수 +1시간을 유지한다; 실패·복구: 시작 전 실패는 원문과 예약을 정리하며 제재·감사는 별도 보관한다; 수락: 기한 조회 제외·작은 원문 DELETE·당일 로컬 캐시·백업 잔존을 구분한다. [보관](playback-local-implementation.md)
 - **H06** 정상·경계: 작은 배치로 큐→제출→집계→세션→참여자 참조를 정리한다; 실패·복구: 남은 FK는 RESTRICT로 막고 다음 주기에 재시도한다; 수락: 정리와 접수·최종화 경합에도 살아 있는 참조·멱등 결과가 보존된다. [정리 순서](data-and-recovery.md)
 - **H07** 정상·경계: 일치성 조회로 점유 초과·기한 초과·연결 오류를 찾는다; 실패·복구: 승인 행을 임의 FAILED로 바꾸지 않고 접수를 중단해 조사한다; 수락: 원인·조치 기록과 불변식 재검사가 남는다. [데이터 진단](data-and-recovery.md)
 - **H08** 정상·경계: 삭제·숨김·백업·재학습을 별도 취급한다; 실패·복구: 복원 후 삭제 정책을 재실행하고 외부 표시 사본 회수를 보장하지 않는다; 수락: 운영 원문이 자동 학습·Git·CI artifact로 유출되지 않는다. [데이터 경계](security-and-operations.md)
 
 ## I. 일반 말풍선·페이지·당일 캐시 — 9개
 
-- **I01** 정상·경계: 검수 승인은 FLOATING 공개 대상이며 실제 시청 증명과 다르다; 실패·복구: 접수 1시간 또는 자정까지 못 띄운 글은 공개하지 않는다; 수락: 학생에게 검수·표시 상태와 expiresAt을 각각 제공한다. [상태](architecture.md)
-- **I02** 정상·경계: 승인 확정은 APPROVED/FLOATING을 저장해 즉시 공개한다; 실패·복구: 강조·자리 배정·표시 대기가 없다; 수락: 승인 5개 이상이 동시에 공개된다. [데이터 설계](data-and-recovery.md)
-- **I03** 정상·경계: 카드 ID·acceptedAt·expiresAt·ambientUntil을 제공한다; 실패·복구: 중복 페이지를 ID로 합치고 애니메이션을 재시작하지 않는다; 수락: 고정slot·remainingMs 없이 중간 숨김을 반영한다. [렌더 계약](display-laptop.md)
-- **I04** 정상·경계: 접수 1시간에DB 원문 공급이 끝나고 받은 내용은 로컬 AMBIENT로 자정까지 남는다; 실패·복구: 오프라인·중단이DB 수명을 늘리지 않는다; 수락: 삭제·빈snapshot이 캐시삭제로 이어지지 않는다. [수명](data-and-recovery.md)
-- **I05** 정상·경계: 예약 CHATBOT은 렌더만 가리고 승인·동기화를 유지한다; 실패·복구: 실제 챗봇 없이 mode API로 복귀한다; 수락: 복귀 후 일반·투명 말풍선이 올바르며 강조·표시 대기가 없다. [mode](display-laptop.md)
+- **I01** 정상·경계: v2 접수·준비·시작·프레임·완료를 구분하며 실제 패널 시청 증명과 다르다; 실패·복구: 미표시 최대 10분·자정 경계를 지킨다; 수락: 원문 보관과 학생의 완료 카드가 분리된다. [상태](playback-design.md)
+- **I02** 정상·경계: READY 확정 순서로 한 글씩 15초를 재생하고 완료 후 일반 말풍선으로 만든다; 실패·복구: 중단은 같은 글을 한 번만 재생하며 완료를 추측하지 않는다; 수락: 새 글이 현재 재생을 조기 교체하지 않고 정상 완료 뒤 다음 글을 고른다. [재생](playback-design.md)
+- **I03** 정상·경계: v2 카드에 ID·acceptedAt·firstStartAuthorizedAt·contentDeleteAt·ambientUntil을 제공한다; 실패·복구: 중복 페이지를 ID로 합치고 이전 시도 응답으로 숨김을 되돌리지 않는다; 수락: 완료 이력과 현재 presentationStatus를 함께 확인한다. [렌더 계약](display-laptop.md)
+- **I04** 정상·경계: 최초 시작 승인 +1시간에 DB 원문 공급이 끝나고 받은 내용은 로컬 AMBIENT로 자정까지 남는다; 실패·복구: 오프라인·재시도가 DB 수명을 늘리지 않는다; 수락: 삭제·빈 snapshot이 캐시 삭제로 이어지지 않는다. [수명](playback-design.md)
+- **I05** 정상·경계: CHATBOT·PAUSED 전환은 현재 재생을 중단하고 복귀 시 복구를 판단한다; 실패·복구: 빠른 전환도 같은 모드 변경 트랜잭션에 중단을 기록한다; 수락: 실제 챗봇 없이 mode API로 검증하며 새 v2 접수는 활성 MOODWALL에서만 받는다. [mode](display-laptop.md)
 - **I06** 정상·경계: 운영자 PAUSED는 기본 mode와 분리한다; 실패·복구: 장치가 해제하지 못하고 글·QR을 가린다; 수락: 늦은 GET·옛 장치 mode 요청이 중단을 되돌리지 않는다. [송출 중단](security-and-operations.md)
 - **I07** 정상·경계: 자정에전날 공개상태·브라우저 캐시를 정리한다; 실패·복구: 정리 지연에도조회 날짜 필터가 전날 원문을 막는다; 수락: rolling쿼터는 자정에초기화되지않는다. [날짜](data-and-recovery.md)
-- **I08** 정상·경계: 서버 카드와 당일 캐시를 합쳐 내용 담긴 투명 말풍선 최대 40개를 20초마다 8개씩 순환한다; 실패·복구: removedIds·cacheResetToken·deviceGeneration·날짜 변경은 캐시를 정리하되 목록 부재는 삭제 근거가 아니다; 수락: DB 1시간 삭제 후 말풍선 유지·인증 전 미표시·자정 캐시 정리·저장소 실패 경로를 확인한다. [말풍선 선택](backend-contracts.md)
+- **I08** 정상·경계: 서버 카드와 당일 캐시를 합쳐 받은 말풍선 전체를 반환하며 브라우저 메모리 보호 상한은 별도로 둔다; 실패·복구: removedIds·cacheResetToken·deviceGeneration·날짜 변경은 캐시를 정리하되 목록 부재는 삭제 근거가 아니다; 수락: 4개·40개 순환 규칙 없이 1시간 뒤 내용 유지·인증 전 미표시·자정·저장소 실패를 확인한다. [말풍선 선택](../clients/display/README.md)
 - **I09** 정상·경계: snapshot은 한 DB 스냅샷의 날짜·상태·개수·시간이다; 실패·복구: GET이 tick·lease·접수 상태를 갱신하지 않는다; 수락: 숨김·검수·자정 경합에도 혼합된 응답이 없다. [snapshot](backend-contracts.md)
 
 ## J. 전광판 장치·SSE·노트북 — 8개
@@ -184,6 +184,16 @@
 | `participantUsage` | `B06`, `E01`, `E02`, `E04`, `E06`, `E08` |
 | `submitMention` | `D01`, `D02`, `D03`, `D05`, `D06`, `D07`, `D08`, `E03`, `E04`, `E05`, `E07`, `E09`, `G01` |
 | `getOwnSubmission` | `B06`, `C06`, `D09`, `G05`, `I01` |
+| `submitMentionV2` | `D01`, `D02`, `D03`, `D06`, `D07`, `D08`, `E03`, `E04`, `E05`, `E07`, `E09`, `G01`, `H01` |
+| `getOwnSubmissionV2` | `B06`, `C06`, `D09`, `G05`, `H05`, `I01` |
+| `lookupSubmissionReceipt` | `B06`, `D06`, `D07`, `D08`, `H05` |
+| `getDisplayPlayback` | `B06`, `I01`, `I09`, `J02`, `J04` |
+| `getDisplayStateV2` | `B06`, `I03`, `I04`, `I07`, `I08`, `I09`, `J04` |
+| `claimDisplayPlayback` | `D06`, `D07`, `H01`, `H04`, `I02`, `J02`, `J06` |
+| `startDisplayPlayback` | `D06`, `D07`, `H01`, `H04`, `I02`, `I04`, `J02` |
+| `frameDisplayPlayback` | `D06`, `D07`, `H01`, `I02`, `J02`, `J04` |
+| `completeDisplayPlayback` | `D06`, `D07`, `H01`, `I02`, `I03`, `J02`, `J06` |
+| `interruptDisplayPlayback` | `D06`, `D07`, `H01`, `I05`, `I06`, `J02`, `J06` |
 | `pairDisplay` | `B03`, `B04`, `B05`, `J01`, `J02` |
 | `getDisplaySession` | `B02`, `B07`, `J04`, `J06` |
 | `getCurrentQr` | `B06`, `C01`, `C02`, `C03`, `J05` |

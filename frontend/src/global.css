@@ -1,0 +1,18 @@
+:root { font-family: -apple-system, BlinkMacSystemFont, "Noto Sans KR", "Malgun Gothic", sans-serif; color: #14161b; background: #f2efe8; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; --mw-bg: #f2efe8; --mw-card: #fff; --mw-ink: #14161b; --mw-sub: #4b505b; --mw-line: #d9d4c8; --mw-accent: #2f6beb; --mw-error: #c8352a; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input, textarea, select { font: inherit; }
+button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #2f6beb; outline-offset: 4px; }
+a { color: #2f6beb; }
+button { color: inherit; }
+.brand-word { font-family: "Jua", sans-serif; letter-spacing: -.035em; }
+.screen-message { min-height: 100dvh; max-width: 560px; padding: 48px 24px; margin: auto; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+.screen-message h1 { font-family: "Jua", sans-serif; font-weight: 400; font-size: 32px; margin: 0; }
+.screen-message p { color: #4b505b; line-height: 1.7; margin: 0; }
+.screen-message .brand-word { font-size: 25px; color: #2f6beb; }
+.screen-message button { border: 0; background: #2f6beb; color: white; padding: 16px 20px; border-radius: 16px; font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

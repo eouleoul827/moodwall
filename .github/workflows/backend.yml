@@ -1,9 +1,9 @@
 name: backend
 on:
   push:
-    paths: ["backend/**", "clients/display/**", "ai/**", "docs/**", "README.md", "prototypes/README.md", "infra/**", "scripts/**", "compose*.yaml", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "clients/**", "ai/**", "docs/**", "README.md", "prototypes/README.md", "infra/**", "scripts/**", "compose*.yaml", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["backend/**", "clients/display/**", "ai/**", "docs/**", "README.md", "prototypes/README.md", "infra/**", "scripts/**", "compose*.yaml", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "clients/**", "ai/**", "docs/**", "README.md", "prototypes/README.md", "infra/**", "scripts/**", "compose*.yaml", ".github/workflows/backend.yml"]
 permissions:
   contents: read
 jobs:
@@ -30,8 +30,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Display bubble lifetime and reload policy
-        run: node --test clients/display/bubble-cache.test.mjs
+      - name: Student recovery, 15-second playback and bubble retention
+        run: node --test clients/*.test.mjs clients/display/*.test.mjs clients/student/*.test.mjs
       - run: docker build --target test -t moodwall-test ./backend
       - name: Static checks
         run: |

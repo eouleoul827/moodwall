@@ -23,6 +23,30 @@ class Mention(Input):
     emojiId: str = Field(min_length=1, max_length=50)
 
 
+class MentionV2(Input):
+    content: str = Field(min_length=1, max_length=2048)
+
+
+class ReceiptLookup(Input):
+    idempotencyKey: UUID
+
+
+class PlaybackClaim(Input):
+    clientInstanceId: UUID
+    deviceGeneration: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
+    playbackEpoch: str | None = Field(default=None, pattern=r"^(0|[1-9][0-9]{0,18})$")
+
+
+class PlaybackCommand(Input):
+    clientInstanceId: UUID
+    deviceGeneration: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
+    playbackEpoch: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
+
+
+class PlaybackInterrupt(PlaybackCommand):
+    reason: Literal["HIDDEN", "PAGE_HIDDEN", "RELOAD", "FRAME_GAP", "ASSET_FAILURE", "NETWORK", "CLIENT_ERROR"]
+
+
 class Pair(Input):
     code: str = Field(min_length=1, max_length=200)
 
@@ -34,6 +58,7 @@ class Login(Input):
 
 class Heartbeat(Input):
     clientInstanceId: UUID
+    displayProtocolVersion: Literal["2"] | None = None
 
 
 class DeviceMode(Input):
