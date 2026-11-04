@@ -1,0 +1,39 @@
+{
+  "scope": "Offline moderation implementation; not real Gemini classification quality or production acceptance",
+  "date": "2026-11-04",
+  "migration": "0007_provider_moderation",
+  "openapiVersion": "0.9.0",
+  "externalGeminiCalls": 0,
+  "productionMigrationApplied": false,
+  "backendRegression": {
+    "environment": "Linux, PostgreSQL 16, isolated internal Docker network",
+    "passed": 617,
+    "skipped": 6,
+    "seconds": 67.05,
+    "skipReason": "Opt-in real student-model artifact not supplied"
+  },
+  "additionalFocusedRun": {
+    "files": ["test_provider_support_flow.py", "test_provider_runtime.py", "test_content_reports.py"],
+    "passed": 31,
+    "seconds": 43.75,
+    "note": "Overlaps backend regression; includes one later-added provider administration HTTP test. Do not add totals."
+  },
+  "frontend": {"testFiles": 5, "passed": 40, "productionBuild": "passed"},
+  "clientModules": {"passed": 107},
+  "contracts": {
+    "openapiPaths": 41,
+    "operations": 42,
+    "responseExamples": 417,
+    "postgresStatements": 93,
+    "localLinks": 429,
+    "designLeaves": 106,
+    "status": "passed"
+  },
+  "modelQuality": "NOT_EVALUATED",
+  "syntheticAccounting": true,
+  "limitations": [
+    "Mock replays 77 reviewed synthetic fixtures; unknown text returns UNCERTAIN",
+    "No real provider HTTP transport, credential setup, billing or provider token-bound proof",
+    "No live 3200-case model evaluation, HDMI field acceptance or production deployment"
+  ]
+}

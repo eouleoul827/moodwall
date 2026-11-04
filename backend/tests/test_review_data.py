@@ -229,7 +229,7 @@ async def test_settle_bounds_old_floating_work_to_100_without_charging_live_cont
 async def test_migrated_head_and_floating_index_are_ready(clients, database, settings):
     async with database.connection() as conn:
         assert await schema_ready(conn, settings.board_id)
-        assert (await one(conn, "SELECT version_num FROM alembic_version"))["version_num"] == "0006_playback_receipts"
+        assert (await one(conn, "SELECT version_num FROM alembic_version"))["version_num"] == "0007_provider_moderation"
         index = await one(
             conn,
             """SELECT i.indisvalid,i.indisready FROM pg_index i

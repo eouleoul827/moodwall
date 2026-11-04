@@ -14,7 +14,7 @@ import os
 import signal
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,9 +25,11 @@ from app.config import Settings
 from app.db import Database, db_time, one
 from app.moderation import ModerationService
 from app.profanity import ProfanityFilter
+from app.provider_control import ProviderControlService, ProviderProbeTimeout, ProviderUnavailable
 from app.queue import configure_processor, create_queue
 from inference.contracts import AnalysisInput, AnalysisResult, ModelAnalyzed, RuleRejected, RunFailed
 from inference.loader import load_analyzer
+from inference.provider_moderation import ProviderModerationError
 
 log = logging.getLogger("moodwall.worker")
 
@@ -40,12 +42,17 @@ class Runtime:
     analyzer: object
     filter: ProfanityFilter
     control: object | None = None
+    provider: object | None = None
+    inference_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    poisoned: bool = False
 
 
 _runtime: Runtime | None = None
 
 
 async def run_submission(runtime: Runtime, submission_id):
+    if runtime.poisoned:
+        return
     # A failed claim transaction has not started inference. Retry once, but
     # always claim through the service again: an uncertain committed claim is
     # already PROCESSING and must never authorize a second model execution.
@@ -63,6 +70,11 @@ async def run_submission(runtime: Runtime, submission_id):
     inference_started = False
     control_started = False
     fatal_filter = False
+    fatal_provider = False
+    provider_started = False
+    provider_usage = None
+    provider_failure_kind, provider_retry_after = None, None
+    provider_mode = getattr(runtime.settings, "moderation_profile", "legacy") != "legacy"
     try:
         async with runtime.db.connection() as conn:
             remaining = (claim["processing_lease_until"] - await db_time(conn)).total_seconds()
@@ -80,7 +92,45 @@ async def run_submission(runtime: Runtime, submission_id):
         except Exception:
             fatal_filter = True
             raise
-        if scan.decision == "CONFIRMED":
+        if provider_mode:
+            if runtime.provider is None:
+                runtime.provider = ProviderControlService(runtime.db, runtime.settings)
+            # This flag also forbids pre-model replay after an uncertain ledger
+            # acknowledgement. STARTED is committed before calling any analyzer.
+            inference_started = True
+            async with runtime.inference_lock:
+                if remaining < runtime.settings.provider_wrapper_timeout_seconds + 2:
+                    raise ProviderUnavailable("PROVIDER_DISPATCH_FORBIDDEN")
+                await runtime.provider.begin_dispatch(
+                    submission_id, claim["processing_run_token"], claim["moderation_policy_version"]
+                )
+                provider_started = True
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            runtime.analyzer.analyze_moderated,
+                            AnalysisInput(text=claim["content"]),
+                            confirmed_profanity=scan.decision == "CONFIRMED",
+                        ),
+                        timeout=min(
+                            runtime.settings.provider_timeout_seconds, runtime.settings.provider_wrapper_timeout_seconds
+                        ),
+                    )
+                except TimeoutError:
+                    # wait_for cannot kill a native thread. Withdraw READY and
+                    # let the supervisor kill the process after finalization.
+                    fatal_provider = True
+                    runtime.poisoned = True
+                    if runtime.control:
+                        runtime.control.send({"type": "FAULT", "code": "INFERENCE_TIMEOUT"})
+                    raise
+                finally:
+                    # A subsequent probe shares this analyzer. Snapshot this
+                    # invocation before releasing its lock, even on errors.
+                    usage = None if fatal_provider else getattr(runtime.analyzer, "last_usage", None)
+                    provider_usage = usage.copy() if isinstance(usage, dict) else None
+                outcome = ModelAnalyzed(analysis=AnalysisResult.model_validate(result))
+        elif scan.decision == "CONFIRMED":
             outcome = RuleRejected(lexicon_version=scan.lexicon_version, matches=list(scan.matches))
         else:
             inference_started = True
@@ -93,6 +143,16 @@ async def run_submission(runtime: Runtime, submission_id):
         outcome = RunFailed(error_code="TRANSIENT_DEPENDENCY")
     except ValidationError:
         outcome = RunFailed(error_code="INVALID_MODEL_OUTPUT")
+        provider_failure_kind = "INVALID_OUTPUT" if provider_mode else None
+    except ProviderModerationError as error:
+        outcome = RunFailed(error_code=error.error_code)
+        provider_failure_kind = getattr(error, "failure_kind", None)
+        provider_retry_after = getattr(error, "retry_after_seconds", None)
+    except ProviderUnavailable:
+        outcome = RunFailed(error_code="MODEL_NOT_READY")
+    except TimeoutError:
+        outcome = RunFailed(error_code="INFERENCE_TIMEOUT")
+        provider_failure_kind = "TIMEOUT"
     except (EOFError, BrokenPipeError):
         # Parent died: no permission to continue inference. The parent-death
         # signal below is the final process boundary, independent of this task.
@@ -101,6 +161,24 @@ async def run_submission(runtime: Runtime, submission_id):
         # Never dump exception bodies, input text, tokens or artifact paths.
         log.error("moderation_run_failed", extra={"submission_id": str(submission_id)})
         outcome = RunFailed(error_code="LEXICON_ERROR" if fatal_filter else "INTERNAL_ERROR")
+
+    if provider_started:
+        for attempt in range(2):
+            try:
+                await runtime.provider.finish_dispatch(
+                    submission_id,
+                    claim["processing_run_token"],
+                    usage=provider_usage,
+                    success=isinstance(outcome, ModelAnalyzed),
+                    error_code=outcome.error_code if isinstance(outcome, RunFailed) else None,
+                    failure_kind=provider_failure_kind,
+                    retry_after_seconds=provider_retry_after,
+                )
+                break
+            except Exception:
+                if attempt:
+                    log.error("provider_settlement_failed", extra={"submission_id": str(submission_id)})
+                    outcome = RunFailed(error_code="TRANSIENT_DEPENDENCY")
 
     # Retry only storing this same result; inference is never rerun after an
     # uncertain DB acknowledgement. The DB token/lease still fences each retry.
@@ -114,7 +192,9 @@ async def run_submission(runtime: Runtime, submission_id):
             await asyncio.sleep(0.1)
     if runtime.control:
         runtime.control.send(
-            {"type": "FAULT", "code": "LEXICON_ERROR"} if fatal_filter else {"type": "DONE", "run_token": run_token}
+            {"type": "FAULT", "code": "LEXICON_ERROR" if fatal_filter else "INFERENCE_TIMEOUT"}
+            if fatal_filter or fatal_provider
+            else {"type": "DONE", "run_token": run_token}
         )
 
 
@@ -124,28 +204,88 @@ async def process_submission(submission_id):
     await run_submission(_runtime, submission_id)
 
 
+async def _provider_maintenance(runtime):
+    while not runtime.poisoned:
+        try:
+            await runtime.provider.recover_stale()
+            # Analyzer usage telemetry belongs to this exact invocation. A
+            # probe must never race the actual single-concurrency worker.
+            if not runtime.inference_lock.locked():
+                async with runtime.inference_lock:
+                    await runtime.provider.probe(runtime.analyzer)
+        except asyncio.CancelledError:
+            raise
+        except ProviderProbeTimeout:
+            runtime.poisoned = True
+            if runtime.control:
+                runtime.control.send({"type": "FAULT", "code": "INFERENCE_TIMEOUT"})
+            return
+        except Exception:
+            log.error("provider_maintenance_failed")
+        await asyncio.sleep(5)
+
+
+async def _bootstrap_provider(runtime):
+    """Real worker READY is earned by a budgeted valid synthetic ALLOW."""
+    if runtime.settings.moderation_profile != "gemini":
+        return
+    deadline = time.monotonic() + runtime.settings.worker_warmup_seconds
+    while time.monotonic() < deadline:
+        await runtime.provider.recover_stale()
+        try:
+            valid = await runtime.provider.probe(runtime.analyzer, startup=True)
+        except ProviderProbeTimeout:
+            runtime.poisoned = True
+            if runtime.control:
+                runtime.control.send({"type": "FAULT", "code": "INFERENCE_TIMEOUT"})
+            raise
+        state = await runtime.provider.summary()
+        if valid and state["mode"] == "OPEN":
+            return
+        if state["mode"] == "PAUSED":
+            raise ProviderUnavailable("MODEL_NOT_READY")
+        await asyncio.sleep(min(5, max(0, deadline - time.monotonic())))
+    raise ProviderUnavailable("MODEL_NOT_READY")
+
+
 async def _child(settings: Settings, control):
     global _runtime
     # Loading and warmup are covered by the parent's separate startup deadline.
     analyzer = await asyncio.to_thread(load_analyzer, settings)
     path = Path(settings.lexicon_path) if getattr(settings, "lexicon_path", None) else None
     profanity = ProfanityFilter(
-        path, expected_version=settings.lexicon_version, production=settings.environment == "production"
+        path,
+        expected_version=settings.lexicon_version,
+        production=settings.environment == "production" and settings.moderation_profile == "legacy",
     )
     db = Database(settings.model_copy(update={"db_pool_size": 2}))
     await db.open()
     app = create_queue(settings)
-    await app.open_async()
-    _runtime = Runtime(db, settings, ModerationService(db, settings), analyzer, profanity, control)
-    configure_processor(lambda submission_id: run_submission(_runtime, submission_id))
-    control.send({"type": "READY", "bundle": settings.model_bundle_version})
+    maintenance = None
+    opened = False
     try:
+        await app.open_async()
+        opened = True
+        _runtime = Runtime(db, settings, ModerationService(db, settings), analyzer, profanity, control)
+        if settings.moderation_profile != "legacy":
+            _runtime.provider = ProviderControlService(db, settings)
+            await _bootstrap_provider(_runtime)
+            maintenance = asyncio.create_task(_provider_maintenance(_runtime))
+        configure_processor(lambda submission_id: run_submission(_runtime, submission_id))
+        control.send({"type": "READY", "bundle": settings.model_bundle_version})
         await app.run_worker_async(
             queues=["moderation"], concurrency=1, update_heartbeat_interval=10, stalled_worker_timeout=30
         )
     finally:
-        await app.close_async()
+        if maintenance:
+            maintenance.cancel()
+            await asyncio.gather(maintenance, return_exceptions=True)
+        if opened:
+            await app.close_async()
         await db.close()
+        close_analyzer = getattr(analyzer, "close", None)
+        if callable(close_analyzer) and not (_runtime and _runtime.poisoned):
+            await asyncio.to_thread(close_analyzer)
         control.close()
 
 

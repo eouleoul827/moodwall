@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1"]
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["ALLOW", "BLOCK", "UNCERTAIN", "SUPPORT"]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "HARASSMENT",
+          "HATE",
+          "SEXUAL_CONTENT",
+          "THREAT",
+          "PERSONAL_INFORMATION",
+          "OTHER_UNSAFE",
+          "INSUFFICIENT_CONTEXT",
+          "OUT_OF_DOMAIN",
+          "SELF_CRISIS"
+        ]
+      },
+      "maxItems": 5
+    },
+    "policy_rule_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "CP01",
+          "CP02",
+          "CP03",
+          "CP04",
+          "CP05",
+          "CP06",
+          "CP07",
+          "CP08",
+          "CP09",
+          "CP10"
+        ]
+      },
+      "maxItems": 5
+    }
+  },
+  "required": [
+    "schema_version",
+    "decision",
+    "reason_codes",
+    "policy_rule_ids"
+  ],
+  "additionalProperties": false
+}

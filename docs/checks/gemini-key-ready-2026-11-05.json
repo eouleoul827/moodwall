@@ -1,0 +1,83 @@
+{
+  "scope": "Key-ready server HTTP implementation verified with synthetic HTTP; not live Gemini quality or production acceptance",
+  "date": "2026-11-05",
+  "migration": "0007_provider_moderation",
+  "openapiVersion": "0.10.0",
+  "externalGeminiCalls": 0,
+  "realCredentialsUsed": false,
+  "productionMigrationApplied": false,
+  "backendRegression": {
+    "environment": "Python 3.12, Linux, PostgreSQL 16, isolated internal Docker network",
+    "passed": 679,
+    "failed": 4,
+    "skipped": 6,
+    "seconds": 412.86,
+    "skipReason": "Opt-in real student-model artifact not supplied",
+    "failureScope": "Process/helper startup and optional-module subprocess import deadlines; not Gemini HTTP or accounting assertions",
+    "failedTests": [
+      "test_kill_boundary_reaps_term_resistant_helper_after_leader_exits[False]",
+      "test_kill_boundary_reaps_term_resistant_helper_after_leader_exits[True]",
+      "test_module_import_does_not_import_optional_model_dependencies",
+      "test_supervisor_kills_hung_model_reaps_child_and_next_worker_processes"
+    ]
+  },
+  "earlierFullRegression": {
+    "passed": 681, "skipped": 6, "seconds": 170.08,
+    "note": "Successful full run before the final overrun-accounting hardening and two added tests; not a claim that the final full run passed"
+  },
+  "finalFocusedRegression": {
+    "environment": "Final Linux image source, isolated PostgreSQL 16, synthetic HTTP only",
+    "files": ["test_gemini_http.py", "test_gemini_connected_flow.py", "test_provider_runtime.py", "test_provider_support_flow.py", "test_http_contracts.py"],
+    "passed": 101,
+    "seconds": 61.65,
+    "note": "Includes measured usage overruns, startup probe, private support, authentication pause, no replay and current API contract; overlaps the full run"
+  },
+  "processRerunInsideLinuxImage": {
+    "passed": 1, "failed": 3, "seconds": 70.10,
+    "note": "No Windows source mount. Helper/supervisor readiness deadlines still exceeded; timeout values were not weakened"
+  },
+  "runtimeDiagnostics": {
+    "network": "none", "windowsSourceMount": false,
+    "asyncioImportSeconds": 4.645,
+    "throughPydanticImportSeconds": 5.308,
+    "throughPsycopgImportSeconds": 8.181,
+    "throughWorkerImportSeconds": 10.947,
+    "minimalChildProcessSeconds": 0.087,
+    "exactSlowImportCause": "UNRESOLVED; no evidence of CPU saturation or memory pressure in the diagnostic sample",
+    "inference": "Measured module startup alone exceeds the helper's 10-second deadline; the final process tests remain unresolved"
+  },
+  "frontend": {"testFiles": 5, "passed": 49, "seconds": 36.76, "productionBuild": "passed"},
+  "clientModules": {"passed": 107},
+  "setupScript": {"passed": 14, "actualRepositoryEnvRead": false, "realStackStarted": false},
+  "dockerTestImageBuild": "passed, including runtime HTTPX dependencies",
+  "staticChecks": {"ruffCheck": "passed", "ruffFormat": "86 files already formatted", "gitDiffCheck": "passed"},
+  "contracts": {
+    "openapiPaths": 41,
+    "operations": 42,
+    "responseExamples": 417,
+    "postgresStatements": 93,
+    "designLeaves": 106,
+    "localLinks": 449,
+    "status": "passed"
+  },
+  "syntheticPolicyArtifacts": {"cases": 77, "invalidSemanticCases": 15, "providerCalls": 0},
+  "liveTransport": {
+    "model": "gemini-3.6-flash",
+    "apiRevision": "2026-05-20",
+    "workflow": "countTokens preflight, then at most one Interactions generation; no retry",
+    "inputReservationTokens": 16384,
+    "outputAndThoughtCapTokens": 512,
+    "combinedHttpDeadlineSeconds": 8,
+    "countFramingMarginTokens": 1024,
+    "hardBillingBoundProven": false
+  },
+  "modelQuality": "NOT_EVALUATED",
+  "limitations": [
+    "Actual key authentication, project quota and service latency have not been tested",
+    "Token preflight margin and local budget are conservative controls, not a provider billing guarantee",
+    "No live 3200-case quality evaluation, school device acceptance or production deployment",
+    "Healthy periodic quality canary and external alert delivery remain operational work",
+    "Three process-boundary tests still exceed readiness deadlines in this degraded execution environment",
+    "Emotion predictor extension exists, but the default Gemini loader currently uses NEUTRAL fallback"
+  ]
+}

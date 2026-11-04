@@ -1,0 +1,10 @@
+# Development/test only. No API key or network transport is configured.
+services:
+  api:
+    environment:
+      MOODWALL_MODERATION_PROFILE: gemini_mock
+      MOODWALL_ANALYZER: gemini_mock
+  worker:
+    environment:
+      MOODWALL_MODERATION_PROFILE: gemini_mock
+      MOODWALL_ANALYZER: gemini_mock

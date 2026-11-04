@@ -83,7 +83,9 @@ def receipt_payload(row, now=None):
         "completedAt": row["completed_at"],
         "revision": str(row["revision"]),
         "statusUrl": "/api/v2/submissions/" + str(row["id"]),
-        "message": messages.get(status, "메시지를 보냈어요!"),
+        "message": "많이 힘들었겠어요. 이 글은 전광판에 표시하지 않았어요. 가까운 선생님이나 믿을 수 있는 어른에게 알려주세요."
+        if row["reason_code"] == "SUPPORT_AVAILABLE"
+        else messages.get(status, "메시지를 보냈어요!"),
     }
 
 
@@ -109,7 +111,12 @@ class PlaybackService:
             raise Problem(403, "FORBIDDEN")
         return await self.auth.require_operator(actor, ("ADMIN", "MODERATOR"), conn=conn)
 
-    async def get_receipt(self, actor, submission_id):
+    @staticmethod
+    def _require_features(required, features):
+        if required and required not in {part.strip() for part in features.split(",")}:
+            raise Problem(409, "CLIENT_UPDATE_REQUIRED", "화면을 새로고침해 주세요. 다시 전송할 필요는 없어요.")
+
+    async def get_receipt(self, actor, submission_id, client_features=""):
         async with self.db.connection() as conn:
             await self.auth.recheck(actor, conn)
             now = await db_time(conn)
@@ -120,9 +127,10 @@ class PlaybackService:
             )
             if actor.role != "student" or not row:
                 raise Problem(404, "NOT_FOUND")
+            self._require_features(row.get("required_client_features", ""), client_features)
             return receipt_payload(row, now)
 
-    async def lookup_receipt(self, actor, key):
+    async def lookup_receipt(self, actor, key, client_features=""):
         async with self.db.connection() as conn:
             await self.auth.recheck(actor, conn)
             now = await db_time(conn)
@@ -133,9 +141,10 @@ class PlaybackService:
             )
             if actor.role != "student" or not row:
                 raise Problem(404, "NOT_FOUND")
+            self._require_features(row.get("required_client_features", ""), client_features)
             return receipt_payload(row, now)
 
-    async def submit(self, actor, key, content):
+    async def submit(self, actor, key, content, client_features=""):
         if actor.role != "student":
             raise Problem(403, "FORBIDDEN")
         try:
@@ -145,16 +154,23 @@ class PlaybackService:
         fingerprint = hmac.digest(self.fingerprint_key, _canonical({"version": "2", "content": content}), "sha256")
         for attempt in range(3):
             try:
-                return await self._submit(actor, key, content, fingerprint)
+                return await self._submit(actor, key, content, fingerprint, client_features)
             except (errors.DeadlockDetected, errors.SerializationFailure, errors.LockNotAvailable):
                 if attempt == 2:
                     raise Problem(503, "SERVICE_UNAVAILABLE", retry_after=1) from None
                 await asyncio.sleep(0.025 * (attempt + 1))
 
-    async def _submit(self, actor, key, content, fingerprint):
+    async def _submit(self, actor, key, content, fingerprint, client_features=""):
+        from app.provider_control import ProviderControlService
         from app.submissions import usage_for
 
         async with self.db.connection() as conn, conn.transaction():
+            provider = None
+            required_features = ""
+            if getattr(self.settings, "moderation_profile", "legacy") != "legacy":
+                provider = ProviderControlService(self.db, self.settings)
+                await provider.lock_control(conn)
+                required_features = "support-v1"
             participant = await one(conn, "SELECT * FROM participants WHERE id=%s FOR UPDATE", (actor.id,))
             if not participant:
                 raise Problem(401, "SESSION_EXPIRED", cookie_role="student")
@@ -168,7 +184,9 @@ class PlaybackService:
             if existing and existing["receipt_expires_at"] > now:
                 if not hmac.compare_digest(bytes(existing["request_hash"]), fingerprint):
                     raise Problem(409, "IDEMPOTENCY_CONFLICT")
+                self._require_features(existing.get("required_client_features", ""), client_features)
                 return receipt_payload(existing, now), False
+            self._require_features(required_features, client_features)
             if existing:
                 # Expired keys may only become a new intent after their durable
                 # reservation has been released by maintenance.
@@ -258,6 +276,8 @@ class PlaybackService:
                 now + timedelta(seconds=min(600, getattr(self.settings, "pre_display_wait_seconds", 600))), cutoff
             )
             submission_id = uuid4()
+            if provider:
+                await provider.reserve_submission(conn, submission_id)
             await conn.execute(
                 """INSERT INTO submissions(id,participant_id,business_date,board_id,idempotency_key,request_hash,content,emoji_id,
                 accepted_at,expires_at,pre_display_deadline_at,moderation_policy_version,lexicon_version)
@@ -280,7 +300,8 @@ class PlaybackService:
             row = await one(
                 conn,
                 """INSERT INTO submission_receipts(id,participant_id,board_id,business_date,idempotency_key,request_hash,
-                accepted_at,receipt_expires_at,pre_display_deadline_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                accepted_at,receipt_expires_at,pre_display_deadline_at,required_client_features)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                 (
                     submission_id,
                     actor.id,
@@ -291,6 +312,7 @@ class PlaybackService:
                     now,
                     now + timedelta(hours=24),
                     pre_deadline,
+                    required_features,
                 ),
             )
             # The final business lock is this counter, never the board row.
@@ -399,6 +421,8 @@ class PlaybackService:
                 if source["error_code"] == "INVALID_MODEL_OUTPUT"
                 else "PREPARATION_UNAVAILABLE",
             )
+            if status == "NEEDS_REWRITE" and "SELF_CRISIS" in source["reason_codes"]:
+                reason = "SUPPORT_AVAILABLE"
             await conn.execute(
                 "UPDATE submission_receipts SET processing_status=%s,reason_code=%s,quota_status='RELEASED',revision=revision+1 WHERE id=%s",
                 (status, reason, submission_id),

@@ -16,7 +16,7 @@ export function takeAdmissionTicket(location = window.location, history = window
 }
 
 export function createStudentApi(fetcher = globalThis.fetch) {
-  async function request(path, { method = 'GET', body, csrfToken = '', signal } = {}) {
+  async function request(path, { method = 'GET', body, csrfToken = '', idempotencyKey, signal } = {}) {
     if (!path.startsWith('/api/') || path.startsWith('//')) throw new TypeError('A same-origin API path is required');
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -28,6 +28,8 @@ export function createStudentApi(fetcher = globalThis.fetch) {
         method, credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
         headers: {
           Accept: 'application/json',
+          'X-Moodwall-Client-Features': 'support-v1',
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
           ...(method === 'POST' ? { 'Content-Type': 'application/json', ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}) } : {}),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -82,6 +84,7 @@ export function createStudentApi(fetcher = globalThis.fetch) {
 }
 
 const messages = {
+  CLIENT_UPDATE_REQUIRED: '화면이 업데이트됐어요. 새로고침한 뒤 다시 확인해 주세요.',
   INVALID_QR: '전광판의 새 QR을 다시 찍어 주세요.',
   QR_EXPIRED: '입장 시간이 지났어요. 전광판의 새 QR을 찍어 주세요.',
   ADMISSION_EXPIRED: '입장 시간이 지났어요. 전광판의 새 QR을 찍어 주세요.',

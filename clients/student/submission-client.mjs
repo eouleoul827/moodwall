@@ -30,6 +30,10 @@ function receipt(value, expectedId = null) {
 }
 
 export function studentReceiptView(value) {
+  if (value.reasonCode === "SUPPORT_AVAILABLE") return { card: "SUPPORT", title: "혼자 감당하지 않아도 괜찮아요",
+    message: "많이 힘들었겠어요. 이 글은 전광판에 표시하지 않았어요. 지금 도움이 필요하다면 가까운 선생님이나 믿을 수 있는 어른에게 알려주세요.", terminal: true };
+  if (value.reasonCode === "CONTENT_REVIEW_UNCERTAIN") return { card: "UNCERTAIN", title: "공개 여부를 판단하기 어려웠어요",
+    message: "이 글은 전광판에 표시하지 않았어요. 내용을 조금 더 분명하게 적어 다시 보낼 수 있어요.", terminal: true };
   if (NORMAL.has(value.userStatus)) return { card: "COMPLETE", title: "메시지를 보냈어요!",
     message: "확인 후 전광판에 순서대로 올라가요. 표시되면 15초 동안 크게 보여요.", terminal: TERMINAL.has(value.userStatus) };
   if (value.userStatus === "NEEDS_REWRITE") return { card: "REWRITE", title: "표현을 조금 바꿔 주세요",
@@ -64,7 +68,7 @@ export class SubmissionClient {
   }
 
   begin(content) {
-    if (this.inFlight || this.intent && ["SENDING", "UNKNOWN", "AUTH_REQUIRED"].includes(this.state)) {
+    if (this.inFlight || this.intent && ["SENDING", "UNKNOWN", "AUTH_REQUIRED", "UPDATE_REQUIRED"].includes(this.state)) {
       if (this.intent.content === content) return this.intent;
       throw failure("PENDING_SUBMISSION_EXISTS");
     }
@@ -84,7 +88,7 @@ export class SubmissionClient {
     const cancel = () => controller.abort(signal.reason);
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();
-    const headers = { Accept: "application/json" };
+    const headers = { Accept: "application/json", "X-Moodwall-Client-Features": "support-v1" };
     if (method === "POST") {
       headers["Content-Type"] = "application/json";
       headers["X-CSRF-Token"] = this.csrfToken();
@@ -119,10 +123,18 @@ export class SubmissionClient {
     if (this.receipt && next.submissionId === this.receipt.submissionId &&
         BigInt(next.revision) < BigInt(this.receipt.revision)) return this.#accepted();
     this.receipt = next;
+    if (next.reasonCode === "SUPPORT_AVAILABLE" && this.intent) {
+      this.intent = Object.freeze({ ...this.intent, content: "" });
+    }
     this.state = "ACCEPTED";
     return this.#accepted();
   }
   #accepted() { return { state: "ACCEPTED", receipt: this.receipt, view: studentReceiptView(this.receipt) }; }
+  #updateRequired() {
+    this.stopWatching();
+    this.state = "UPDATE_REQUIRED";
+    return { state: "UPDATE_REQUIRED", code: "CLIENT_UPDATE_REQUIRED", receipt: this.receipt };
+  }
   #unknown(code = "RESULT_UNKNOWN") {
     this.state = "UNKNOWN";
     return { state: "UNKNOWN", code, view: { card: "SENDING", message: "전송 결과를 확인하고 있어요." } };
@@ -130,6 +142,8 @@ export class SubmissionClient {
 
   send() {
     if (!this.intent) throw failure("NO_SUBMISSION_INTENT");
+    if (this.state === "UPDATE_REQUIRED") return Promise.resolve(this.#updateRequired());
+    if (this.state === "ACCEPTED" && this.receipt) return Promise.resolve(this.#accepted());
     if (this.inFlight) return this.inFlight;
     const epoch = this.epoch, intent = this.intent;
     this.state = "SENDING";
@@ -140,6 +154,7 @@ export class SubmissionClient {
         });
         if (epoch !== this.epoch || this.intent !== intent) return { state: "STALE" };
         if ([200, 202].includes(response.status)) return this.#applyReceipt(value);
+        if (response.status === 409 && value.code === "CLIENT_UPDATE_REQUIRED") return this.#updateRequired();
         if (response.headers.get("Content-Type")?.includes("application/problem+json") && REJECTIONS.has(value.code)) {
           this.state = "REJECTED";
           return { state: "REJECTED", code: value.code };
@@ -166,6 +181,7 @@ export class SubmissionClient {
       });
       if (epoch !== this.epoch || this.intent !== intent) return { state: "STALE" };
       if (response.status === 200) return this.#applyReceipt(value);
+      if (response.status === 409 && value.code === "CLIENT_UPDATE_REQUIRED") return this.#updateRequired();
       if ([401, 403].includes(response.status)) {
         this.state = "AUTH_REQUIRED"; return { state: "AUTH_REQUIRED", code: value.code || "SESSION_EXPIRED" };
       }
@@ -185,6 +201,7 @@ export class SubmissionClient {
       const { response, value } = await this.#request(`/api/v2/submissions/${submissionId}`, { signal });
       if (epoch !== this.epoch || this.intent !== intent) return { state: "STALE" };
       if (response.status === 200) return this.#applyReceipt(value, submissionId);
+      if (response.status === 409 && value.code === "CLIENT_UPDATE_REQUIRED") return this.#updateRequired();
       return { state: response.status === 404 ? "UNAVAILABLE" : "LOOKUP_ERROR", code: value.code || "LOOKUP_FAILED",
         receipt: this.receipt }; // Keep an existing success card during a temporary read failure.
     } catch (error) {
@@ -208,12 +225,16 @@ export class SubmissionClient {
         if (controller.signal.aborted) break;
         const result = await this.getReceipt(submissionId, { signal: controller.signal });
         polls++;
+        if (result.state === "UPDATE_REQUIRED") { onChange(result); break; }
         if (controller.signal.aborted || result.state === "STALE") break;
         if (result.state === "ACCEPTED" && result.receipt.revision !== lastRevision) {
           lastRevision = result.receipt.revision;
           onChange(result); // The UI may retain the same COMPLETE card for all normal states.
         }
-        if (result.state === "UNAVAILABLE") break;
+        if (result.state === "UNAVAILABLE") {
+          onChange(result);
+          break;
+        }
       }
       return { polls, stopped: controller.signal.aborted, receipt: this.receipt };
     } catch (error) { if (!controller.signal.aborted) throw error; return { polls, stopped: true, receipt: this.receipt }; }
