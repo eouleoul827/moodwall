@@ -27,7 +27,13 @@ async function displayRequest(path, { signal, body, csrfToken, fetcher = fetch }
         'Content-Type': 'application/json', ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
       }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const value = await response.json();
+    let value;
+    try { value = await response.json(); }
+    catch (error) {
+      // A proxy may return an HTML error page. Preserve HTTP status so an
+      // authentication failure never turns into an endless network retry.
+      throw Object.assign(error, { status: response.status });
+    }
     if (!response.ok) throw Object.assign(new Error(value.code || 'DISPLAY_REQUEST_FAILED'), {
       status: response.status, code: value.code,
     });
@@ -118,29 +124,63 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
   const [now, setNow] = useState(Date.now());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [runtimeVersion, setRuntimeVersion] = useState(0);
+  const [sessionBusy, setSessionBusy] = useState(false);
   const sceneElement = useRef(null), runtimeRef = useRef(null);
   const csrfRef = useRef('');
+  const retrySessionRef = useRef(null);
 
-  const checkSession = useCallback(async signal => {
+  const checkSession = useCallback(() => retrySessionRef.current?.(), []);
+
+  useEffect(() => {
+    let active = true, busy = false, retryTimer = null, requestController = null;
+    let retryDelay = 5000;
+    const check = async () => {
+      // Manual retries and the timer share one request. Never queue another
+      // request behind a slow session lookup or repeat the pairing POST here.
+      if (!active || busy) return;
+      clearTimeout(retryTimer); retryTimer = null;
+      busy = true; setSessionBusy(true);
+      const controller = new AbortController();
+      requestController = controller;
+      try {
+        const value = await displayRequest('/api/display/session', { signal: controller.signal, fetcher });
+        if (!active || controller.signal.aborted) return;
+        csrfRef.current = value.csrfToken;
+        setSession(value); setMode(value.mode); setProblem(''); setBoot('READY');
+      } catch (error) {
+        if (!active || controller.signal.aborted) return;
+        if (AUTH_ERRORS.has(error.status)) {
+          csrfRef.current = ''; setSession(null); setProblem(''); setBoot('PAIR');
+        } else {
+          setBoot('ERROR');
+          const transient = error.status === undefined || error.status >= 500;
+          setProblem(transient ? '연결을 다시 확인하고 있어요. 잠시 기다려 주세요.' :
+            '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
+          if (transient) {
+            retryTimer = setTimeout(() => void check(), retryDelay);
+            retryDelay = Math.min(retryDelay * 2, 30_000);
+          }
+        }
+      } finally {
+        busy = false;
+        requestController = null;
+        if (active) setSessionBusy(false);
+      }
+    };
     setBoot('LOADING'); setProblem('');
-    try {
-      const value = await displayRequest('/api/display/session', { signal, fetcher });
-      if (signal?.aborted) return;
-      csrfRef.current = value.csrfToken;
-      setSession(value); setMode(value.mode); setBoot('READY');
-    } catch (error) {
-      if (signal?.aborted) return;
-      setBoot(AUTH_ERRORS.has(error.status) ? 'PAIR' : 'ERROR');
-      if (!AUTH_ERRORS.has(error.status)) setProblem('서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
-    }
+    retrySessionRef.current = check;
+    void check();
+    return () => {
+      active = false;
+      requestController?.abort(); clearTimeout(retryTimer);
+      if (retrySessionRef.current === check) retrySessionRef.current = null;
+    };
   }, [fetcher]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void checkSession(controller.signal);
     const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => { controller.abort(); clearInterval(clock); };
-  }, [checkSession]);
+    return () => clearInterval(clock);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -303,7 +343,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
       <h1>{boot === 'LOADING' ? '전광판을 연결하고 있어요' : '우리의 기분이 모일 곳'}</h1>
       <p>전광판에 연결된 노트북에서 열어 주세요.<br />운영자 화면에서 만든 등록 코드로 시작할 수 있어요.</p>
       {boot === 'LOADING' ? <div className="mw-loading" role="status">잠시만 기다려 주세요.</div> : boot === 'ERROR' ?
-        <button className="mw-primary" onClick={() => void checkSession()}>다시 연결하기</button> :
+        <button className="mw-primary" disabled={sessionBusy} onClick={() => void checkSession()}>다시 연결하기</button> :
         <form onSubmit={pair} className="mw-pair-form">
           <label htmlFor="display-code">전광판 등록 코드</label>
           <input id="display-code" value={code} onChange={event => setCode(event.target.value)} autoComplete="off" autoCapitalize="none" spellCheck="false" maxLength={256} placeholder="등록 코드를 붙여 넣어 주세요" />

@@ -1,0 +1,19 @@
+name: display-launcher
+on:
+  push:
+    paths: ["ops/display-launcher/**", ".github/workflows/display-launcher.yml"]
+  pull_request:
+    paths: ["ops/display-launcher/**", ".github/workflows/display-launcher.yml"]
+permissions:
+  contents: read
+jobs:
+  windows-launcher:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate launcher without installing or opening a browser
+        shell: powershell
+        run: '& ./ops/display-launcher/Test-Launcher.ps1'

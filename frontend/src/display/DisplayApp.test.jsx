@@ -20,6 +20,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   if (originalFonts) Object.defineProperty(document, 'fonts', originalFonts);
   else Reflect.deleteProperty(document, 'fonts');
@@ -154,5 +155,107 @@ describe('React display integration', () => {
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.textContent).toContain(item.content);
     expect(link.querySelector('img')).toBeNull();
+  });
+
+  it('recovers a slow-starting network with serial 5 to 30 second session retries', async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const fetcher = vi.fn(async path => {
+      if (path !== '/api/display/session') return response(ticket);
+      attempts++;
+      if (attempts === 1) throw new TypeError('OFFLINE');
+      return attempts <= 6 ? response({ code: 'UNAVAILABLE' }, 503) : response(session);
+    });
+    const app = harness(fetcher);
+    await act(async () => {});
+    expect(screen.getByRole('alert').textContent).toBe('연결을 다시 확인하고 있어요. 잠시 기다려 주세요.');
+    expect(attempts).toBe(1);
+    for (const [index, delay] of [5000, 10_000, 20_000, 30_000, 30_000, 30_000].entries()) {
+      await act(async () => vi.advanceTimersByTimeAsync(delay - 1));
+      expect(attempts).toBe(index + 1);
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(attempts).toBe(index + 2);
+    }
+    expect(app.runtime.start).toHaveBeenCalledTimes(1);
+    expect(screen.getByAltText('기분을 남기는 참여 QR 코드')).toBeTruthy();
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(attempts).toBe(7);
+    expect(fetcher.mock.calls.some(([path]) => path === '/api/display/pair')).toBe(false);
+    app.unmount();
+  });
+
+  it.each([401, 403])('stops startup retries on HTTP %s, including a non-JSON proxy response', async status => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn(async () => new Response('Access denied', { status }));
+    const app = harness(fetcher);
+    await act(async () => {});
+    expect(screen.getByLabelText('전광판 등록 코드')).toBeTruthy();
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(app.runtime.start).not.toHaveBeenCalled();
+    app.unmount();
+  });
+
+  it('coalesces manual startup retries and cancels the pending automatic retry', async () => {
+    vi.useFakeTimers();
+    let finish;
+    let attempts = 0;
+    const fetcher = vi.fn(path => {
+      if (path !== '/api/display/session') return Promise.resolve(response(ticket));
+      attempts++;
+      if (attempts === 1) return Promise.reject(new TypeError('OFFLINE'));
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const app = harness(fetcher);
+    await act(async () => {});
+    const retry = screen.getByRole('button', { name: '다시 연결하기' });
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    expect(retry.disabled).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(attempts).toBe(2);
+    await act(async () => finish(response(session)));
+    expect(app.runtime.start).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(attempts).toBe(2);
+    app.unmount();
+  });
+
+  it('clears the retry timer on unmount and aborts an unfinished session lookup', async () => {
+    vi.useFakeTimers();
+    const failingFetcher = vi.fn(async () => { throw new TypeError('OFFLINE'); });
+    const failed = harness(failingFetcher);
+    await act(async () => {});
+    failed.unmount();
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(failingFetcher).toHaveBeenCalledTimes(1);
+
+    let finish, requestSignal;
+    const pending = harness(vi.fn((_path, options) => {
+      requestSignal = options.signal;
+      return new Promise(resolve => { finish = resolve; });
+    }));
+    pending.unmount();
+    expect(requestSignal.aborted).toBe(true);
+    await act(async () => finish(response(session)));
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(pending.runtime.start).not.toHaveBeenCalled();
+    expect(pending.fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores an older startup response after its fetch lifecycle is replaced', async () => {
+    let finish, oldSignal;
+    const oldFetcher = vi.fn((_path, options) => {
+      oldSignal = options.signal;
+      return new Promise(resolve => { finish = resolve; });
+    });
+    const app = harness(oldFetcher);
+    const replacement = vi.fn(async () => response({ code: 'AUTH_REQUIRED' }, 401));
+    app.rerender(<DisplayApp runtimeFactory={app.factory} fetcher={replacement} />);
+    expect(oldSignal.aborted).toBe(true);
+    expect(await screen.findByLabelText('전광판 등록 코드')).toBeTruthy();
+    await act(async () => finish(response(session)));
+    expect(app.runtime.start).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('전광판 등록 코드')).toBeTruthy();
   });
 });
