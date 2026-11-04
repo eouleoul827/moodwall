@@ -1,0 +1,2 @@
+# Use the backend's reviewed CPU runtime after backend integration.
+-r ../../../backend/requirements-model.lock

@@ -1,0 +1,18 @@
+# Local AI diagnostics and training outputs. Shared secrets/weights are also
+# excluded by the repository .gitignore after backend integration.
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.log
+outputs/
+checkpoints/
+test_set_v0.csv
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.zip
