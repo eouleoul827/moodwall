@@ -30,7 +30,9 @@ from app.maintenance import RetentionService
 from app.moderation import ModerationService
 from app.operator import OperatorService
 from app.playback import PlaybackService
+from app.provider_control import ProviderControlService
 from app.queue import cleanup_finished, create_queue, enqueue
+from app.reports import ReportService
 from app.request_limits import bootstrap_limit, limit, read_limit
 from app.security import normalize_username
 from app.security_events import SecurityEvents
@@ -226,6 +228,8 @@ def create_app(settings=None):
             app.state.submissions = SubmissionService(db, settings, auth, enqueue, intake_ready)
             app.state.playback = PlaybackService(db, settings, auth, enqueue, intake_ready)
             app.state.operator = OperatorService(db, settings, auth, display)
+            app.state.reports = ReportService(db, settings, auth)
+            app.state.provider = ProviderControlService(db, settings)
             app.state.loops = {}
 
             async def loop(name, interval, function):
@@ -243,6 +247,8 @@ def create_app(settings=None):
 
                 async def cleanup():
                     await retention.cleanup()
+                    await app.state.reports.cleanup()
+                    await app.state.provider.recover_stale()
                     await cleanup_finished(settings)
 
                 for name, interval, function in (
@@ -270,7 +276,7 @@ def create_app(settings=None):
 
     app = FastAPI(
         title="Moodwall API",
-        version="0.8.0",
+        version="0.10.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.environment != "production" else None,
         redoc_url=None,
@@ -361,7 +367,9 @@ def create_app(settings=None):
     async def submit_v2(request: Request):
         current = await actor(request, "student", True)
         data = await body(request, dto.MentionV2)
-        value, new = await request.app.state.playback.submit(current, key_header(request), data.content)
+        value, new = await request.app.state.playback.submit(
+            current, key_header(request), data.content, request.headers.get("X-Moodwall-Client-Features", "")
+        )
         return respond(
             value,
             202 if new else 200,
@@ -370,13 +378,30 @@ def create_app(settings=None):
 
     @app.get("/api/v2/submissions/{submission_id}", operation_id="getOwnSubmissionV2")
     async def own_v2(request: Request, submission_id: UUID):
-        return respond(await request.app.state.playback.get_receipt(await actor(request, "student"), submission_id))
+        return respond(
+            await request.app.state.playback.get_receipt(
+                await actor(request, "student"), submission_id, request.headers.get("X-Moodwall-Client-Features", "")
+            )
+        )
 
     @app.post("/api/v2/submission-receipts/lookup", operation_id="lookupSubmissionReceipt")
     async def lookup_receipt(request: Request):
         current = await actor(request, "student", True)
         data = await body(request, dto.ReceiptLookup)
-        return respond(await request.app.state.playback.lookup_receipt(current, data.idempotencyKey))
+        return respond(
+            await request.app.state.playback.lookup_receipt(
+                current, data.idempotencyKey, request.headers.get("X-Moodwall-Client-Features", "")
+            )
+        )
+
+    @app.post("/api/v2/reports", operation_id="submitContentReport")
+    async def submit_report(request: Request):
+        current = await actor(request, "student", True)
+        data = await body(request, dto.ContentReport)
+        value, new = await request.app.state.reports.submit(
+            current, key_header(request), data.category, data.submissionId
+        )
+        return respond(value, 202 if new else 200)
 
     @app.post("/api/display/pair", operation_id="pairDisplay")
     async def pair(request: Request):
@@ -559,6 +584,33 @@ def create_app(settings=None):
             await request.app.state.operator.list_submissions(
                 await actor(request, "operator"), business_date=businessDate, status=status, cursor=cursor, limit=limit
             )
+        )
+
+    @app.get("/api/operator/reports", operation_id="listContentReports")
+    async def list_reports(request: Request, cursor: str | None = None):
+        return respond(await request.app.state.reports.list(await actor(request, "operator"), cursor))
+
+    @app.post("/api/operator/reports/{report_id}/resolve", operation_id="resolveContentReport")
+    async def resolve_report(request: Request, report_id: UUID):
+        current = await actor(request, "operator", True)
+        data = await body(request, dto.ResolveReport)
+        return respond(
+            await request.app.state.reports.resolve(current, report_id, key_header(request), data.resolution)
+        )
+
+    @app.get("/api/operator/moderation/provider", operation_id="getModerationProvider")
+    async def get_provider(request: Request):
+        current = await actor(request, "operator")
+        await request.app.state.auth.require_operator(current, ("ADMIN", "MODERATOR"))
+        return respond(await request.app.state.provider.summary())
+
+    @app.post("/api/operator/moderation/provider", operation_id="setModerationProviderPause")
+    async def pause_provider(request: Request):
+        current = await actor(request, "operator", True)
+        data = await body(request, dto.ProviderPause)
+        await request.app.state.auth.require_operator(current, ("ADMIN",))
+        return respond(
+            await request.app.state.provider.set_paused(data.paused, actor=current, auth=request.app.state.auth)
         )
 
     @app.post("/api/operator/submissions/{submission_id}/hide", operation_id="hideSubmission")

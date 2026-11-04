@@ -20,7 +20,7 @@ from inference.fake import FakeAnalyzer
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "app" / "resources" / "openapi.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-CONTRACT_SHA256 = "47af9f3e3710f152e24a3bba0a98fcee8c97f47c3125e19156ab3db8a6de721c"
+CONTRACT_SHA256 = "526906994206079cc5189ca0f12e8e0e3b0c383b8ec1ef82498e76a6a92fabe5"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 PRIVATE_FIELDS = {
     "participantId",
@@ -88,11 +88,11 @@ def test_packaged_contract_matches_pinned_and_repository_copy():
         for method, entry in path.items()
         if method in METHODS
     ]
-    assert len(operations) == len(set(operations)) == 37
+    assert len(operations) == len(set(operations)) == 42
 
 
 def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
-    assert CONTRACT["info"]["version"] == "0.8.0"
+    assert CONTRACT["info"]["version"] == "0.10.0"
     assert CONTRACT["components"]["schemas"]["DisplayState"]["properties"]["bubbles"]["maxItems"] == 100
     assert "slot" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
     assert "remainingMs" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
@@ -215,7 +215,7 @@ async def test_runtime_operation_methods_and_normalized_paths_match_contract(sys
         if not operation_id:
             continue
         actual.extend((operation_id, method.lower(), normalize(route.path)) for method in route.methods)
-    assert len(actual) == len(set(actual)) == 37
+    assert len(actual) == len(set(actual)) == 42
     assert set(actual) == expected
 
 

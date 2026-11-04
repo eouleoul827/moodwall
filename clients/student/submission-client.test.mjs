@@ -35,6 +35,7 @@ test("202 shows the existing completion card immediately and sends only content"
   assert.equal(requests[0].init.body, '{"content":"오늘 행복해"}');
   assert.equal(requests[0].init.headers["Idempotency-Key"], intent.idempotencyKey);
   assert.equal(requests[0].init.headers["X-CSRF-Token"], "csrf");
+  assert.equal(requests[0].init.headers["X-Moodwall-Client-Features"], "support-v1");
   assert.equal(requests[0].init.credentials, "same-origin");
   assert.equal(JSON.stringify(result.receipt).includes("오늘 행복해"), false);
 });
@@ -168,4 +169,54 @@ test("five-second deadline settles an abort-ignoring transport", async () => {
   expire();
   assert.equal((await pending).state, "UNKNOWN");
   assert.equal(client.intent.idempotencyKey, ID);
+});
+
+test("private support takes priority over generic rewrite and normal status cards", () => {
+  for (const userStatus of ["NEEDS_REWRITE", "SHOWN"]) {
+    const view = studentReceiptView(receipt({ userStatus, reasonCode: "SUPPORT_AVAILABLE", contentStatus: "PURGED" }));
+    assert.equal(view.card, "SUPPORT");
+    assert.match(view.message, /전광판에 표시하지 않았어요/);
+    assert.doesNotMatch(view.message, /바꿔|수정|벌점/);
+  }
+});
+
+test("uncertainty uses a neutral explanation rather than calling the message harmful", () => {
+  const view = studentReceiptView(receipt({ userStatus: "NEEDS_REWRITE", reasonCode: "CONTENT_REVIEW_UNCERTAIN" }));
+  assert.equal(view.card, "UNCERTAIN");
+  assert.match(view.title, /판단하기 어려웠어요/);
+  assert.doesNotMatch(view.message, /욕설|괴롭힘|벌점/);
+});
+
+test("support receipt releases the retained message body while preserving its recovery key", async () => {
+  const { client, requests } = setup(() => response(202, receipt({ userStatus: "NEEDS_REWRITE", reasonCode: "SUPPORT_AVAILABLE", contentStatus: "PURGED" })));
+  const intent = client.begin("도와줘 너무 힘들어");
+  const result = await client.send();
+  assert.equal(result.view.card, "SUPPORT");
+  assert.equal(client.intent.content, "");
+  assert.equal(client.intent.idempotencyKey, intent.idempotencyKey);
+  assert.equal((await client.send()).view.card, "SUPPORT");
+  assert.equal(requests.length, 1);
+});
+
+test("client upgrade response preserves the intent and never automatically reposts", async () => {
+  const { client, requests } = setup(() => response(409, { code: "CLIENT_UPDATE_REQUIRED" }, "application/problem+json"));
+  const intent = client.begin("남겨 둔 초안");
+  assert.equal((await client.send()).state, "UPDATE_REQUIRED");
+  assert.equal(client.intent, intent);
+  assert.throws(() => client.begin("다른 초안"), { code: "PENDING_SUBMISSION_EXISTS" });
+  assert.equal((await client.send()).state, "UPDATE_REQUIRED");
+  assert.equal(requests.length, 1);
+});
+
+test("support capability is present on owner lookup and polling; upgrade stops polling", async () => {
+  const { client, requests } = setup(url => response(url.endsWith(ID) ? 409 : 200,
+    url.endsWith(ID) ? { code: "CLIENT_UPDATE_REQUIRED" } : receipt()));
+  client.begin("안녕");
+  await client.recover();
+  const changes = [];
+  const result = await client.watchReceipt({ maxPolls: 10, onChange: value => changes.push(value) });
+  assert.equal(result.polls, 1);
+  assert.equal(changes[0].state, "UPDATE_REQUIRED");
+  assert.equal(client.receipt.submissionId, ID);
+  assert.ok(requests.every(({ init }) => init.headers["X-Moodwall-Client-Features"] === "support-v1"));
 });

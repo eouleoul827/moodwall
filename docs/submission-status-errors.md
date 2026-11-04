@@ -1,6 +1,12 @@
 # 무드월 접수 상태와 오류 계약
 
-기준일: 2026-11-04. [준비 완료 순서와 15초 재생 설계](playback-design.md)에 따른 v2 경로·신규 오류·영수증을 실행 코드와 OpenAPI 0.8.0에 반영했다. 실제 필드와 상태 값은 [HTTP 계약](openapi.json), 사용법은 [로컬 연결 가이드](playback-local-implementation.md)를 따른다. 기존 [Problem 응답 구현](../backend/app/errors.py)의 형식·인증·입력 비반사 원칙을 재사용한다.
+기준일: 2026-11-05. [준비 완료 순서와 15초 재생 설계](playback-design.md)의 v2 경로에 [Gemini 검수](gemini-moderation-implementation.md)를 추가해 실행 코드와 OpenAPI 0.10.0에 반영했다. 실제 필드와 상태 값은 [HTTP 계약](openapi.json), 재생 사용법은 [로컬 연결 가이드](playback-local-implementation.md)를 따른다. 기존 [Problem 응답 구현](../backend/app/errors.py)의 형식·인증·입력 비반사 원칙을 재사용한다.
+
+## Gemini 추가 계약의 상태
+
+[Gemini 검수 설계](gemini-moderation-design.md)의 새 사유 `SUPPORT_AVAILABLE`, 기능 헤더 `support-v1`, HTTP 409 `CLIENT_UPDATE_REQUIRED`, 신고 API를 구현했다. 서버 전용 실제 HTTP 연결과 외부 호출 없는 mock을 구분한다. 지원 결과는 기존 `NEEDS_REWRITE` 상태를 유지하면서 지원 사유를 원문 purge 전에 영수증에 보존하고, 학생 화면에서 일반 수정 안내보다 우선 표시한다.
+
+운영자 검수 상태의 `transportConfigured`는 서버 키 설정 여부이고, `workerReady`는 현재 bundle의 유효한 작업자 lease 여부다. 둘을 실제 모델 품질 검증으로 해석하지 않는다. `lastFailureCode`는 인증·한도·시간 초과 등의 고정된 코드만 반환하며 키·공급자 응답 본문·학생 원문은 포함하지 않는다. 연결 준비·복구·예산 부족 동안 새 접수는 기존 HTTP 503 `MODEL_NOT_READY`로 닫고, 진행 중 기술 실패는 제재 없이 종료한다. 이미 전송을 시작한 검수를 자동으로 다시 호출하지 않는다.
 
 ## 학생 화면의 기본 원칙
 

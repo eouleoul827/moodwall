@@ -31,6 +31,19 @@ class ReceiptLookup(Input):
     idempotencyKey: UUID
 
 
+class ContentReport(Input):
+    category: Literal["HARASSMENT", "PRIVACY", "THREAT", "OTHER"]
+    submissionId: UUID | None = None
+
+
+class ResolveReport(Input):
+    resolution: Literal["HIDDEN", "BOARD_PAUSED", "NO_ACTION", "INSUFFICIENT_EVIDENCE"]
+
+
+class ProviderPause(Input):
+    paused: bool
+
+
 class PlaybackClaim(Input):
     clientInstanceId: UUID
     deviceGeneration: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")

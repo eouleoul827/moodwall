@@ -15,6 +15,7 @@ ReasonCode = Literal[
     "OTHER_UNSAFE",
     "INSUFFICIENT_CONTEXT",
     "OUT_OF_DOMAIN",
+    "SELF_CRISIS",
 ]
 
 
@@ -38,6 +39,8 @@ class SafetyResult(ContractModel):
             raise ValueError("duplicate reason code")
         if (self.verdict == "ALLOW") != (not self.reason_codes):
             raise ValueError("verdict and reasons disagree")
+        if "SELF_CRISIS" in self.reason_codes and self.verdict != "BLOCK":
+            raise ValueError("SELF_CRISIS requires a nonpublic BLOCK result")
         return self
 
 

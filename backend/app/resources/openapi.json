@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Moodwall HTTP API",
-    "version": "0.8.0",
-    "description": "Moodwall API: legacy v1 floating bubbles remain compatible. V2 accepts content only, stores a text-free owner receipt for 24 hours, and orders completed preparation by committed READY sequence. A fenced display instance claims one message, obtains a five-second start authorization, reports the first frame, then reports completion after at least 15 seconds. New arrivals wait. Source text expires one hour after the first start authorization; local transparent bubbles remain until KST midnight. Predisplay waiting is separately bounded at ten minutes. Admission reservations are atomic and rolling-hour post quotas remain distinct from endpoint request limits. All POST requests require the exact Origin and JSON object body within 4096 bytes. Authenticated writes require CSRF; command and submission keys use raw UUID headers. Authentication, owner scopes, request limits and RFC 9457 errors apply to both versions. Model safety policy remains unchanged; this contract does not authorize model deployment."
+    "version": "0.10.0",
+    "description": "Moodwall API: legacy v1 floating bubbles remain compatible. V2 accepts content only, stores a text-free owner receipt for 24 hours, and orders completed preparation by committed READY sequence. A fenced display instance claims one message, obtains a five-second start authorization, reports the first frame, then reports completion after at least 15 seconds. New arrivals wait. Source text expires one hour after the first start authorization; local transparent bubbles remain until KST midnight. Predisplay waiting is separately bounded at ten minutes. Admission reservations are atomic and rolling-hour post quotas remain distinct from endpoint request limits. All POST requests require the exact Origin and JSON object body within 4096 bytes. Authenticated writes require CSRF; command and submission keys use raw UUID headers. Authentication, owner scopes, request limits and RFC 9457 errors apply to both versions. Model safety policy remains unchanged; this contract does not authorize model deployment. Provider moderation adds support-aware receipts and private reports. Gemini transport is server-only, with durable accounting, readiness probes and circuit controls; the mock profile performs no external calls."
   },
   "servers": [
     {
@@ -2566,6 +2566,17 @@
               "format": "uri"
             },
             "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "X-Moodwall-Client-Features",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Contains support-v1 for new provider-profile submissions and receipt recovery. Missing capability returns409 CLIENT_UPDATE_REQUIRED; ownership checked before receipt capability."
           }
         ],
         "responses": {
@@ -2745,6 +2756,17 @@
               "maxLength": 36,
               "format": "uuid"
             }
+          },
+          {
+            "name": "X-Moodwall-Client-Features",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Contains support-v1 for new provider-profile submissions and receipt recovery. Missing capability returns409 CLIENT_UPDATE_REQUIRED; ownership checked before receipt capability."
           }
         ],
         "responses": {
@@ -2860,6 +2882,17 @@
               "format": "uri"
             },
             "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "X-Moodwall-Client-Features",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Contains support-v1 for new provider-profile submissions and receipt recovery. Missing capability returns409 CLIENT_UPDATE_REQUIRED; ownership checked before receipt capability."
           }
         ],
         "responses": {
@@ -4105,6 +4138,680 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PlaybackInterruptRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/reports": {
+      "post": {
+        "operationId": "submitContentReport",
+        "summary": "submitContentReport",
+        "tags": [
+          "student"
+        ],
+        "description": "Fixed category and optional same-board published ID only. No text/upload. Three new reports per participant per ten minutes. Same key recovers existing receipt without consuming quota. Reports never automatically penalize or hide.",
+        "security": [
+          {
+            "participantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "202": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportReceipt"
+                },
+                "example": {
+                  "reportId": "70000000-0000-4000-8000-000000000001",
+                  "status": "RECEIVED"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportReceipt"
+                },
+                "example": {
+                  "reportId": "70000000-0000-4000-8000-000000000001",
+                  "status": "RECEIVED"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContentReportRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operator/reports": {
+      "get": {
+        "operationId": "listContentReports",
+        "summary": "listContentReports",
+        "tags": [
+          "operator"
+        ],
+        "description": "Board-scoped text-free report metadata, seven-day retention, signed keyset pagination.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportPage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "reportId": "70000000-0000-4000-8000-000000000001",
+                      "status": "RECEIVED",
+                      "boardId": "10000000-0000-4000-8000-000000000001",
+                      "submissionId": null,
+                      "category": "OTHER",
+                      "receivedAt": "2026-11-04T03:00:00Z",
+                      "resolvedAt": null,
+                      "resolution": null,
+                      "targetAvailable": false
+                    }
+                  ],
+                  "nextCursor": null
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ]
+      }
+    },
+    "/api/operator/reports/{reportId}/resolve": {
+      "post": {
+        "operationId": "resolveContentReport",
+        "summary": "resolveContentReport",
+        "tags": [
+          "operator"
+        ],
+        "description": "Records a resolution once; HIDDEN/BOARD_PAUSED require an already verified hide/pause action. Same command key recovers result; conflicting reuse returns409.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportRecord"
+                },
+                "example": {
+                  "reportId": "70000000-0000-4000-8000-000000000001",
+                  "status": "RESOLVED",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "submissionId": null,
+                  "category": "OTHER",
+                  "receivedAt": "2026-11-04T03:00:00Z",
+                  "resolvedAt": "2026-11-04T03:01:00Z",
+                  "resolution": "NO_ACTION",
+                  "targetAvailable": false
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportResolutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operator/moderation/provider": {
+      "get": {
+        "operationId": "getModerationProvider",
+        "summary": "getModerationProvider",
+        "tags": [
+          "operator"
+        ],
+        "description": "Reports provider profile, worker readiness, circuit state, safe failure code and conservative daily accounting. Never returns credentials or provider response bodies; this read performs no provider calls.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationProviderStatus"
+                },
+                "example": {
+                  "enabled": false,
+                  "mode": "LEGACY"
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ]
+      },
+      "post": {
+        "operationId": "setModerationProviderPause",
+        "summary": "setModerationProviderPause",
+        "tags": [
+          "operator"
+        ],
+        "description": "ADMIN-only audited manual pause. Resume starts two spaced recovery probes; the real profile uses budgeted synthetic-text provider calls. It never bypasses readiness, circuit health or budget checks.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationProviderStatus"
+                },
+                "example": {
+                  "enabled": false,
+                  "mode": "LEGACY"
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderPauseRequest"
               }
             }
           }
@@ -5444,7 +6151,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "SUPPORT_AVAILABLE selects private fixed help before generic NEEDS_REWRITE. Required capability survives source purge/profile rollback. No new moderation status."
           },
           "firstStartAuthorizedAt": {
             "anyOf": [
@@ -6131,6 +6839,331 @@
           "deviceGeneration",
           "playbackEpoch",
           "reason"
+        ]
+      },
+      "ContentReportRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "HARASSMENT",
+              "PRIVACY",
+              "THREAT",
+              "OTHER"
+            ]
+          },
+          "submissionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36,
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "category"
+        ]
+      },
+      "ReportResolutionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "HIDDEN",
+              "BOARD_PAUSED",
+              "NO_ACTION",
+              "INSUFFICIENT_EVIDENCE"
+            ]
+          }
+        },
+        "required": [
+          "resolution"
+        ]
+      },
+      "ContentReportReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "status": {
+            "const": "RECEIVED",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reportId",
+          "status"
+        ]
+      },
+      "ContentReportRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "boardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "submissionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36,
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "HARASSMENT",
+              "PRIVACY",
+              "THREAT",
+              "OTHER"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "RESOLVED"
+            ]
+          },
+          "receivedAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "HIDDEN",
+                  "BOARD_PAUSED",
+                  "NO_ACTION",
+                  "INSUFFICIENT_EVIDENCE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetAvailable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reportId",
+          "boardId",
+          "submissionId",
+          "category",
+          "status",
+          "receivedAt",
+          "resolvedAt",
+          "resolution",
+          "targetAvailable"
+        ]
+      },
+      "ContentReportPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentReportRecord"
+            },
+            "maxItems": 50
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "ProviderPauseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paused"
+        ]
+      },
+      "ModerationProviderStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "const": false
+              },
+              "mode": {
+                "type": "string",
+                "const": "LEGACY"
+              }
+            },
+            "required": [
+              "enabled",
+              "mode"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "const": true
+              },
+              "profile": {
+                "type": "string",
+                "enum": [
+                  "gemini_mock",
+                  "gemini"
+                ]
+              },
+              "transportConfigured": {
+                "type": "boolean"
+              },
+              "syntheticAccounting": {
+                "type": "boolean"
+              },
+              "workerReady": {
+                "type": "boolean"
+              },
+              "lastFailureCode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "OPEN",
+                  "PAUSED",
+                  "OPEN_CIRCUIT",
+                  "HALF_OPEN"
+                ]
+              },
+              "releaseId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "consecutiveFailures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "budgetDay": {
+                "type": "string",
+                "format": "date"
+              },
+              "chargedMicroUsd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reservedMicroUsd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "dailyBudgetMicroUsd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unknownAttempts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "probeSuccesses": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "enabled",
+              "profile",
+              "transportConfigured",
+              "syntheticAccounting",
+              "workerReady",
+              "lastFailureCode",
+              "mode",
+              "releaseId",
+              "consecutiveFailures",
+              "budgetDay",
+              "chargedMicroUsd",
+              "reservedMicroUsd",
+              "dailyBudgetMicroUsd",
+              "unknownAttempts",
+              "probeSuccesses"
+            ]
+          }
         ]
       }
     },

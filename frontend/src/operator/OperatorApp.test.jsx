@@ -8,6 +8,88 @@ const rejected = status => Object.assign(new Error("synthetic"), { status, code:
 afterEach(() => window.history.replaceState(null, "", "/"));
 
 describe("operator API connection", () => {
+  it.each([
+    [{ mode: "OPEN", transportConfigured: true, workerReady: false }, "연결 확인 중"],
+    [{ mode: "PAUSED", transportConfigured: true, workerReady: false, lastFailureCode: "PROVIDER_AUTH_ERROR" }, "API 키와 프로젝트 권한을 확인해 주세요. 설정을 고친 뒤 검수 재개 확인을 눌러 주세요."],
+    [{ mode: "OPEN", transportConfigured: false, workerReady: false, lastFailureCode: "MODEL_NOT_READY" }, "서버에 Gemini API 키를 등록해 주세요."],
+  ])("shows real provider readiness and a fixed safe failure message: %j", async (state, message) => {
+    const api = vi.fn(async path => {
+      if (path === "/api/operator/session") return signedIn;
+      if (path === "/api/operator/moderation/provider") return {
+        enabled: true, profile: "gemini", syntheticAccounting: false, ...state,
+        error: "must-not-render-provider-body-or-secret",
+      };
+      return { items: [], nextCursor: null };
+    });
+    render(<OperatorApp api={api} />);
+    await screen.findByText(message);
+    expect(screen.queryByText(/실제 API 호출·과금 없음/)).toBeNull();
+    expect(screen.queryByText("검수 가능")).toBeNull();
+    expect(screen.queryByText("must-not-render-provider-body-or-secret")).toBeNull();
+  });
+
+  it("shows mock moderation honestly and resumes into recovery rather than claiming healthy", async () => {
+    const provider = { enabled: true, profile: "gemini_mock", transportConfigured: false, syntheticAccounting: true, mode: "PAUSED" };
+    const api = vi.fn(async (path, options) => {
+      if (path === "/api/operator/session") return signedIn;
+      if (path === "/api/operator/moderation/provider") return { ...provider, mode: options?.method === "POST" ? "OPEN_CIRCUIT" : "PAUSED" };
+      return { items: [], nextCursor: null };
+    });
+    render(<OperatorApp api={api} />);
+    await screen.findByRole("heading", { name: "모의 검수" }, { timeout: 6000 });
+    expect(screen.getByText(/실제 API 호출·과금 없음/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "검수 재개 확인" }));
+    await screen.findByText(/실제 API 호출·과금 없음 · 복구 확인 중/);
+    expect(api).toHaveBeenCalledWith("/api/operator/moderation/provider", { method: "POST", body: { paused: false }, csrfToken: signedIn.csrfToken });
+    expect(screen.queryByText(/실제 API 호출·과금 없음 · 검수 가능/)).toBeNull();
+  });
+
+  it("shows report metadata and records a resolution without implicitly hiding a message", async () => {
+    const reportId = "22222222-2222-4222-8222-222222222222";
+    const submissionId = "33333333-3333-4333-8333-333333333333";
+    const report = { reportId, boardId: "board", submissionId, category: "PRIVACY", status: "RECEIVED",
+      receivedAt: "2026-11-04T03:00:00Z", resolvedAt: null, resolution: null, targetAvailable: false, content: "must not render this content" };
+    const api = vi.fn(async (path, options) => {
+      if (path === "/api/operator/session") return signedIn;
+      if (path === `/api/operator/reports/${reportId}/resolve`) return { ...report, status: "RESOLVED", resolution: options.body.resolution };
+      if (path === "/api/operator/reports") return { items: [report], nextCursor: null };
+      return { items: [], nextCursor: null };
+    });
+    render(<OperatorApp api={api} />);
+    await screen.findByRole("heading", { name: "개인정보 노출" }, { timeout: 6000 });
+    expect(screen.queryByText("must not render this content")).toBeNull();
+    expect(screen.getByText(/보관 기간이 지나/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "처리 기록" }));
+    await screen.findByText("신고 처리 결과를 기록했어요.");
+    const command = api.mock.calls.find(([path]) => path.endsWith("/resolve"));
+    expect(command[1]).toEqual({ method: "POST", body: { resolution: "INSUFFICIENT_EVIDENCE" }, csrfToken: signedIn.csrfToken, idempotencyKey: expect.any(String) });
+    expect(api.mock.calls.some(([path]) => path.endsWith("/hide"))).toBe(false);
+  });
+
+  it("retries an uncertain report resolution using the same key and locked result", async () => {
+    const reportId = "22222222-2222-4222-8222-222222222222";
+    const report = { reportId, category: "THREAT", status: "RECEIVED", receivedAt: "2026-11-04T03:00:00Z", submissionId: null };
+    let commands = 0;
+    const api = vi.fn(async (path) => {
+      if (path === "/api/operator/session") return signedIn;
+      if (path.endsWith("/resolve")) {
+        if (++commands === 1) throw rejected(503);
+        return { ...report, status: "RESOLVED", resolution: "NO_ACTION" };
+      }
+      return { items: path === "/api/operator/reports" ? [report] : [], nextCursor: null };
+    });
+    render(<OperatorApp api={api} />);
+    fireEvent.change(await screen.findByLabelText("처리 결과"), { target: { value: "NO_ACTION" } });
+    fireEvent.click(screen.getByRole("button", { name: "처리 기록" }));
+    const retry = await screen.findByRole("button", { name: "같은 처리 기록 다시 확인" });
+    expect(screen.getByLabelText("처리 결과").disabled).toBe(true);
+    fireEvent.click(retry);
+    await screen.findByText("신고 처리 결과를 기록했어요.");
+    const requests = api.mock.calls.filter(([path]) => path.endsWith("/resolve"));
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual(requests[1]);
+  });
+
   it("selects a retained bubble from the display without hiding until an authenticated click", async () => {
     const id = "aaaaaaaa-aaaa-4aaa-8aaa-000000000001";
     window.history.replaceState(null, "", `/operator#hide=${id}`);

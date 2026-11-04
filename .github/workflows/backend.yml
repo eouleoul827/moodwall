@@ -32,6 +32,8 @@ jobs:
           persist-credentials: false
       - name: Student recovery, 15-second playback and bubble retention
         run: node --test clients/*.test.mjs clients/display/*.test.mjs clients/student/*.test.mjs
+      - name: Server-only Gemini key setup checks
+        run: python -m unittest discover -s scripts -p test_setup_gemini.py
       - run: docker build --target test -t moodwall-test ./backend
       - name: Static checks
         run: |

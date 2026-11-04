@@ -145,6 +145,8 @@ class SubmissionService:
                 if bytes(existing["request_hash"]) != fingerprint:
                     raise Problem(409, "IDEMPOTENCY_CONFLICT")
                 return serialize_submission(existing), False
+            if getattr(self.settings, "moderation_profile", "legacy") != "legacy":
+                raise Problem(409, "CLIENT_UPDATE_REQUIRED", "화면을 새로고침한 뒤 다시 작성해 주세요.")
             if not self.intake_ready() or not await schema_ready(conn, self.settings.board_id):
                 raise Problem(503, "SERVICE_UNAVAILABLE")
             if emoji_id not in EMOJI:

@@ -1,0 +1,22 @@
+# Real server-only Gemini moderation. Configure with scripts/setup_gemini.py.
+# This file never exposes credentials to the React/Vite build or browser.
+services:
+  # Provisioning commands need DB/auth configuration, never a provider key.
+  migrate:
+    environment:
+      MOODWALL_MODERATION_PROFILE: legacy
+      MOODWALL_ANALYZER: fake
+  cli:
+    environment:
+      MOODWALL_MODERATION_PROFILE: legacy
+      MOODWALL_ANALYZER: fake
+  api:
+    environment:
+      MOODWALL_MODERATION_PROFILE: gemini
+      MOODWALL_ANALYZER: gemini
+      MOODWALL_GEMINI_API_KEY: ${MOODWALL_GEMINI_API_KEY:?Run python scripts/setup_gemini.py}
+  worker:
+    environment:
+      MOODWALL_MODERATION_PROFILE: gemini
+      MOODWALL_ANALYZER: gemini
+      MOODWALL_GEMINI_API_KEY: ${MOODWALL_GEMINI_API_KEY:?Run python scripts/setup_gemini.py}

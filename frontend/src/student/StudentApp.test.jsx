@@ -12,12 +12,12 @@ const accepted = (status = 'WAITING') => ({ state: 'ACCEPTED', receipt: { userSt
   message: status === 'NEEDS_REWRITE' ? '표현을 바꿔 다시 보내 주세요.' : '확인 후 전광판에 순서대로 올라가요. 표시되면 15초 동안 크게 보여요.',
 } });
 
-function setup({ sendResult = accepted(), connectedSession = session() } = {}) {
+function setup({ sendResult = accepted(), connectedSession = session(), reload } = {}) {
   const api = { connect: vi.fn().mockResolvedValue(connectedSession), session: vi.fn().mockResolvedValue(connectedSession),
-    usage: vi.fn().mockResolvedValue(usage) };
+    usage: vi.fn().mockResolvedValue(usage), request: vi.fn().mockResolvedValue({ reportId: '22222222-2222-4222-8222-222222222222', status: 'RECEIVED' }) };
   const client = { begin: vi.fn(), send: vi.fn().mockResolvedValue(sendResult), recover: vi.fn().mockResolvedValue({ state: 'UNKNOWN' }),
     getReceipt: vi.fn().mockResolvedValue(accepted()), watchReceipt: vi.fn().mockResolvedValue({}), stopWatching: vi.fn(), resetAuthentication: vi.fn() };
-  render(<StudentApp api={api} createSubmissionClient={() => client} initialTicket="test-ticket" />);
+  render(<StudentApp api={api} createSubmissionClient={() => client} initialTicket="test-ticket" reload={reload} />);
   return { api, client };
 }
 
@@ -115,5 +115,62 @@ describe('student composition and receipts', () => {
     fireEvent.focus(window);
     await waitFor(() => expect(screen.getByRole('button', { name: /전광판에 올리기/ }).disabled).toBe(false));
     expect(input.value).toBe('남겨 둔 초안');
+  });
+
+  it('shows a private support card without repeating the crisis text or asking for a rewrite', async () => {
+    const { studentReceiptView } = await import('@clients/student/submission-client.mjs');
+    const receipt = { userStatus: 'NEEDS_REWRITE', reasonCode: 'SUPPORT_AVAILABLE', contentStatus: 'PURGED' };
+    setup({ sendResult: { state: 'ACCEPTED', receipt, view: studentReceiptView(receipt) } });
+    await submit('너무 힘들어 도와줘');
+    await screen.findByRole('heading', { name: '혼자 감당하지 않아도 괜찮아요' });
+    expect(screen.queryByText('너무 힘들어 도와줘')).toBeNull();
+    expect(screen.queryByRole('button', { name: '수정하기' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '도움받는 방법 보기' }));
+    expect(screen.getByRole('region', { name: '도움받는 방법' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '작성 화면으로' }));
+    expect(screen.getByRole('textbox', { name: '멘션 입력' }).value).toBe('');
+  });
+
+  it('keeps help accessible during technical uncertainty', async () => {
+    setup({ sendResult: { state: 'UNKNOWN' } });
+    await submit();
+    await screen.findByRole('button', { name: '다시 확인' });
+    fireEvent.click(screen.getByRole('button', { name: '도움이 필요해요' }));
+    expect(screen.getByRole('heading', { name: '도움이 필요할 때' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '멘션 입력' }).readOnly).toBe(true);
+  });
+
+  it('requires an explicit refresh after a client upgrade, preserving the draft without retry', async () => {
+    const reload = vi.fn();
+    const { client } = setup({ sendResult: { state: 'UPDATE_REQUIRED', code: 'CLIENT_UPDATE_REQUIRED' }, reload });
+    await submit('남겨 둔 초안');
+    const refresh = await screen.findByRole('button', { name: '새로고침하기' });
+    expect(client.recover).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: '멘션 입력' }).value).toBe('남겨 둔 초안');
+    expect(screen.getByRole('button', { name: /전광판에 올리기/ }).disabled).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+    fireEvent.click(refresh);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(client.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports only a fixed category and preserves the key after a lost response', async () => {
+    const { api } = setup();
+    api.request.mockRejectedValueOnce(Object.assign(Error('synthetic'), { code: 'NETWORK_ERROR' }));
+    await submit('비공개 원문');
+    fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
+    fireEvent.change(screen.getByLabelText('어떤 문제인가요?'), { target: { value: 'PRIVACY' } });
+    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
+    const retry = await screen.findByRole('button', { name: '같은 신고 다시 보내기' });
+    expect(screen.getByLabelText('어떤 문제인가요?').disabled).toBe(true);
+    fireEvent.click(retry);
+    await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
+    expect(api.request).toHaveBeenCalledTimes(2);
+    const first = api.request.mock.calls[0], second = api.request.mock.calls[1];
+    expect(first[0]).toBe('/api/v2/reports');
+    expect(first[1].body).toEqual({ category: 'PRIVACY' });
+    expect(first[1].csrfToken).toBe('test-csrf');
+    expect(second).toEqual(first);
+    expect(JSON.stringify(first)).not.toContain('비공개 원문');
   });
 });
