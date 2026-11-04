@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+torch
+transformers
+google-genai
+pandas
+scikit-learn
+datasets
+accelerate
