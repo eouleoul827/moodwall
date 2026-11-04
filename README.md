@@ -7,7 +7,7 @@
 
 처음 실행할 때는 **[백엔드 실행 가이드](backend/README.md)**를 읽으세요. Docker Compose로 로컬 DB·API·작업자를 실행하고, 운영자를 생성한 뒤 접수·송출을 명시적으로 재개하는 순서입니다. 현재 구현·검증·미완료 범위는 [구현 상태](docs/implementation-status.md)에 구분합니다.
 
-팀에서 전달받은 [전광판·모바일 HTML 시안](prototypes/README.md)도 포함합니다. 실제 모델 bundle은 [학생 모델 v0 사전 릴리스](https://github.com/eouleoul827/moodwall/releases/tag/student-model-v0-0c45710941f2)의 첨부 파일로 제공합니다. 코드는 기능 브랜치와 PR에서 검토하며, AI 팀의 학습 코드·시드 데이터는 [AI PR #2](https://github.com/eouleoul827/moodwall/pull/2)에 있습니다.
+팀에서 전달받은 [전광판·모바일 HTML 시안](prototypes/README.md)도 포함합니다. 실제 모델 bundle은 [학생 모델 v0 사전 릴리스](https://github.com/eouleoul827/moodwall/releases/tag/student-model-v0-0c45710941f2)의 첨부 파일로 제공합니다. AI 팀의 학습 코드·시드 데이터·로컬 진단 도구는 [ai/ 안내](ai/README.md)에 모았습니다. 서비스는 기존 검수 worker를 사용하며 진단 도구는 별도로 127.0.0.1:8001에서 실행합니다. 코드는 기능 브랜치와 PR에서 검토하고 `main`으로 병합합니다.
 
 멘션은 **승인 즉시 떠다니는 말풍선**으로 공개합니다. 별도 강조·4개 자리 제한·표시 대기 없이 일반 말풍선으로 보여 주고, 접수 1시간 뒤에는 같은 글 내용이 담긴 투명 말풍선으로 자정까지 남깁니다. 서버 DB는 접수 후 1시간에 글을 삭제하며 전광판 노트북의 당일 캐시는 별도로 유지합니다. 서버 목록에서 빠지는 것은 말풍선 삭제 신호가 아닙니다. 자정·운영자 숨김·기기 해지에는 캐시도 정리합니다. [쉽게 보는 전체 흐름](docs/service-flow.md)을 참고하세요. 전광판 React 화면과 당일 캐시는 연결할 구현 범위입니다.
 

@@ -18,10 +18,11 @@ arguments = parser.parse_args()
 if arguments.dependency_path:
     sys.path.insert(0, str(arguments.dependency_path.resolve()))
 
-from jsonschema import Draft202012Validator, FormatChecker
-from openapi_spec_validator import OpenAPIV31SpecValidator
-from pglast import parse_sql
-from pydantic import TypeAdapter, ValidationError
+# The optional isolated dependency directory must precede validator imports.
+from jsonschema import Draft202012Validator, FormatChecker  # noqa: E402
+from openapi_spec_validator import OpenAPIV31SpecValidator  # noqa: E402
+from pglast import parse_sql  # noqa: E402
+from pydantic import TypeAdapter, ValidationError  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = json.loads((ROOT / "docs/openapi.json").read_text(encoding="utf-8-sig"))
@@ -94,7 +95,9 @@ print(f"PASS PostgreSQL syntax: {len(schema_statements)} schema statements and r
 link_count = 0
 python_count = 0
 json_snippet_count = 0
-documents = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]
+documents = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md"), ROOT / "backend/README.md"]
+for directory in ("ai", "clients", "prototypes"):
+    documents.extend((ROOT / directory).rglob("README.md"))
 for document in documents:
     text = document.read_text(encoding="utf-8-sig")
     assert "\ufffd" not in text, document
@@ -113,7 +116,9 @@ for document in documents:
     for code in re.findall(r"```json\n(.*?)```", text, flags=re.S):
         json.loads(code)
         json_snippet_count += 1
-print(f"PASS {link_count} local links, document encoding/whitespace, {python_count} Python/{json_snippet_count} JSON snippets")
+print(
+    f"PASS {link_count} local links, document encoding/whitespace, {python_count} Python/{json_snippet_count} JSON snippets"
+)
 
 module = types.ModuleType("moodwall_contract_check")
 sys.modules[module.__name__] = module
@@ -162,7 +167,8 @@ print(f"PASS AI contract: {len(examples) + 1} valid and {len(invalid)} rejected 
 
 outcome_type = TypeAdapter(module.__dict__["FinalizationOutcome"])
 rule_outcome = {
-    "kind": "RULE_REJECTED", "lexicon_version": "lexicon-fixture-v1",
+    "kind": "RULE_REJECTED",
+    "lexicon_version": "lexicon-fixture-v1",
     "matches": [{"rule_id": "ko-explicit-001", "variant_id": "exact"}],
 }
 valid_outcomes = [
@@ -174,7 +180,8 @@ for value in valid_outcomes:
     outcome_type.validate_python(value)
 invalid_outcomes = []
 for matches in (
-    [], rule_outcome["matches"] * 2,
+    [],
+    rule_outcome["matches"] * 2,
     [{"rule_id": "z", "variant_id": "v"}, {"rule_id": "a", "variant_id": "v"}],
     [{"rule_id": f"r{i}", "variant_id": "v"} for i in range(6)],
     [{"rule_id": "arbitrary text!", "variant_id": "v"}],
@@ -194,62 +201,109 @@ for value in invalid_outcomes:
     except ValidationError:
         continue
     raise AssertionError("FinalizationOutcome accepted an invalid fixture")
-module.__dict__["FinalizationEnvelope"].model_validate_json(json.dumps({
-    "submission_id": "11111111-1111-4111-8111-111111111111",
-    "run_token": "22222222-2222-4222-8222-222222222222",
-    "outcome": rule_outcome,
-}))
+module.__dict__["FinalizationEnvelope"].model_validate_json(
+    json.dumps(
+        {
+            "submission_id": "11111111-1111-4111-8111-111111111111",
+            "run_token": "22222222-2222-4222-8222-222222222222",
+            "outcome": rule_outcome,
+        }
+    )
+)
 print(f"PASS finalization union: {len(valid_outcomes)} valid, {len(invalid_outcomes)} rejected, UUID envelope parsed")
 
 # Exercise floating bubble paging and private/operator separation.
 uuid = "11111111-1111-4111-8111-111111111111"
 now = "2026-10-29T01:00:00Z"
 usage = {
-    "windowSeconds": 3600, "limit": 3, "usedCount": 0, "pendingCount": 0,
-    "remainingSlots": 3, "nextSlotAt": None, "businessDate": "2026-10-29",
-    "violationCount": 0, "warning": False, "suspendedUntil": None,
-    "activeSubmissionId": None, "nextSubmissionAt": None,
+    "windowSeconds": 3600,
+    "limit": 3,
+    "usedCount": 0,
+    "pendingCount": 0,
+    "remainingSlots": 3,
+    "nextSlotAt": None,
+    "businessDate": "2026-10-29",
+    "violationCount": 0,
+    "warning": False,
+    "suspendedUntil": None,
+    "activeSubmissionId": None,
+    "nextSubmissionAt": None,
 }
 card = {
-    "id": uuid, "content": "synthetic fixture", "emojiId": "party",
-    "emotion": "JOY", "animationId": "hearts", "acceptedAt": now,
+    "id": uuid,
+    "content": "synthetic fixture",
+    "emojiId": "party",
+    "emotion": "JOY",
+    "animationId": "hearts",
+    "acceptedAt": now,
     "expiresAt": "2026-10-29T02:00:00Z",
     "ambientUntil": "2026-10-29T15:00:00Z",
 }
 display_state = {
-    "boardId": uuid, "businessDate": "2026-10-29", "revision": 1,
-    "mode": "MOODWALL", "serverNow": now,
+    "boardId": uuid,
+    "businessDate": "2026-10-29",
+    "revision": 1,
+    "mode": "MOODWALL",
+    "serverNow": now,
     "onlineLeaseUntil": "2026-10-29T01:00:30Z",
-    "bubbles": [card], "bubbleTotalCount": 1, "snapshotAt": now, "nextCursor": None,
-    "qrRotatesAt": "2026-10-29T01:05:00Z", "ambientUntil": "2026-10-29T15:00:00Z",
-    "removedIds": [], "cacheResetToken": "0", "deviceGeneration": "1",
+    "bubbles": [card],
+    "bubbleTotalCount": 1,
+    "snapshotAt": now,
+    "nextCursor": None,
+    "qrRotatesAt": "2026-10-29T01:05:00Z",
+    "ambientUntil": "2026-10-29T15:00:00Z",
+    "removedIds": [],
+    "cacheResetToken": "0",
+    "deviceGeneration": "1",
 }
 evidence = {"ruleId": "ko-explicit-001", "variantId": "exact"}
 restore = {"auditId": "9007199254740993", "replayed": True, "businessDate": "2026-10-28", "usage": usage}
 audit = {
-    "id": "9007199254740993", "operatorUsername": "fixture-admin",
-    "action": "RESET_RESTRICTION", "targetId": uuid, "reasonCode": "FALSE_POSITIVE",
-    "createdAt": now, "beforeViolationCount": 5, "afterViolationCount": 0,
-    "beforeSuspendedUntil": now, "afterSuspendedUntil": None,
+    "id": "9007199254740993",
+    "operatorUsername": "fixture-admin",
+    "action": "RESET_RESTRICTION",
+    "targetId": uuid,
+    "reasonCode": "FALSE_POSITIVE",
+    "createdAt": now,
+    "beforeViolationCount": 5,
+    "afterViolationCount": 0,
+    "beforeSuspendedUntil": now,
+    "afterSuspendedUntil": None,
 }
 submission = {
-    "id": uuid, "businessDate": "2026-10-29", "moderationStatus": "APPROVED",
-    "displayStatus": "FLOATING", "content": "synthetic fixture", "emojiId": "party",
-    "emotion": "JOY", "animationId": "hearts", "createdAt": now,
-    "deadlineAt": "2026-10-29T01:02:00Z", "finalizedAt": now, "message": "approved",
+    "id": uuid,
+    "businessDate": "2026-10-29",
+    "moderationStatus": "APPROVED",
+    "displayStatus": "FLOATING",
+    "content": "synthetic fixture",
+    "emojiId": "party",
+    "emotion": "JOY",
+    "animationId": "hearts",
+    "createdAt": now,
+    "deadlineAt": "2026-10-29T01:02:00Z",
+    "finalizedAt": now,
+    "message": "approved",
     "expiresAt": "2026-10-29T02:00:00Z",
 }
 operator_submission = {
-    "submission": submission, "participantId": uuid, "reasonCodes": [],
-    "modelBundleVersion": "fixture-v1", "inferencePolicyVersion": "fixture-v1",
-    "moderationPolicyVersion": "fixture-v1", "lexiconVersion": "fixture-v1",
-    "strikeApplied": False, "ruleEvidence": [],
+    "submission": submission,
+    "participantId": uuid,
+    "reasonCodes": [],
+    "modelBundleVersion": "fixture-v1",
+    "inferencePolicyVersion": "fixture-v1",
+    "moderationPolicyVersion": "fixture-v1",
+    "lexiconVersion": "fixture-v1",
+    "strikeApplied": False,
+    "ruleEvidence": [],
 }
 dto_valid = [
-    ("DisplayBubble", card), ("RuleEvidence", evidence),
+    ("DisplayBubble", card),
+    ("RuleEvidence", evidence),
     ("DisplayState", display_state),
-    ("RestrictionRestoreResult", restore), ("AuditItem", audit),
-    ("Submission", submission), ("OperatorSubmission", operator_submission),
+    ("RestrictionRestoreResult", restore),
+    ("AuditItem", audit),
+    ("Submission", submission),
+    ("OperatorSubmission", operator_submission),
 ]
 dto_invalid = [
     ("DisplayBubble", {k: v for k, v in card.items() if k != "acceptedAt"}),
@@ -293,7 +347,9 @@ for name, ids in api_mappings:
     if name in operation_ids:
         references = re.findall(r"\b[A-Z][0-9]{2}\b", ids)
         assert references and set(references).issubset(set(leaves)), (name, ids)
-print(f"PASS design coverage references: {len(leaves)} leaves, {len(mapped_ids)} HTTP operations (runtime coverage not claimed)")
+print(
+    f"PASS design coverage references: {len(leaves)} leaves, {len(mapped_ids)} HTTP operations (runtime coverage not claimed)"
+)
 
 problem = Draft202012Validator(expand(spec["components"]["schemas"]["Problem"]), format_checker=FormatChecker())
 text = (ROOT / "docs/backend-contracts.md").read_text(encoding="utf-8-sig")

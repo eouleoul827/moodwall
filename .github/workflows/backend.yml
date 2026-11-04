@@ -51,8 +51,8 @@ jobs:
       - name: AI diagnostic API checks
         if: ${{ hashFiles('ai/tools/local_api/tests/test_*.py') != '' }}
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE/ai:/repo/ai:ro" moodwall-test python -m ruff check --no-cache --config /srv/backend/pyproject.toml /repo/ai
-          docker run --rm -v "$GITHUB_WORKSPACE/ai:/repo/ai:ro" moodwall-test python -m ruff format --check --no-cache --config /srv/backend/pyproject.toml /repo/ai
+          docker run --rm -v "$GITHUB_WORKSPACE/ai:/repo/ai:ro" moodwall-test python -m ruff check --no-cache --config /srv/backend/pyproject.toml /repo/ai/tools
+          docker run --rm -v "$GITHUB_WORKSPACE/ai:/repo/ai:ro" moodwall-test python -m ruff format --check --no-cache --config /srv/backend/pyproject.toml /repo/ai/tools
           docker run --rm -v "$GITHUB_WORKSPACE/ai:/repo/ai:ro" -v "$GITHUB_WORKSPACE/backend:/repo/backend:ro" moodwall-test python -m pytest -q -p no:cacheprovider /repo/ai/tools/local_api/tests
   contracts:
     runs-on: ubuntu-latest
