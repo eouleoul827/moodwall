@@ -425,7 +425,9 @@ def create_app(settings=None):
             "display", request.cookies.get(settings.cookie_name("display"))
         )
         request.app.state.auth.check_csrf(current, request.headers.get("x-csrf-token"))
-        await limit(request, "diagnostics:display", str(current.id) + ":" + str(current.extra["device_token_version"]), 10)
+        await limit(
+            request, "diagnostics:display", str(current.id) + ":" + str(current.extra["device_token_version"]), 10
+        )
         report = await body(request, dto.DisplayDiagnostic)
         return respond(await request.app.state.diagnostics.record(current, report))
 

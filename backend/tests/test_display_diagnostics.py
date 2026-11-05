@@ -12,17 +12,31 @@ from app.dto import DisplayDiagnostic
 
 def report(**changes):
     return {
-        "component": "CACHE", "code": "STORAGE_UNAVAILABLE", "state": "FAILED",
-        "version": "1", "count": 1, "occurredAt": datetime.now(UTC).isoformat(), **changes,
+        "component": "CACHE",
+        "code": "STORAGE_UNAVAILABLE",
+        "state": "FAILED",
+        "version": "1",
+        "count": 1,
+        "occurredAt": datetime.now(UTC).isoformat(),
+        **changes,
     }
 
 
-@pytest.mark.parametrize("changes", [
-    {"component": "secret"}, {"code": "student raw text"}, {"state": "ONLINE"},
-    {"version": "secret-value"}, {"count": 0}, {"count": 1001}, {"count": True},
-    {"occurredAt": "2026-11-05T12:00:00"}, {"content": "student raw text"},
-    {"stack": "cookie-or-key"},
-])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"component": "secret"},
+        {"code": "student raw text"},
+        {"state": "ONLINE"},
+        {"version": "secret-value"},
+        {"count": 0},
+        {"count": 1001},
+        {"count": True},
+        {"occurredAt": "2026-11-05T12:00:00"},
+        {"content": "student raw text"},
+        {"stack": "cookie-or-key"},
+    ],
+)
 def test_diagnostic_only_accepts_allowlisted_bounded_fields(changes):
     with pytest.raises(ValidationError):
         DisplayDiagnostic.model_validate_json(json.dumps(report(**changes)))
@@ -53,8 +67,12 @@ async def test_device_reports_and_operator_reads_without_playback_mutation(clien
 @pytest.mark.integration
 async def test_diagnostics_require_csrf_origin_and_small_body(clients):
     client = clients["display"]
-    assert (await client.post("/api/display/diagnostics", json=report(), headers={"X-CSRF-Token": "wrong"})).status_code == 403
-    assert (await client.post("/api/display/diagnostics", json=report(), headers={"Origin": "https://outside.invalid"})).status_code == 403
+    assert (
+        await client.post("/api/display/diagnostics", json=report(), headers={"X-CSRF-Token": "wrong"})
+    ).status_code == 403
+    assert (
+        await client.post("/api/display/diagnostics", json=report(), headers={"Origin": "https://outside.invalid"})
+    ).status_code == 403
     oversized = report(extra="x" * 4096)
     assert (await client.post("/api/display/diagnostics", json=oversized)).status_code == 413
     invalid = await client.post("/api/display/diagnostics", json=report(code="private student text"))
@@ -76,8 +94,10 @@ async def test_diagnostic_budget_does_not_consume_display_write_budget(clients, 
 async def test_late_failed_report_cannot_replace_a_newer_recovery(clients, database):
     async with database.connection() as conn:
         now = await db_time(conn)
-    for changes in ({"state": "RECOVERED", "occurredAt": now.isoformat()},
-                    {"state": "FAILED", "occurredAt": (now - timedelta(seconds=30)).isoformat()}):
+    for changes in (
+        {"state": "RECOVERED", "occurredAt": now.isoformat()},
+        {"state": "FAILED", "occurredAt": (now - timedelta(seconds=30)).isoformat()},
+    ):
         response = await clients["display"].post("/api/display/diagnostics", json=report(**changes))
         assert response.status_code == 200
     value = (await clients["admin"].get("/api/operator/display/diagnostics")).json()

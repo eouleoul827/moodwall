@@ -653,11 +653,14 @@ class PlaybackService:
             (board["id"], ambient - timedelta(days=1), ambient),
         )
         return {
-            "displayProtocolVersion": "2", "boardId": str(board["id"]),
+            "displayProtocolVersion": "2",
+            "boardId": str(board["id"]),
             "businessDate": business_day(now).isoformat(),
             "deviceGeneration": str(board["device_token_version"]),
-            "revision": str(board["state_version"]), "serverNow": now,
-            "ambientUntil": ambient, "mode": effective_mode(board),
+            "revision": str(board["state_version"]),
+            "serverNow": now,
+            "ambientUntil": ambient,
+            "mode": effective_mode(board),
             "onlineLeaseUntil": board["heartbeat_lease_until"],
             "removedIds": list(dict.fromkeys(str(row["target_id"]) for row in removals[:1000])),
             "cacheResetToken": str(removals[1000]["id"]) if len(removals) > 1000 else "0",

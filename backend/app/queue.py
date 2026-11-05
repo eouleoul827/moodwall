@@ -52,7 +52,9 @@ async def enqueue(conn, submission_id: UUID) -> int:
     # No commit, no second application connection, no task argument containing text.
     try:
         return (
-            await _app.tasks["moodwall.moderate"].configure(connection=conn).defer_async(submission_id=str(submission_id))
+            await _app.tasks["moodwall.moderate"]
+            .configure(connection=conn)
+            .defer_async(submission_id=str(submission_id))
         )
     except procrastinate.exceptions.ConnectorException as error:
         # The library wraps PostgreSQL timeouts/disconnects. Preserve a retryable

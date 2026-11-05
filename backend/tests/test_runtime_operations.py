@@ -10,10 +10,13 @@ from app.db import one
 
 def configured(**changes):
     return Settings(
-        _env_file=None, database_url="postgresql://invalid.invalid/not_used",
-        public_origin="https://moodwall.test", secret_key="synthetic-runtime-session-01234567890123456789",
+        _env_file=None,
+        database_url="postgresql://invalid.invalid/not_used",
+        public_origin="https://moodwall.test",
+        secret_key="synthetic-runtime-session-01234567890123456789",
         qr_key="synthetic-runtime-qr-01234567890123456789012345",
-        analyzer="inference.fake:make_analyzer", **changes,
+        analyzer="inference.fake:make_analyzer",
+        **changes,
     )
 
 
@@ -43,9 +46,7 @@ async def test_v2_device_blocks_new_v1_work_but_keeps_existing_key_recovery(clie
         await conn.execute("""UPDATE board_runtime SET playback_owner_lease_until=clock_timestamp()-interval '1 second',
             last_heartbeat_at=clock_timestamp()-interval '2 seconds',
             heartbeat_lease_until=clock_timestamp()-interval '1 second'""")
-    denied = await clients["stranger"].post(
-        "/api/submissions", json=payload, headers={"Idempotency-Key": str(uuid4())}
-    )
+    denied = await clients["stranger"].post("/api/submissions", json=payload, headers={"Idempotency-Key": str(uuid4())})
     assert denied.status_code == 409 and denied.json()["code"] == "CLIENT_UPDATE_REQUIRED"
     async with database.connection() as conn:
         assert (await one(conn, "SELECT count(*) AS n FROM submissions"))["n"] == 1

@@ -39,9 +39,7 @@ async def test_wrapped_queue_failure_is_atomic_and_same_key_can_retry(
     monkeypatch.setattr(queue, "_app", SimpleNamespace(tasks={"moodwall.moderate": task}))
     key = str(uuid4())
     payload = {"content": "오늘 기분 좋아"}
-    rejected = await clients["student"].post(
-        "/api/v2/submissions", json=payload, headers={"Idempotency-Key": key}
-    )
+    rejected = await clients["student"].post("/api/v2/submissions", json=payload, headers={"Idempotency-Key": key})
     assert rejected.status_code == status and rejected.json()["code"] == code, rejected.text
     assert "synthetic private" not in rejected.text
     if status == 503:
@@ -50,7 +48,5 @@ async def test_wrapped_queue_failure_is_atomic_and_same_key_can_retry(
         for table in ("submission_receipts", "submissions", "admission_reservations", "board_admission_counters"):
             assert (await one(conn, f"SELECT count(*) AS n FROM {table}"))["n"] == 0
     monkeypatch.setattr(queue, "_app", real_queue)
-    retried = await clients["student"].post(
-        "/api/v2/submissions", json=payload, headers={"Idempotency-Key": key}
-    )
+    retried = await clients["student"].post("/api/v2/submissions", json=payload, headers={"Idempotency-Key": key})
     assert retried.status_code == 202, retried.text

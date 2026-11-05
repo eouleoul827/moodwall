@@ -98,9 +98,15 @@ class Empty(Input):
 class DisplayDiagnostic(Input):
     component: Literal["SESSION", "QR", "PLAYBACK", "CACHE", "RENDER"]
     code: Literal[
-        "CONNECTION_FAILED", "AUTH_REQUIRED", "QR_UNAVAILABLE", "PLAYBACK_OWNED",
-        "PLAYBACK_INTERRUPTED", "PLAYBACK_UNKNOWN", "ASSET_FAILURE",
-        "STORAGE_UNAVAILABLE", "RENDER_FAILURE",
+        "CONNECTION_FAILED",
+        "AUTH_REQUIRED",
+        "QR_UNAVAILABLE",
+        "PLAYBACK_OWNED",
+        "PLAYBACK_INTERRUPTED",
+        "PLAYBACK_UNKNOWN",
+        "ASSET_FAILURE",
+        "STORAGE_UNAVAILABLE",
+        "RENDER_FAILURE",
     ]
     state: Literal["FAILED", "RECOVERED"]
     version: Literal["1"]

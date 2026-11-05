@@ -155,9 +155,8 @@ class SubmissionService:
             # Once this registered device has used v2, a closed/offline player
             # must not reopen the incompatible v1 path. Existing-key recovery
             # above stays available; an unexpired ownership lease is not needed.
-            if (
-                getattr(self.settings, "moderation_profile", "legacy") != "legacy"
-                or (playback_device and playback_device["v2"])
+            if getattr(self.settings, "moderation_profile", "legacy") != "legacy" or (
+                playback_device and playback_device["v2"]
             ):
                 raise Problem(409, "CLIENT_UPDATE_REQUIRED", "화면을 새로고침한 뒤 다시 작성해 주세요.")
             if not self.intake_ready() or not await schema_ready(conn, self.settings.board_id):
