@@ -115,17 +115,18 @@ async def test_old_epoch_cannot_control_replay(clients, system):
 
 
 async def test_v1_and_v2_intents_cannot_reuse_each_others_key(clients, system):
-    instance = str(uuid4())
-    assert (
-        await clients["display"].post(
-            "/api/display/heartbeat", json={"clientInstanceId": instance, "displayProtocolVersion": "2"}
-        )
-    ).status_code == 200
     first_key, second_key = str(uuid4()), str(uuid4())
     v1 = await clients["student"].post(
         "/api/submissions", json={"content": "안녕", "emojiId": "star"}, headers={"Idempotency-Key": first_key}
     )
     assert v1.status_code == 202, v1.text
+    # Retained v1 receipts must remain isolated after the device switches to v2;
+    # new v1 work is intentionally rejected once that switch has happened.
+    assert (
+        await clients["display"].post(
+            "/api/display/heartbeat", json={"clientInstanceId": str(uuid4()), "displayProtocolVersion": "2"}
+        )
+    ).status_code == 200
     v2_reuse = await clients["student"].post(
         "/api/v2/submissions", json={"content": "안녕"}, headers={"Idempotency-Key": first_key}
     )

@@ -12,11 +12,14 @@ argon2-cffi==25.1.0
 asgiref==3.13.0
 attrs==26.1.0
 cffi==2.1.1
+certifi==2026.10.23
 click==8.5.0
 colorama==0.4.6
 croniter==6.2.4
 fastapi==0.162.0
 h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
 idna==3.20
 opentelemetry-api==1.45.1
 packaging==26.3

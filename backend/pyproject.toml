@@ -11,6 +11,7 @@ dependencies = [
   "fastapi==0.162.0", "uvicorn==0.54.0", "psycopg[binary,pool]==3.3.6",
   "procrastinate==3.10.0", "pydantic-settings==2.16.2", "PyJWT==2.15.1",
   "argon2-cffi==25.1.0", "regex==2026.9.29", "alembic==1.20.1", "sqlalchemy==2.1.6",
+  "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,7 @@ include = ["app*", "inference*"]
 
 [tool.setuptools.package-data]
 app = ["resources/*.json", "alembic.ini", "migrations/*.py", "migrations/versions/*.py", "migrations/versions/*.sql"]
+inference = ["resources/*.json", "resources/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

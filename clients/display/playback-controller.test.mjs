@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DisplayPlaybackController, FetchPlaybackTransport } from "./playback-controller.mjs";
+import { PlaybackBubbleCache } from "./playback-bubble-cache.mjs";
 
 const BOARD = "11111111-1111-4111-8111-111111111111";
 const ITEM = "22222222-2222-4222-8222-222222222222";
@@ -91,6 +92,70 @@ test("simultaneous ticks coalesce and cannot claim a second item", async () => {
   assert.equal(first, second);
   await Promise.all([first, second]);
   assert.equal(calls.filter(row => row.action === "claim").length, 1);
+});
+
+test("a rapid pause and resume stops as soon as the same server attempt is INTERRUPTED", async () => {
+  let polls = 0, interruptedAt = null;
+  const app = harness({ request: async (command, standard, ctx) => {
+    if (command.action === "state" && ++polls === 3) {
+      ctx.active.status = "INTERRUPTED";
+      ctx.active.presentationStatus = "INTERRUPTED";
+      interruptedAt = app.clock.now();
+    }
+    return standard(command);
+  } });
+  assert.equal((await app.player.runOnce()).status, "INTERRUPTED");
+  assert.ok(interruptedAt !== null);
+  // This async harness advances frames while the state response settles. The
+  // interruption must hide promptly, rather than finish the remaining 13s.
+  assert.ok(app.draws.find(row => row.action === "hide").at - interruptedAt < 250);
+  assert.ok(!app.calls.some(row => row.action === "complete"));
+  assert.ok(!app.draws.some(row => row.action === "float"));
+});
+
+test("an actual DONE ACK stores its verified body before any following snapshot request", async () => {
+  const data = new Map();
+  const cache = new PlaybackBubbleCache({ boardId: BOARD, storage: { getItem: key => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) } });
+  const app = harness({ request: async (command, standard) => {
+    const result = await standard(command);
+    if (command.action === "complete") {
+      result.attempt.presentationStatus = "DONE"; result.attempt.deviceGeneration = result.deviceGeneration;
+      result.cacheScope = { displayProtocolVersion: "2", boardId: BOARD, businessDate: "2026-11-04",
+        deviceGeneration: result.deviceGeneration, cacheResetToken: "0", revision: result.revision,
+        serverNow: result.serverNow, ambientUntil: "2026-11-04T15:00:00.000Z", mode: result.mode,
+        onlineLeaseUntil: result.leaseUntil, removedIds: [] };
+    }
+    return result;
+  } });
+  app.player.cache = cache;
+  delete app.player.renderer.float; // The real React renderer has no float callback.
+  assert.equal((await app.player.runOnce()).status, "DONE");
+  assert.equal(cache.cards.get(ITEM).content, "오늘 행복해");
+  assert.equal(JSON.parse(data.get(cache.key)).cards[0].id, ITEM);
+  assert.equal(cache.view(app.clock.now()).visible, false); // no snapshot authorization yet
+});
+
+test("a broken hide callback still cancels an active request and clears authentication", () => {
+  const app = harness();
+  app.player.controller = new AbortController();
+  app.player.renderer.hide = () => { throw new Error("BROKEN_RENDERER"); };
+  app.player.pending = { action: "complete" }; app.player.current = { attemptId: ATTEMPT };
+  let cleared = false;
+  app.player.cache = { clear() { cleared = true; } };
+  assert.throws(() => app.player.resetAuthentication(), /BROKEN_RENDERER/);
+  assert.equal(app.player.controller.signal.aborted, true);
+  assert.equal(app.player.pending, null); assert.equal(app.player.current, null);
+  assert.equal(cleared, true);
+});
+
+test("failed persistence reports a private cache problem without replaying a confirmed DONE", async () => {
+  const problems = [], app = harness();
+  app.player.cache = { authEpoch: 0, storageAvailable: false, acceptCompleted: () => true };
+  app.player.onProblem = problem => problems.push(problem.code);
+  assert.equal((await app.player.runOnce()).status, "DONE");
+  assert.deepEqual(problems, ["CACHE_STORAGE_UNAVAILABLE"]);
+  assert.equal(app.calls.filter(row => row.action === "claim").length, 1);
 });
 
 test("empty queue never shows fullscreen", async () => {

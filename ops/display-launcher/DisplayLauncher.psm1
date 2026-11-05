@@ -3,6 +3,7 @@
 $script:MarkerName = 'moodwall-display-launcher.marker'
 $script:MarkerValue = 'MoodwallDisplayLauncher:1'
 $script:ShortcutName = '무드월 전광판 시작.lnk'
+$script:StaffShortcutName = '무드월 직원 설정·점검.lnk'
 
 function ConvertTo-MoodwallDisplayUrl {
     [CmdletBinding()]
@@ -110,6 +111,11 @@ function Get-MoodwallLaunchPlan {
         ShortcutPath = [IO.Path]::Combine($desktopPath, $script:ShortcutName)
         ShortcutTarget = $powershellPath
         ShortcutArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $launcherPath + '"'
+        StaffShortcutPath = [IO.Path]::Combine($desktopPath, $script:StaffShortcutName)
+        StaffShortcutArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + [IO.Path]::Combine($rootPath, 'Start-Staff.ps1') + '"'
+        SetupUrl = ([Uri]$url).GetLeftPart([UriPartial]::Authority) + '/display/setup'
+        SetupBrowserArguments = @('--no-first-run', '--no-default-browser-check', '--new-window', ('--user-data-dir="' + $profilePath + '"'), ('"' + ([Uri]$url).GetLeftPart([UriPartial]::Authority) + '/display/setup"'))
+        StaffSessionPath = [IO.Path]::Combine($rootPath, 'staff-session.marker')
         Configuration = [ordered]@{ schemaVersion = 1; displayUrl = $url }
     }
 }
@@ -131,13 +137,13 @@ function Assert-MoodwallInstallRoot {
     if (-not [IO.File]::Exists($markerPath) -or [IO.File]::ReadAllText($markerPath).Trim() -ne $script:MarkerValue) {
         throw '기존 파일이 있는 폴더에는 설치할 수 없습니다. 무드월 전용 빈 폴더를 선택해 주세요.'
     }
-    $allowed = @($script:MarkerName, 'DisplayLauncher.psm1', 'Start-Display.ps1', 'config.json', 'Profiles')
+    $allowed = @($script:MarkerName, 'DisplayLauncher.psm1', 'Start-Display.ps1', 'Start-Staff.ps1', 'config.json', 'Profiles', 'Logs', 'staff-session.marker')
     foreach ($item in $items) {
         if ($item.Name -notin $allowed -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw '설치 폴더에 알 수 없는 파일 또는 연결 항목이 있어 갱신을 중단했습니다.'
         }
-        if ($item.PSIsContainer -and $item.Name -ne 'Profiles') { throw '설치 파일 위치에 폴더가 있습니다.' }
-        if (-not $item.PSIsContainer -and $item.Name -eq 'Profiles') { throw '프로필 위치에 파일이 있습니다.' }
+        if ($item.PSIsContainer -and $item.Name -notin @('Profiles', 'Logs')) { throw '설치 파일 위치에 폴더가 있습니다.' }
+        if (-not $item.PSIsContainer -and $item.Name -in @('Profiles', 'Logs')) { throw '프로필 또는 진단 폴더 위치에 파일이 있습니다.' }
     }
 }
 
@@ -217,4 +223,73 @@ function Wait-MoodwallEndpoint {
     return $false
 }
 
-Export-ModuleMember -Function ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint
+function Get-MoodwallLauncherMutexName {
+    param([Parameter(Mandatory = $true)][string]$ProfileDirectory)
+    $profile = ConvertTo-MoodwallAbsolutePath $ProfileDirectory
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $suffix = [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($profile.ToLowerInvariant()))).Replace('-', '') } finally { $hash.Dispose() }
+    return 'Local\MoodwallDisplayLauncher-' + $suffix
+}
+
+function Get-MoodwallLaunchDecision {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][object]$Plan,
+        [ValidateSet('Display', 'Setup', 'Reopen')][string]$Role = 'Display',
+        [AllowEmptyCollection()][object[]]$Processes = @(),
+        [bool]$StaffSessionExists = $false
+    )
+    $existing = Get-MoodwallExistingDisplay -ProfileDirectory $Plan.ProfileDirectory -BrowserPath $Plan.BrowserPath -Processes $Processes
+    # Staff setup shares the authentication profile, but never shares an open window.
+    # Chromium's process command line cannot reliably identify the active tab URL.
+    if ($Role -ne 'Display' -and $existing.Action -ne 'Launch') { return [pscustomobject]@{ Action = 'CloseRequired'; Process = $existing.Process } }
+    if ($Role -eq 'Display' -and $StaffSessionExists -and $existing.Action -ne 'Launch') { return [pscustomobject]@{ Action = 'StaffWindowOpen'; Process = $existing.Process } }
+    return $existing
+}
+
+function Get-MoodwallBrowserProcesses {
+    param([Parameter(Mandatory = $true)][string]$BrowserPath)
+    $processName = [IO.Path]::GetFileName((ConvertTo-MoodwallAbsolutePath $BrowserPath))
+    # Candidate collection errors must not be treated as proof that no window exists.
+    Get-CimInstance -ClassName Win32_Process -Filter ("Name = '" + $processName + "'") -ErrorAction Stop | ForEach-Object {
+        try {
+            $running = [Diagnostics.Process]::GetProcessById($_.ProcessId)
+            [pscustomobject]@{ Id = $_.ProcessId; ExecutablePath = $_.ExecutablePath; CommandLine = $_.CommandLine; MainWindowHandle = $running.MainWindowHandle }
+        } catch [ArgumentException] { } # Process exited during the snapshot.
+    }
+}
+
+function Write-MoodwallLauncherEvent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED')][string]$Code
+    )
+    try {
+        $logRoot = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'Logs')
+        Assert-MoodwallLocalPath $logRoot
+        [void][IO.Directory]::CreateDirectory($logRoot)
+        $path = [IO.Path]::Combine($logRoot, 'launcher.log')
+        $previous = [IO.Path]::Combine($logRoot, 'launcher.previous.log')
+        Assert-MoodwallLocalPath $path
+        Assert-MoodwallLocalPath $previous
+        if ([IO.File]::Exists($path) -and (Get-Item -LiteralPath $path).Length -ge 16384) {
+            if ((Get-Item -LiteralPath $path).Length -le 16500) { [IO.File]::Copy($path, $previous, $true) }
+            else { [IO.File]::WriteAllText($previous, '') } # Do not retain an oversized/tampered log.
+            [IO.File]::WriteAllText($path, '')
+        }
+        # Fixed codes only: never persist URLs, exception text, credentials or content.
+        [IO.File]::AppendAllText($path, ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ') + ' ' + $Code + [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
+    } catch { } # Diagnostics must never show UI or prevent the original recovery path.
+}
+
+function Get-MoodwallLauncherEvents {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+    $path = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'Logs', 'launcher.log')
+    Assert-MoodwallLocalPath $path
+    if (-not [IO.File]::Exists($path)) { return @() }
+    if ((Get-Item -LiteralPath $path).Length -gt 32768) { return @('진단 기록의 크기가 올바르지 않습니다.') }
+    return @(Get-Content -LiteralPath $path -Encoding UTF8 -Tail 12 | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z [A-Z_]+$' })
+}
+
+Export-ModuleMember -Function ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents

@@ -123,6 +123,108 @@ try {
     Assert-Equal $installedPlan.DisplayUrl 'https://school.test/display' 'installed launcher uses validated stored URL'
     Assert-Equal ([IO.Directory]::Exists([IO.Path]::Combine($installedSimulation, 'Profiles'))) $false 'launcher dry-run does not create a browser profile'
     Assert-Equal $installedPlan.InstallRoot $installedSimulation 'launcher paths anchored to its own source directory'
+
+    # Public and staff destinations share credentials, while role entry stays fixed and separate.
+    Assert-Equal $plan.SetupUrl 'https://school.test/display/setup' 'staff URL derived from the validated origin only'
+    Assert-Equal $plan.StaffShortcutPath ([IO.Path]::Combine($desktopRoot, '무드월 직원 설정·점검.lnk')) 'explicit staff-only shortcut'
+    Assert-Equal ($plan.StaffShortcutArguments.Contains('-File "' + [IO.Path]::Combine($spaceRoot, 'Start-Staff.ps1') + '"')) $true 'staff helper path quotes spaces'
+    Assert-Equal ($plan.SetupBrowserArguments.Contains('--user-data-dir="' + $plan.ProfileDirectory + '"')) $true 'setup retains the original pairing profile'
+    Assert-Equal ($plan.SetupBrowserArguments.Contains('--start-fullscreen')) $false 'staff setup does not force itself fullscreen'
+    Assert-Equal ($plan.BrowserArguments.Contains('"https://school.test/display"')) $true 'public URL unchanged'
+    Assert-Equal (Get-MoodwallLauncherMutexName $plan.ProfileDirectory) (Get-MoodwallLauncherMutexName $plan.ProfileDirectory.ToUpperInvariant()) 'role mutex uses case-insensitive profile path'
+    Assert-Equal ((Get-MoodwallLauncherMutexName $plan.ProfileDirectory) -ne (Get-MoodwallLauncherMutexName $chromePlan.ProfileDirectory)) $true 'different profiles have separate launch fences'
+    $displayProcess.CommandLine = '"' + $edgePath + '" --user-data-dir="' + $plan.ProfileDirectory + '" https://school.test/display'
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -Processes @($displayProcess)).Action 'Activate' 'normal repeat launch preserves existing public playback'
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -Processes @($displayProcess) -StaffSessionExists $true).Action 'StaffWindowOpen' 'public click cannot activate a known staff window'
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -Role Setup -Processes @($displayProcess)).Action 'CloseRequired' 'staff setup requires closing public window first'
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -Role Reopen -Processes @($displayProcess)).Action 'CloseRequired' 'explicit fresh start cannot reload playing window'
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -Role Setup -Processes @($personalProcess)).Action 'Launch' 'staff setup ignores personal profile windows'
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -StaffSessionExists $true -Processes @()).Action 'Launch' 'closed staff window permits a fresh public launch'
+    $displayProcess.MainWindowHandle = 0
+    Assert-Equal (Get-MoodwallLaunchDecision -Plan $plan -Processes @($displayProcess) -StaffSessionExists $true).Action 'StaffWindowOpen' 'background staff profile also prevents accidental public reuse'
+    $displayProcess.MainWindowHandle = 42
+    [IO.File]::WriteAllText([IO.Path]::Combine($spaceRoot, 'Start-Staff.ps1'), '')
+    [void][IO.Directory]::CreateDirectory([IO.Path]::Combine($spaceRoot, 'Logs'))
+    [IO.File]::WriteAllText($plan.StaffSessionPath, 'MoodwallStaffWindow:1')
+    Assert-MoodwallInstallRoot $spaceRoot
+    $script:Passed++
+
+    $logRoot = [IO.Path]::Combine($testRoot, 'Safe Log Fixture')
+    [void][IO.Directory]::CreateDirectory([IO.Path]::Combine($logRoot, 'Logs'))
+    [IO.File]::WriteAllText([IO.Path]::Combine($logRoot, 'Logs', 'launcher.log'), ('2026-11-05T00:00:00Z ENDPOINT_UNAVAILABLE' + [Environment]::NewLine) * 410)
+    for ($entry = 0; $entry -lt 12; $entry++) { Write-MoodwallLauncherEvent -InstallRoot $logRoot -Code ENDPOINT_UNAVAILABLE }
+    $logFiles = @(Get-ChildItem -LiteralPath ([IO.Path]::Combine($logRoot, 'Logs')) -File)
+    Assert-Equal ($logFiles.Count -le 2) $true 'launcher diagnostics retain at most two files'
+    Assert-Equal (@($logFiles | Where-Object { $_.Length -gt 16500 }).Count) 0 'launcher diagnostic file sizes bounded'
+    Assert-Equal (@(Get-MoodwallLauncherEvents $logRoot).Count) 12 'staff sees only a short recent diagnostic tail'
+    Assert-Throws { Write-MoodwallLauncherEvent -InstallRoot $logRoot -Code 'SECRET_COOKIE_VALUE' } 'raw exception or secret cannot become a diagnostic code'
+    Assert-Equal (([IO.File]::ReadAllText([IO.Path]::Combine($logRoot, 'Logs', 'launcher.log'))) -match 'https?://|COOKIE|password') $false 'diagnostics contain no URL or credential fields'
+    $brokenLogRoot = [IO.Path]::Combine($testRoot, 'Broken Log Fixture')
+    [void][IO.Directory]::CreateDirectory($brokenLogRoot)
+    [IO.File]::WriteAllText([IO.Path]::Combine($brokenLogRoot, 'Logs'), 'not a directory')
+    Write-MoodwallLauncherEvent -InstallRoot $brokenLogRoot -Code LAUNCH_FAILED
+    $script:Passed++ # Logging failure is silent and non-fatal.
+
+    foreach ($sourceFile in @('DisplayLauncher.psm1', 'Install.ps1', 'Start-Display.ps1', 'Start-Staff.ps1', 'Test-Launcher.ps1')) {
+        $parseTokens = $null; $parseErrors = $null
+        [void][Management.Automation.Language.Parser]::ParseFile([IO.Path]::Combine($PSScriptRoot, $sourceFile), [ref]$parseTokens, [ref]$parseErrors)
+        Assert-Equal $parseErrors.Count 0 ('PowerShell 5.1 syntax: ' + $sourceFile)
+    }
+    $publicSource = [IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, 'Start-Display.ps1'))
+    Assert-Equal ($publicSource -match 'MessageBox|Show-StaffMessage|Read-Host|Out-GridView|Forms\.') $false 'public launcher has no modal UI path'
+    $staffSource = [IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, 'Start-Staff.ps1'))
+    Assert-Equal ($staffSource -match 'Stop-Process|taskkill|SendKeys|Stop-Service') $false 'staff recovery does not kill browsers or inject blind keystrokes'
+    Assert-Equal ($staffSource -match 'Method\s*=\s*[''\"]POST|/api/display/pair|SetExecutionPolicy') $false 'staff helper cannot bypass pairing or global policy'
+    Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, 'Start-Staff.ps1')) -Destination ([IO.Path]::Combine($installedSimulation, 'Start-Staff.ps1'))
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ([IO.Path]::Combine($installedSimulation, 'Start-Staff.ps1')) -PlanOnly
+    Assert-Equal $LASTEXITCODE 0 'staff dry run does not require UI'
+    $staffPlan = ($output -join "`n") | ConvertFrom-Json
+    Assert-Equal $staffPlan.ProfileDirectory $installedPlan.ProfileDirectory 'staff and public dry-run use identical persistent profile'
+    Assert-Equal ([IO.File]::Exists($staffPlan.StaffSessionPath)) $false 'staff dry run creates no role marker'
+
+    # Exercise real public entry point with a test-only module shim. Any browser/COM/network
+    # call here throws, so success proves failure exits happen before external side effects.
+    $silentFixture = [IO.Path]::Combine($testRoot, 'Silent Public Fixture')
+    [void][IO.Directory]::CreateDirectory($silentFixture)
+    Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, 'Start-Display.ps1')) -Destination ([IO.Path]::Combine($silentFixture, 'Start-Display.ps1'))
+    [IO.File]::WriteAllText([IO.Path]::Combine($silentFixture, 'config.json'), '{"schemaVersion":1,"displayUrl":"https://school.edu/display"}')
+    $moduleSource = [IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, 'DisplayLauncher.psm1'))
+    $shim = @'
+function Resolve-MoodwallBrowser { [pscustomobject]@{ Kind = 'Edge'; Path = 'C:\Test Browser\msedge.exe' } }
+function Get-MoodwallBrowserProcesses { @() }
+function Wait-MoodwallEndpoint { $false }
+function Start-Process { throw 'Unexpected browser invocation in silent failure test' }
+Export-ModuleMember -Function *
+'@
+    $bomEncoding = New-Object Text.UTF8Encoding($true)
+    [IO.File]::WriteAllText([IO.Path]::Combine($silentFixture, 'DisplayLauncher.psm1'), ($moduleSource + "`r`n" + $shim), $bomEncoding)
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ([IO.Path]::Combine($silentFixture, 'Start-Display.ps1'))
+    Assert-Equal $LASTEXITCODE 1 'public offline path exits instead of showing retry dialog'
+    Assert-Equal ($output -join '') '' 'public offline failure produces no visible console output'
+    Assert-Equal (@(Get-MoodwallLauncherEvents $silentFixture)[0] -match ' ENDPOINT_UNAVAILABLE$') $true 'offline failure has only fixed-code local diagnostics'
+    Assert-Equal ([IO.Directory]::Exists([IO.Path]::Combine($silentFixture, 'Profiles'))) $false 'offline failure does not launch or create browser profile'
+    [IO.File]::WriteAllText([IO.Path]::Combine($silentFixture, 'config.json'), '{"schemaVersion":1,"displayUrl":"https://school.edu/display?secret=bad"}')
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ([IO.Path]::Combine($silentFixture, 'Start-Display.ps1'))
+    Assert-Equal $LASTEXITCODE 1 'invalid public configuration also fails silently'
+    Assert-Equal ($output -join '') '' 'invalid public configuration has no visible output'
+    Assert-Equal (@(Get-MoodwallLauncherEvents $silentFixture)[-1] -match ' LAUNCH_FAILED$') $true 'configuration failure has a safe local code'
+    Assert-Equal (([IO.File]::ReadAllText([IO.Path]::Combine($silentFixture, 'Logs', 'launcher.log'))) -match 'secret|bad|school.edu') $false 'config failure cannot leak raw URL into log'
+    [IO.File]::WriteAllText([IO.Path]::Combine($silentFixture, 'config.json'), '{"schemaVersion":1,"displayUrl":"https://school.edu/display"}')
+    [IO.File]::WriteAllText([IO.Path]::Combine($silentFixture, 'staff-session.marker'), 'MoodwallStaffWindow:1')
+    $staffGuardShim = @'
+function Resolve-MoodwallBrowser { [pscustomobject]@{ Kind = 'Edge'; Path = 'C:\Test Browser\msedge.exe' } }
+function Get-MoodwallBrowserProcesses {
+    [pscustomobject]@{ Id = 123; ExecutablePath = 'C:\Test Browser\msedge.exe'; CommandLine = ('"C:\Test Browser\msedge.exe" --user-data-dir="' + [IO.Path]::Combine($PSScriptRoot, 'Profiles', 'Edge') + '" https://school.edu/display/setup'); MainWindowHandle = 42 }
+}
+function Wait-MoodwallEndpoint { throw 'Network check must not run before the staff-role guard' }
+function Start-Process { throw 'Browser must not be spawned while a staff window is active' }
+Export-ModuleMember -Function *
+'@
+    [IO.File]::WriteAllText([IO.Path]::Combine($silentFixture, 'DisplayLauncher.psm1'), ($moduleSource + "`r`n" + $staffGuardShim), $bomEncoding)
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ([IO.Path]::Combine($silentFixture, 'Start-Display.ps1'))
+    Assert-Equal $LASTEXITCODE 0 'public click refuses staff window reuse before any network or browser action'
+    Assert-Equal ($output -join '') '' 'staff window guard is silent on public launch'
+    Assert-Equal (@(Get-MoodwallLauncherEvents $silentFixture)[-1] -match ' STAFF_WINDOW_OPEN$') $true 'staff role cannot fall through to activation'
     Write-Output ("PASS: $script:Passed launcher checks; no UI, network or real installation performed.")
 } finally {
     # Delete only the unique temporary test directory whose absolute ancestry is checked.

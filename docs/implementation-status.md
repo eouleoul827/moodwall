@@ -1,6 +1,28 @@
 # 현재 구현 상태와 남은 수락
 
+## 최신 변경 전광판 오류 비노출과 복구
+
+2026-11-05 공개 `/display`와 직원 `/display/setup` 분리, 조용한 기본 배경, 직원 진단, 완료 ACK 캐시 보관, 일시정지 복구, 접수·신고의 응답 유실 복구를 반영했다. HTTP 계약은 **0.11.0**, DB head는 **0008_display_diagnostics**다. [수정 내용과 최신 검증 범위](display-recovery-implementation.md)를 따른다. 아래의 이전 검사 결과와 최신 변경 검사를 합산하지 않는다.
+
 2026-11-04 v2 구현: [로컬 구현·연결 가이드](playback-local-implementation.md), [15초 재생 설계](playback-design.md), [접수 상태와 오류 계약](submission-status-errors.md)을 반영했다. 새 API·DB migration·독립 학생/전광판 연결 모듈에 **실제 학생·전광판·운영자 React 화면을 연결했다.** 아래 이전 버전의 실행 이력과 이번 검증을 구분한다.
+
+## 이전 변경: 키 입력 후 실제 Gemini 연결 준비
+
+2026-11-05 서버 전용 Gemini HTTP 연결과 [키 설정 실행기](../scripts/setup_gemini.py)를 추가했다. `python scripts/setup_gemini.py --start`로 숨긴 키 입력, 기존 설정 보존, 프론트·이미지 빌드, migration, API·worker 시작까지 연결한다. 최초 운영자 계정은 `--create-operator`로 생성한다. [실행 안내](gemini-moderation-implementation.md)를 따른다. 이 추가 당시 DB head는 `0007_provider_moderation`, OpenAPI는 `0.10.0`이었으며 현재 버전은 위 최신 변경을 따른다.
+
+토큰 사전 확인 후 검수 생성 1회, 전체 시간·응답 크기 제한, 실제 usage와 thought 비용 정산, 자동 단가 구간, startup 준비 확인, 인증·한도 오류별 중단/복구를 구현했다. 운영 화면은 키 설정·worker 준비 상태와 고정 오류 안내를 구분한다. 사전 토큰 여유와 내부 예산은 보수적 제어이며 공급자 청구 상한 보증은 아니다. 실제 키를 사용한 호출·분류 품질 평가·학교 장치 수락·운영 배포는 수행하지 않았다. 실행 결과는 [새 검증 기록](checks/gemini-key-ready-2026-11-05.json)에 남긴다.
+
+최종 Linux 이미지의 Gemini HTTP·DB 연결·사용량 초과 정산·지원·런타임·API 계약 집중 검사는 **101개 통과(61.65초)**다. 프론트 **49개**, 독립 클라이언트 **107개**, 키 실행기 **14개**와 production 빌드·실행 이미지 빌드·Ruff check/format·문서 계약 검사가 통과했다. 전체 회귀는 **679개 통과, 6개 생략, 프로세스 준비/가져오기 시간 초과 4개**였다. Linux 이미지에서 해당 4개만 재실행했을 때 가져오기 검사 1개는 통과했고 helper/supervisor 준비 3개는 시간 초과가 남았다. 같은 환경에서 worker 모듈 가져오기에 10.947초가 걸려 helper의 10초 제한을 넘을 수 있음을 확인했지만 느린 가져오기의 정확한 원인은 확정하지 않았다. 제한 시간을 늘리거나 실패를 생략하지 않았다. 위 집중 검사와 전체 결과는 겹치므로 합산하지 않는다.
+
+감정 색상 전달 경로와 선택적 `emotion_predictor` 확장 지점은 있다. 현재 Gemini 기본 로더에는 실제 감정 분석기를 붙이지 않아 승인 글의 감정은 `NEUTRAL`이다. 감정별 구름 색상 자동화까지 완료한 것으로 해석하지 않는다.
+
+## 이전 변경: API 연결 전 검수 구현
+
+[실행 가이드](gemini-moderation-implementation.md)에 개발·테스트 전용 gemini_mock을 추가했다. 4개 판정·엄격한 출력 검증·개인정보 치환·지원 우선·자동 벌점 비활성화·단일 dispatch·DB 예산/쿼터·회로/복구·학생 지원/신고·운영 큐를 구현했다. DB head `0007_provider_moderation`, OpenAPI `0.9.0`이다. 기본 legacy는 유지한다. 실제 Gemini HTTP 연결·키·결제·실모델 정책 평가·운영 배포는 수행하지 않았다.
+
+격리된 PostgreSQL 16·외부 통신 없는 Linux 환경에서 전체 백엔드 **617개 통과, 6개 생략(67.05초)**를 확인했다. 6개는 실제 학생 모델 artifact를 명시해야 실행되는 선택 시험이다. 프론트 전체 **40개 통과**, 독립 클라이언트 **107개 통과**, production 빌드도 통과했다. 이는 mock과 앱 상태 전이 검증이며 실제 Gemini 분류 성능이나 현장 HDMI 수락을 증명하지 않는다. [설계 기준](gemini-moderation-design.md), [독립 평가 계획](gemini-moderation-evaluation.md), [운영 기준](gemini-moderation-operations.md)을 함께 적용한다.
+
+이후 운영자 검수 중단·재개 감사 HTTP 시험을 추가하고 검수 지원·호출 원장·신고 집중 **31개 통과(43.75초)**를 확인했다. 전체 테스트와 겹치므로 수치를 합산하지 않는다. [실행 기록](checks/gemini-offline-implementation-2026-11-04.json)을 함께 남겼다.
 
 ## 최신 변경: React 화면 연결
 
@@ -34,7 +56,7 @@ React 최종 묶음은 **30개 통과(64.31초)**이며 학생 13개·전광판 
 
 | 영역 | 현재 소스와 동작 | 별도로 확인할 범위 |
 | --- | --- | --- |
-| HTTP API | [라우터](../backend/app/main.py), [입력 DTO](../backend/app/dto.py), 37개 operationId | 실제 브라우저·원격 CI·운영 환경 |
+| HTTP API | [라우터](../backend/app/main.py), [입력 DTO](../backend/app/dto.py), 42개 operationId | 실제 브라우저·원격 CI·운영 환경 |
 | 세션·QR·운영자 로그인 | [인증](../backend/app/auth.py), [암호·QR](../backend/app/security.py) | 만료·해지·동시 교환·키 교체 |
 | 접수·최근 60분 한도 | [제출](../backend/app/submissions.py), [정책](../backend/app/domain.py) | 실제 PostgreSQL 동시성·멱등성·원자적 job 등록 |
 | 규칙 필터·결과 확정 | [필터](../backend/app/profanity.py), [검수](../backend/app/moderation.py) | 운영 사전·근거·모델 판정·제재·기한 경합 |
@@ -54,7 +76,7 @@ React 최종 묶음은 **30개 통과(64.31초)**이며 학생 13개·전광판 
 
 - 연결한 학생·전광판·운영자 React 화면의 실제 브라우저·휴대폰·전광판 노트북 현장 수락. HTTPS·학교망·HDMI·장시간 실행·자동 시작과 재부팅 복구는 별도 확인한다.
 - 실제 AI의 독립 평가·게시 허용 기준·목표 서버의 CPU/RSS 측정. 기본 어댑터는 개발용 fake이며, 로컬 학생 모델 v0의 실제 추론·해시 manifest·검토 필요 결과 연결은 추가했다. [모델 연결 현황](student-model-integration.md)
-- 검토·확장한 운영용 금칙 사전과 양성/음성 평가. 시작 사전은 production에서 차단한다.
+- 검토·확장한 운영용 금칙 사전과 양성/음성 평가. legacy의 시작 사전은 production에서 차단한다. Gemini에서는 보조 규칙으로 사용하며 자동 벌점을 적용하지 않는다.
 - 클라우드 공급자·자원·공개 도메인·DNS·HTTPS·학교망·실제 노트북/패널 지속 시험. 로컬 Compose는 localhost용이다.
 - 운영 로그의 14일 보관·외부 백업·격리 복원 sanitize·복원 훈련. DB 보관 정리와 큐 종료 작업 정리는 구현했지만 실제 운영 스케줄·모니터링·백업은 별도 설정이 필요하다.
 - 운영자 담당·학교의 공개/보관 안내·허용 유실 폭·이의 처리·실제 모델과 시스템의 출시 수락.

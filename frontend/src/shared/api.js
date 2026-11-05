@@ -6,7 +6,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(path, { method = "GET", body, csrfToken, signal } = {}) {
+export async function request(path, { method = "GET", body, csrfToken, idempotencyKey, signal } = {}) {
   if (!path.startsWith("/api/") || path.startsWith("//")) throw new TypeError("A same-origin API path is required");
   const controller = new AbortController();
   const cancel = () => controller.abort(signal.reason);
@@ -18,6 +18,7 @@ export async function request(path, { method = "GET", body, csrfToken, signal } 
     if (method === "POST") {
       headers["Content-Type"] = "application/json";
       if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+      if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
     }
     const response = await fetch(path, {
       method, headers, credentials: "same-origin", cache: "no-store", signal: controller.signal,

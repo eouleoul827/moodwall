@@ -57,7 +57,8 @@ async def database(settings):
             # Fixture reset is maintenance DDL, not a 2-second business request.
             await conn.execute("SET LOCAL statement_timeout='30s'")
             await conn.execute("SET LOCAL lock_timeout='5s'")
-            await conn.execute("""TRUNCATE operator_audit_logs,operator_sessions,operators,
+            await conn.execute("""TRUNCATE moderation_provider_control,moderation_provider_attempts,
+                moderation_provider_daily,content_reports,report_commands,operator_audit_logs,operator_sessions,operators,
                 submissions,daily_usage,browser_sessions,participants,board_runtime,
                 worker_readiness,rate_limit_buckets RESTART IDENTITY CASCADE""")
             # Library cleanup is through its API. Old todo jobs see absent IDs and no-op.

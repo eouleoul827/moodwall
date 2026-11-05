@@ -16,7 +16,15 @@ describe('student admission transport', () => {
     expect(await createStudentApi(fetcher).connect('qr-secret')).toEqual(session);
     expect(fetcher.mock.calls.map(([path]) => path)).toEqual(['/api/session', '/api/admissions/exchange', '/api/session']);
     expect(fetcher.mock.calls[1][1].headers['X-CSRF-Token']).toBe('existing-csrf');
+    expect(fetcher.mock.calls.every(([, init]) => init.headers['X-Moodwall-Client-Features'] === 'support-v1')).toBe(true);
     expect(fetcher.mock.calls[1][1].body).toBe(JSON.stringify({ ticket: 'qr-secret' }));
+  });
+
+  it('sends a report key in the header while keeping the payload free of message text', async () => {
+    const fetcher = vi.fn().mockResolvedValue(json({ reportId: 'synthetic', status: 'RECEIVED' }, 202));
+    await createStudentApi(fetcher).request('/api/v2/reports', { method: 'POST', body: { category: 'PRIVACY' }, csrfToken: 'csrf', idempotencyKey: 'key' });
+    expect(fetcher.mock.calls[0][1].headers['Idempotency-Key']).toBe('key');
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ category: 'PRIVACY' });
   });
 
   it('recovers a lost exchange response using the cookie, with no extra exchange', async () => {

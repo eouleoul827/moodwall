@@ -135,7 +135,7 @@ function attempt(value, previous = null) {
 export class DisplayPlaybackController {
   constructor({ transport, renderer, clock = browserPlaybackClock(),
     visible = () => document.visibilityState === "visible", uuid = secureUuid,
-    onState = () => {}, cache = null }) {
+    onState = () => {}, onProblem = () => {}, cache = null }) {
     if (typeof transport?.request !== "function" || typeof renderer?.prepare !== "function" ||
         typeof renderer.show !== "function" || typeof renderer.hide !== "function" ||
         !["now", "sleep", "nextFrame", "setTimer", "clearTimer"].every(key => typeof clock[key] === "function")) {
@@ -149,6 +149,7 @@ export class DisplayPlaybackController {
     this.clientInstanceId = uuid(); // New for every document, deliberately never restored.
     if (!UUID.test(this.clientInstanceId)) throw new TypeError("Invalid client instance UUID");
     this.onState = onState;
+    this.onProblem = onProblem;
     this.cache = cache;
     this.generation = 0;
     this.current = null;
@@ -219,7 +220,8 @@ export class DisplayPlaybackController {
 
   #command(action, extra = {}) {
     return { action, attemptId: this.current?.attemptId,
-      body: { ...this.#body(), ...extra }, idempotencyKey: this.uuid() };
+      body: { ...this.#body(), ...extra }, idempotencyKey: this.uuid(),
+      ...(action === "complete" ? { cacheAuthEpoch: this.cache?.authEpoch } : {}) };
   }
 
   #guard({ starting = false } = {}) {
@@ -257,6 +259,10 @@ export class DisplayPlaybackController {
           throw failure("PLAYBACK_STALE", 409);
         }
         if (data.attempt) this.current = attempt(data.attempt, this.current);
+        if (command.action === "complete") this.lastCompletion = {
+          data, received: sample.received, started: sample.received - sample.rtt,
+          authEpoch: command.cacheAuthEpoch,
+        };
         this.pending = null;
         return data;
       } catch (error) {
@@ -274,19 +280,22 @@ export class DisplayPlaybackController {
   pause(reason = "PAGE_HIDDEN") {
     this.stopped = true;
     this.interruptReason = reason;
-    this.renderer.hide();
-    this.controller?.abort(failure(reason));
+    try { this.renderer.hide(); }
+    finally { this.controller?.abort(failure(reason)); }
   }
 
   resume() { this.stopped = false; this.interruptReason = null; }
 
   resetAuthentication() {
     this.generation++;
-    this.pause("CLIENT_ERROR");
-    this.pending = null;
-    this.current = null;
-    this.authority = null;
-    this.cache?.clear();
+    try { this.pause("CLIENT_ERROR"); }
+    finally {
+      this.pending = null;
+      this.current = null;
+      this.authority = null;
+      this.lastCompletion = null;
+      this.cache?.clear();
+    }
   }
 
   async #interrupt(reason) {
@@ -317,7 +326,7 @@ export class DisplayPlaybackController {
       if (data.attempt && DROP_PRESENTATION.has(data.attempt.presentationStatus)) {
         this.cache?.hide(data.attempt.submissionId);
       }
-      if (!data.attempt?.item || data.attempt.attemptId !== this.current.attemptId ||
+      if (!data.attempt?.item || data.attempt.status !== "PLAYING" || data.attempt.attemptId !== this.current.attemptId ||
           data.playbackEpoch !== this.ownerEpoch || data.mode !== "MOODWALL") {
         this.pause("HIDDEN");
       } else this.current = attempt(data.attempt);
@@ -366,16 +375,24 @@ export class DisplayPlaybackController {
       this.ownerEpoch = claim.playbackEpoch;
       this.status = "PREPARING";
       this.#guard();
-      let assetTimer;
+      let assetTimer, cancelAsset;
       try {
         await Promise.race([
           this.renderer.prepare(this.current.item, { signal: this.controller.signal }),
           new Promise((_, reject) => { assetTimer = this.clock.setTimer(() => reject(failure("ASSET_FAILURE")), 5000); }),
+          new Promise((_, reject) => {
+            cancelAsset = () => reject(this.controller.signal.reason);
+            this.controller.signal.addEventListener("abort", cancelAsset, { once: true });
+            if (this.controller.signal.aborted) cancelAsset();
+          }),
         ]);
       } catch {
         if (this.controller.signal.aborted) throw this.controller.signal.reason;
         throw failure("ASSET_FAILURE");
-      } finally { this.clock.clearTimer(assetTimer); }
+      } finally {
+        this.clock.clearTimer(assetTimer);
+        this.controller.signal.removeEventListener("abort", cancelAsset);
+      }
       this.#guard();
       const started = await this.#send(this.#command("start"));
       if (started.attempt.status !== "START_AUTHORIZED") throw failure("PLAYBACK_NOT_READY", 409);
@@ -449,6 +466,18 @@ export class DisplayPlaybackController {
     this.renderer.hide();
     const dropped = DROP_PRESENTATION.has(this.current.presentationStatus);
     if (dropped) this.cache?.hide(this.current.submissionId);
+    if (!dropped && typeof this.cache?.acceptCompleted === "function") {
+      const receipt = this.lastCompletion;
+      const saved = receipt && this.cache.acceptCompleted(receipt.data, this.current.item,
+        receipt.received, receipt.started, receipt.authEpoch);
+      const code = !saved ? "COMPLETED_CACHE_UNVERIFIED" :
+        this.cache.storageAvailable === false ? "CACHE_STORAGE_UNAVAILABLE" : null;
+      if (code) {
+        // Cache diagnostics must never turn an already confirmed DONE into a
+        // failed command or cause that presentation to be replayed.
+        try { this.onProblem(failure(code))?.catch?.(() => {}); } catch { /* diagnostic only */ }
+      }
+    }
     if (!dropped && this.visible() && !this.stopped && this.authority.data.clientInstanceId === this.clientInstanceId &&
         this.#serverNow() < parseTime(this.current.item.ambientUntil)) {
       this.renderer.float?.(this.current.item);

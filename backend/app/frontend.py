@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
-PAGE_PATHS = ("/", "/join", "/student", "/display", "/operator")
+PAGE_PATHS = ("/", "/join", "/student", "/display", "/display/setup", "/operator")
 CONTENT_SECURITY_POLICY = "; ".join(
     (
         "default-src 'self'",

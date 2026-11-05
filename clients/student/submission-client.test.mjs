@@ -20,7 +20,7 @@ function setup(handler) {
     requests.push({ url, init });
     return handler ? handler(url, init, requests) : response(202, receipt());
   }, csrfToken: () => "csrf", uuid: () => `aaaaaaaa-aaaa-4aaa-8aaa-${String(++sequence).padStart(12, "0")}`,
-  sleep: async () => {} });
+  wallNow: () => Date.parse("2026-11-04T03:00:00Z"), sleep: async () => {} });
   return { client, requests };
 }
 
@@ -35,6 +35,7 @@ test("202 shows the existing completion card immediately and sends only content"
   assert.equal(requests[0].init.body, '{"content":"오늘 행복해"}');
   assert.equal(requests[0].init.headers["Idempotency-Key"], intent.idempotencyKey);
   assert.equal(requests[0].init.headers["X-CSRF-Token"], "csrf");
+  assert.equal(requests[0].init.headers["X-Moodwall-Client-Features"], "support-v1");
   assert.equal(requests[0].init.credentials, "same-origin");
   assert.equal(JSON.stringify(result.receipt).includes("오늘 행복해"), false);
 });
@@ -168,4 +169,211 @@ test("five-second deadline settles an abort-ignoring transport", async () => {
   expire();
   assert.equal((await pending).state, "UNKNOWN");
   assert.equal(client.intent.idempotencyKey, ID);
+});
+
+test("private support takes priority over generic rewrite and normal status cards", () => {
+  for (const userStatus of ["NEEDS_REWRITE", "SHOWN"]) {
+    const view = studentReceiptView(receipt({ userStatus, reasonCode: "SUPPORT_AVAILABLE", contentStatus: "PURGED" }));
+    assert.equal(view.card, "SUPPORT");
+    assert.match(view.message, /전광판에 표시하지 않았어요/);
+    assert.doesNotMatch(view.message, /바꿔|수정|벌점/);
+  }
+});
+
+test("uncertainty uses a neutral explanation rather than calling the message harmful", () => {
+  const view = studentReceiptView(receipt({ userStatus: "NEEDS_REWRITE", reasonCode: "CONTENT_REVIEW_UNCERTAIN" }));
+  assert.equal(view.card, "UNCERTAIN");
+  assert.match(view.title, /판단하기 어려웠어요/);
+  assert.doesNotMatch(view.message, /욕설|괴롭힘|벌점/);
+});
+
+test("support receipt releases the retained message body while preserving its recovery key", async () => {
+  const { client, requests } = setup(() => response(202, receipt({ userStatus: "NEEDS_REWRITE", reasonCode: "SUPPORT_AVAILABLE", contentStatus: "PURGED" })));
+  const intent = client.begin("도와줘 너무 힘들어");
+  const result = await client.send();
+  assert.equal(result.view.card, "SUPPORT");
+  assert.equal(client.intent.content, "");
+  assert.equal(client.intent.idempotencyKey, intent.idempotencyKey);
+  assert.equal((await client.send()).view.card, "SUPPORT");
+  assert.equal(requests.length, 1);
+});
+
+test("client upgrade response preserves the intent and never automatically reposts", async () => {
+  const { client, requests } = setup(() => response(409, { code: "CLIENT_UPDATE_REQUIRED" }, "application/problem+json"));
+  const intent = client.begin("남겨 둔 초안");
+  assert.equal((await client.send()).state, "UPDATE_REQUIRED");
+  assert.equal(client.intent, intent);
+  assert.throws(() => client.begin("다른 초안"), { code: "PENDING_SUBMISSION_EXISTS" });
+  assert.equal((await client.send()).state, "UPDATE_REQUIRED");
+  assert.equal(requests.length, 1);
+});
+
+test("support capability is present on owner lookup and polling; upgrade stops polling", async () => {
+  const { client, requests } = setup(url => response(url.endsWith(ID) ? 409 : 200,
+    url.endsWith(ID) ? { code: "CLIENT_UPDATE_REQUIRED" } : receipt()));
+  client.begin("안녕");
+  await client.recover();
+  const changes = [];
+  const result = await client.watchReceipt({ maxPolls: 10, onChange: value => changes.push(value) });
+  assert.equal(result.polls, 1);
+  assert.equal(changes[0].state, "UPDATE_REQUIRED");
+  assert.equal(client.receipt.submissionId, ID);
+  assert.ok(requests.every(({ init }) => init.headers["X-Moodwall-Client-Features"] === "support-v1"));
+});
+
+function memoryStorage() {
+  const values = new Map();
+  return { values, getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+}
+const BASE = Date.parse("2026-11-04T03:00:00Z");
+
+test("recovery metadata is saved before dispatch and contains neither text nor credentials", async () => {
+  const storage = memoryStorage();
+  const client = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID, csrfToken: () => "private-csrf",
+    fetch: async () => {
+      const saved = JSON.parse([...storage.values.values()][0]);
+      assert.deepEqual(Object.keys(saved).sort(), ["expiresAt", "idempotencyKey", "submissionId", "version"]);
+      assert.equal(saved.idempotencyKey, ID);
+      assert.equal(saved.submissionId, null);
+      return response(202, receipt({ userStatus: "WAITING" }));
+    } });
+  client.begin("보관하면 안 되는 본문");
+  assert.equal(storage.values.size, 0);
+  await client.send();
+  assert.equal(JSON.parse([...storage.values.values()][0]).submissionId, ID);
+  assert.doesNotMatch([...storage.values.values()].join(), /보관|본문|csrf|content|cookie|statusUrl/i);
+});
+
+test("reload after a lost acceptance restores an already READY receipt by the original key", async () => {
+  const storage = memoryStorage(), calls = [];
+  const original = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID,
+    fetch: async () => { throw Error("committed but response lost"); } });
+  original.begin("다시 저장하지 않는 본문");
+  await original.send(); original.resetAuthentication();
+  const reloaded = new SubmissionClient({ storage, wallNow: () => BASE + 1000,
+    uuid: () => { throw Error("must not create a new UUID on reload"); },
+    fetch: async (url, init) => { calls.push({ url, init }); return response(200, receipt({ userStatus: "WAITING", presentationStatus: "READY" })); } });
+  assert.equal(reloaded.hasPendingRecovery, true);
+  assert.equal(reloaded.canResend, false);
+  const result = await reloaded.restorePending();
+  assert.equal(result.state, "ACCEPTED");
+  assert.equal(result.receipt.presentationStatus, "READY");
+  assert.equal(calls[0].url, "/api/v2/submission-receipts/lookup");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { idempotencyKey: ID });
+  assert.equal((await reloaded.send()).state, "ACCEPTED");
+  assert.equal(calls.length, 1);
+  assert.equal(reloaded.intent.content, null);
+});
+
+test("reload after 202 queries the saved owner receipt without retaining a message body", async () => {
+  const storage = memoryStorage(), calls = [];
+  const first = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID, fetch: async () => response(202, receipt()) });
+  first.begin("초안은 저장하지 않아요"); await first.send();
+  const restored = new SubmissionClient({ storage, wallNow: () => BASE + 500,
+    fetch: async (url, init) => { calls.push({ url, init }); return response(200, receipt({ userStatus: "SHOWN" })); } });
+  assert.equal((await restored.restorePending()).receipt.userStatus, "SHOWN");
+  assert.equal(calls[0].url, `/api/v2/submissions/${ID}`);
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[0].init.body, undefined);
+});
+
+test("an absent restored receipt remains uncertain and cannot repost an empty body or make a fresh key", async () => {
+  const storage = memoryStorage(), calls = [];
+  const first = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID, fetch: async () => { throw Error("lost"); } });
+  first.begin("안녕"); await first.send();
+  const restored = new SubmissionClient({ storage, wallNow: () => BASE,
+    uuid: () => { throw Error("unexpected UUID"); }, fetch: async (url, init) => { calls.push({ url, init }); return response(404, { code: "NOT_FOUND" }); } });
+  assert.equal((await restored.restorePending()).state, "UNKNOWN");
+  assert.throws(() => restored.begin("다른 글"), { code: "PENDING_SUBMISSION_EXISTS" });
+  assert.equal((await restored.send()).code, "ORIGINAL_CONTENT_UNAVAILABLE");
+  assert.equal(calls.length, 1);
+  assert.equal(calls.some(({ url }) => url === "/api/v2/submissions"), false);
+});
+
+test("a generic 503 problem remains uncertain while an explicit admission rejection is final", async () => {
+  for (const [code, expected] of [["SERVICE_UNAVAILABLE", "UNKNOWN"], ["DISPLAY_OFFLINE", "REJECTED"]]) {
+    const storage = memoryStorage();
+    const client = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID,
+      fetch: async () => response(503, { code }, "application/problem+json") });
+    client.begin("안녕");
+    assert.equal((await client.send()).state, expected);
+    assert.equal(storage.values.size, expected === "UNKNOWN" ? 1 : 0);
+    if (expected === "UNKNOWN") assert.throws(() => client.begin("새 글"), { code: "PENDING_SUBMISSION_EXISTS" });
+  }
+});
+
+test("unavailable storage retains the in-memory intent and exposes its recovery limitation", async () => {
+  const client = new SubmissionClient({ storage: { getItem() { throw Error("denied"); }, setItem() { throw Error("denied"); } },
+    uuid: () => ID, fetch: async () => { throw Error("lost"); } });
+  const intent = client.begin("계속 확인할 본문");
+  assert.equal((await client.send()).state, "UNKNOWN");
+  assert.equal(client.recoveryPersistent, false);
+  assert.equal(client.intent, intent);
+  assert.equal(client.canResend, true);
+});
+
+test("expired or non-whitelisted recovery metadata is discarded without dispatch", async () => {
+  for (const extra of [{ expiresAt: new Date(BASE - 1).toISOString() }, { content: "must never restore" }]) {
+    const storage = memoryStorage();
+    storage.setItem("moodwall.student.recovery.v1", JSON.stringify({ version: 1, idempotencyKey: ID, submissionId: null,
+      expiresAt: new Date(BASE + 10000).toISOString(), ...extra }));
+    const client = new SubmissionClient({ storage, wallNow: () => BASE, fetch: () => { throw Error("unexpected request"); } });
+    await client.restorePending();
+    assert.equal(client.hasPendingRecovery, false);
+    assert.equal(client.intent, null);
+    assert.equal(storage.values.size, 0);
+  }
+});
+
+test("a fast phone clock does not erase a valid key before server-time calibration", async () => {
+  const storage = memoryStorage();
+  const first = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID, fetch: async () => { throw Error("lost"); } });
+  first.begin("안녕"); await first.send();
+  let clock = BASE + 2 * 24 * 60 * 60 * 1000;
+  const restored = new SubmissionClient({ storage, wallNow: () => clock, fetch: async () => response(200, receipt()) });
+  assert.equal(restored.hasPendingRecovery, true);
+  clock = BASE + 1000; // /api/session.serverNow, before any owner lookup.
+  assert.equal((await restored.restorePending()).state, "ACCEPTED");
+});
+
+test("polling survives five minutes and detects an actionable result near the ten-minute wait limit", async () => {
+  let clock = BASE;
+  const delays = [], changes = [];
+  const client = new SubmissionClient({ storage: null, uuid: () => ID, wallNow: () => clock, now: () => clock - BASE,
+    sleep: async ms => { delays.push(ms); clock += ms; },
+    fetch: async (url) => response(url.endsWith(ID) ? 200 : 202, receipt(clock >= BASE + 480000
+      ? { revision: "2", userStatus: "NEEDS_REWRITE" } : { userStatus: "WAITING" })) });
+  client.begin("안녕"); await client.send();
+  const result = await client.watchReceipt({ onChange: next => changes.push(next) });
+  assert.ok(clock >= BASE + 480000);
+  assert.ok(result.polls < 50);
+  assert.ok(delays.every(ms => ms <= 30000));
+  assert.equal(changes.at(-1).view.card, "REWRITE");
+});
+
+test("unchanged receipts stop at their wait deadline without inventing a rejection", async () => {
+  let clock = BASE;
+  const client = new SubmissionClient({ storage: null, uuid: () => ID, wallNow: () => clock, now: () => clock - BASE,
+    sleep: async ms => { clock += ms; }, fetch: async (url) => response(url.endsWith(ID) ? 200 : 202, receipt({ userStatus: "WAITING" })) });
+  client.begin("안녕"); await client.send();
+  const result = await client.watchReceipt();
+  assert.equal(clock, BASE + 630000);
+  assert.ok(result.polls < 50);
+  assert.equal(result.receipt.userStatus, "WAITING");
+  assert.equal(client.state, "ACCEPTED");
+});
+
+test("an actual start extends polling beyond the predisplay deadline until the final receipt", async () => {
+  let clock = BASE;
+  const firstStart = new Date(BASE + 590000).toISOString();
+  const client = new SubmissionClient({ storage: null, uuid: () => ID, wallNow: () => clock, now: () => clock - BASE,
+    sleep: async ms => { clock += ms; }, fetch: async (url) => response(url.endsWith(ID) ? 200 : 202,
+      receipt(clock >= BASE + 590000 ? { revision: clock >= BASE + 660000 ? "3" : "2",
+        userStatus: clock >= BASE + 660000 ? "SHOWN" : "SHOWING", firstStartAuthorizedAt: firstStart,
+        contentDeleteAt: new Date(BASE + 4190000).toISOString() } : { userStatus: "WAITING" })) });
+  client.begin("안녕"); await client.send();
+  const result = await client.watchReceipt();
+  assert.ok(clock >= BASE + 660000);
+  assert.equal(result.receipt.userStatus, "SHOWN");
 });

@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 
 from app.db import all_rows, db_time, one
 from app.domain import business_day, midnight_after
+from app.provider_control import ProviderControlService
 from inference.contracts import ModelAnalyzed, RuleRejected, RunFailed
 
 INFLIGHT = {"PENDING", "PROCESSING"}
@@ -100,6 +101,10 @@ class ModerationService:
     async def _finalize(self, claim: dict, outcome) -> None:
         async with self.db.connection() as conn:
             async with conn.transaction():
+                provider_mode = self.settings.moderation_profile != "legacy"
+                provider_control = (
+                    await ProviderControlService(self.db, self.settings).lock_control(conn) if provider_mode else None
+                )
                 row, usage = await self._lock(conn, claim["id"])
                 if (
                     row is None
@@ -121,6 +126,11 @@ class ModerationService:
                     await self._terminal(conn, row, now, "FAILED", outcome.error_code)
                     return
                 if isinstance(outcome, RuleRejected):
+                    # A provider profile may never enter the legacy automatic
+                    # strike transition, including via an internal caller.
+                    if provider_mode or not self.settings.auto_strikes:
+                        await self._terminal(conn, row, now, "FAILED", "INVALID_MODEL_OUTPUT")
+                        return
                     if outcome.lexicon_version != row["lexicon_version"]:
                         await self._terminal(conn, row, now, "FAILED", "POLICY_VERSION_MISMATCH")
                         return
@@ -160,6 +170,25 @@ class ModerationService:
                     await self._terminal(conn, row, now, "FAILED", "INVALID_MODEL_OUTPUT")
                     return
                 allowed = result.safety.verdict == "ALLOW"
+                if provider_mode:
+                    attempt = await one(
+                        conn,
+                        "SELECT status,run_token,release_id,outcome_code FROM moderation_provider_attempts WHERE submission_id=%s",
+                        (row["id"],),
+                    )
+                    if (
+                        attempt is None
+                        or attempt["status"] != "COMPLETED"
+                        or attempt["run_token"] != claim["processing_run_token"]
+                        or attempt["release_id"] != row["moderation_policy_version"]
+                        or attempt["release_id"] != self.settings.moderation_policy_version
+                        or attempt["outcome_code"] != "OK"
+                    ):
+                        await self._terminal(conn, row, now, "FAILED", "INVALID_MODEL_OUTPUT")
+                        return
+                    if allowed and provider_control["mode"] != "OPEN":
+                        await self._terminal(conn, row, now, "FAILED", "MODEL_NOT_READY")
+                        return
                 receipt = await one(conn, "SELECT id FROM submission_receipts WHERE id=%s", (row["id"],))
                 await conn.execute(
                     """UPDATE submissions SET moderation_status=%s,finalized_at=%s,
@@ -191,6 +220,13 @@ class ModerationService:
         """Only the worker may call this, before START/ACK and any inference."""
         async with self.db.connection() as conn:
             async with conn.transaction():
+                if self.settings.moderation_profile != "legacy":
+                    await ProviderControlService(self.db, self.settings).lock_control(conn)
+                    attempt = await one(
+                        conn, "SELECT status FROM moderation_provider_attempts WHERE submission_id=%s", (claim["id"],)
+                    )
+                    if attempt is None or attempt["status"] != "RESERVED":
+                        return False
                 row, usage = await self._lock(conn, claim["id"])
                 if (
                     row is None

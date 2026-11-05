@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -257,6 +258,14 @@ async def test_original_source_ttl_is_anchored_to_first_start_and_receipt_surviv
     monkeypatch.setattr("app.playback.db_time", completed_clock)
     completed = await command(clients, state, identity, "complete")
     assert completed.status_code == 200, completed.text
+    acknowledgement = completed.json()
+    scope = acknowledgement["cacheScope"]
+    assert scope["displayProtocolVersion"] == "2"
+    for name in ("boardId", "deviceGeneration", "revision", "serverNow", "mode"):
+        assert scope[name] == acknowledgement[name]
+    assert scope["businessDate"] == initial["accepted_at"].astimezone(ZoneInfo("Asia/Seoul")).date().isoformat()
+    assert scope["removedIds"] == []
+    assert scope["cacheResetToken"] == "0"
 
     async def expiry_clock(conn):
         return first_start + timedelta(hours=1)

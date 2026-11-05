@@ -2,6 +2,14 @@
 
 **현재 v2 연결 모듈:** `playback-controller.mjs`, `playback-bubble-cache.mjs`, `playback-browser.mjs`를 새 API 0.8.0과 함께 사용한다. [로컬 구현 가이드](../../docs/playback-local-implementation.md)와 [15초 재생 설계](../../docs/playback-design.md)를 따른다. 아래 별도 v1 설명의 `bubble-cache.mjs`는 이전 호환 모듈이다.
 
+공개 오류 비노출 연결에서는 `onProblem`을 직원 진단으로 보내고 인증·중단 제어는 유지한다. runtime의 선택적 `onState`는 `source`가 `playback` 또는 `snapshot`인 인증 메타데이터와 `connected`, `storageAvailable`, RTT를 차감한 `leaseRemainingMs`·`monotonicLeaseUntil`을 전달한다. snapshot 실패의 `connected:false`만으로 허가된 현재 글의 15초 재생을 강제 중단하지 않는다. 치명적인 RAF·루프 실패는 작업을 정리하고 `{source:"runtime",connected:false,fatal:true}`를 전달한다. 진단 콜백의 실패는 제어에 영향을 주지 않는다.
+
+`cache.acceptCompleted(ack, item, receivedAt, requestStartedAt, expectedAuthEpoch)`는 새 `cacheScope`가 있는 확정 DONE만 검증해 즉시 보관한다. complete 전의 `cache.authEpoch`를 캡처하며 controller가 이를 연결한다. ACK는 snapshot 온라인 허가를 연장하거나 끊긴 캐시를 다시 표시하지 않는다. 초기 snapshot이 실패한 경우에도 저장은 가능하며, 다음 일치하는 인증 snapshot 전에는 공개하지 않는다. 숨김·세대·초기화·자정·인증 변경을 확인하고 최초 1시간 기한을 유지한다. UNKNOWN은 저장 근거가 아니다.
+
+직원 설정은 `readPlaybackBubbleCatalog({boardId, storage, snapshots})`를 사용한다. `snapshots`는 현재 장치로 인증한 v2 말풍선 페이지 배열이며 모든 `nextCursor` 페이지를 읽는다. 결과는 `{bubbles,storageAvailable,cacheValid,businessDate,deviceGeneration}`이다. 온라인 lease가 끝나거나 PAUSED여도 같은 날 보관된 투명 말풍선을 숨김 관리용으로 읽을 수 있다. 이 함수는 조회 시 저장소를 쓰거나 지우지 않으며, 반환값은 공개 송출 허가가 아니다. 공개 화면은 기존 `cache.view()`만 사용한다.
+
+v2 기본 `maxCards=5000`은 06:00~23:00 동안 15초씩 표시할 때의 이론상 4080개를 보관하도록 잡은 메모리 상한이다(설정 범위 1~10000). 공개 `view()`는 보관된 전체를 반환하며 내용·phase가 바뀌기 전에는 같은 결과 객체를 재사용한다. 복구 시 `raw.length <= 4_000_000` 검사는 그대로 유지한다. 이는 UTF-16 code unit 수이며 바이트 용량 보장이 아니다. 30개 조합 이모지는 저장 용량을 더 차지할 수 있어 저장 실패를 진단하고 현재 세션 메모리로 계속한다. synthetic Node 회귀는 실제 전광판 노트북의 DOM·애니메이션 FPS 측정과 별개다.
+
 ## v2 React 연결
 
 ```js

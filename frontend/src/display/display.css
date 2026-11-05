@@ -1,5 +1,7 @@
 .mw-display { --mw-bg:#f2efe8; --mw-ink:#353a32; --mw-sub:#85877c; --mw-line:#deddd2; position:relative; min-height:100svh; height:100svh; width:100%; overflow:hidden; background:var(--mw-bg); color:var(--mw-ink); font-family:inherit; }
 .mw-display * { box-sizing:border-box; }
+.mw-wall-content { height:100%; }
+.mw-qr-box>svg { width:55%; color:#b2b79f; }
 .mw-display button,.mw-display input { font:inherit; }
 .mw-display button,.mw-display a,.mw-display input { -webkit-tap-highlight-color:transparent; }
 .mw-display button:focus-visible,.mw-display a:focus-visible,.mw-display input:focus-visible { outline:3px solid #87a37d; outline-offset:4px; }

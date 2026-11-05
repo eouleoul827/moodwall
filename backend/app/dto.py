@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 ReasonCode = Literal[
     "INAPPROPRIATE_CONTENT", "FALSE_POSITIVE", "MAINTENANCE", "DEVICE_REPLACED", "SECURITY_REVIEW", "OTHER"
@@ -29,6 +29,19 @@ class MentionV2(Input):
 
 class ReceiptLookup(Input):
     idempotencyKey: UUID
+
+
+class ContentReport(Input):
+    category: Literal["HARASSMENT", "PRIVACY", "THREAT", "OTHER"]
+    submissionId: UUID | None = None
+
+
+class ResolveReport(Input):
+    resolution: Literal["HIDDEN", "BOARD_PAUSED", "NO_ACTION", "INSUFFICIENT_EVIDENCE"]
+
+
+class ProviderPause(Input):
+    paused: bool
 
 
 class PlaybackClaim(Input):
@@ -80,3 +93,16 @@ class Intake(Reason):
 
 class Empty(Input):
     pass
+
+
+class DisplayDiagnostic(Input):
+    component: Literal["SESSION", "QR", "PLAYBACK", "CACHE", "RENDER"]
+    code: Literal[
+        "CONNECTION_FAILED", "AUTH_REQUIRED", "QR_UNAVAILABLE", "PLAYBACK_OWNED",
+        "PLAYBACK_INTERRUPTED", "PLAYBACK_UNKNOWN", "ASSET_FAILURE",
+        "STORAGE_UNAVAILABLE", "RENDER_FAILURE",
+    ]
+    state: Literal["FAILED", "RECOVERED"]
+    version: Literal["1"]
+    count: int = Field(ge=1, le=1000)
+    occurredAt: AwareDatetime

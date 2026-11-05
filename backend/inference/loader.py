@@ -21,6 +21,49 @@ class AnalyzerContext:
 
 
 def load_analyzer(settings):
+    if settings.analyzer in {"gemini_mock", "gemini"}:
+        from inference.provider_moderation import (
+            GeminiModerationAnalyzer,
+            ProviderModerationError,
+            compute_release_id,
+        )
+
+        if settings.analyzer == "gemini_mock" and settings.environment not in {"development", "test"}:
+            raise ValueError("gemini_mock analyzer is forbidden outside development/test")
+        if settings.analyzer == "gemini" and getattr(settings, "gemini_api_key", None) is None:
+            raise ProviderModerationError("MODEL_NOT_READY")
+        release_id = compute_release_id(
+            inference_policy_version=settings.inference_policy_version,
+            lexicon_version=getattr(settings, "lexicon_version", "lexicon-v1"),
+            runtime_profile=getattr(settings, "provider_release_parameters", None),
+        )
+        if (
+            settings.model_bundle_version != release_id
+            or getattr(settings, "moderation_policy_version", release_id) != release_id
+        ):
+            raise ValueError("Gemini release does not match deployment")
+        if settings.analyzer == "gemini":
+            from inference.gemini_http import GeminiHTTPTransport
+
+            key = getattr(settings, "gemini_api_key", None)
+            if key is None:
+                raise ProviderModerationError("MODEL_NOT_READY")
+            return GeminiModerationAnalyzer(
+                release_id,
+                settings.inference_policy_version,
+                transport=GeminiHTTPTransport(
+                    key,
+                    timeout_seconds=settings.provider_timeout_seconds,
+                    connect_timeout_seconds=settings.provider_connect_timeout_seconds,
+                    max_input_tokens=settings.provider_max_input_tokens,
+                ),
+                moderation_profile="gemini",
+                max_input_tokens=settings.provider_max_input_tokens,
+                max_output_tokens=settings.provider_max_output_tokens,
+            )
+        # Fixture contracts are validated at construction. Do not spend a
+        # synthetic provider invocation on the legacy startup warmup message.
+        return GeminiModerationAnalyzer(release_id, settings.inference_policy_version)
     if settings.analyzer == "fake":
         if settings.environment not in {"development", "test"}:
             raise ValueError("fake analyzer is forbidden outside development/test")

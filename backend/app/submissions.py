@@ -145,6 +145,21 @@ class SubmissionService:
                 if bytes(existing["request_hash"]) != fingerprint:
                     raise Problem(409, "IDEMPOTENCY_CONFLICT")
                 return serialize_submission(existing), False
+            playback_device = await one(
+                conn,
+                """SELECT playback_owner_instance_id IS NOT NULL
+                AND playback_owner_generation=device_token_version AS v2
+                FROM board_runtime WHERE id=%s""",
+                (self.settings.board_id,),
+            )
+            # Once this registered device has used v2, a closed/offline player
+            # must not reopen the incompatible v1 path. Existing-key recovery
+            # above stays available; an unexpired ownership lease is not needed.
+            if (
+                getattr(self.settings, "moderation_profile", "legacy") != "legacy"
+                or (playback_device and playback_device["v2"])
+            ):
+                raise Problem(409, "CLIENT_UPDATE_REQUIRED", "화면을 새로고침한 뒤 다시 작성해 주세요.")
             if not self.intake_ready() or not await schema_ready(conn, self.settings.board_id):
                 raise Problem(503, "SERVICE_UNAVAILABLE")
             if emoji_id not in EMOJI:

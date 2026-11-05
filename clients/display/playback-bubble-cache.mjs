@@ -5,6 +5,7 @@ const decimal = value => typeof value === "string" && DECIMAL.test(value);
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const KST = 9 * HOUR;
+const EMPTY_VIEW = Object.freeze({ visible: false, bubbles: Object.freeze([]), totalCount: 0 });
 function time(value) {
   const result = typeof value === "string" ? Date.parse(value) : NaN;
   if (!Number.isFinite(result)) throw new TypeError("Invalid cache timestamp");
@@ -51,9 +52,62 @@ function validateCard(value, scope) {
 }
 const sameScope = (a, b) => a && b && a.boardId === b.boardId && a.businessDate === b.businessDate &&
   a.deviceGeneration === b.deviceGeneration && a.cacheResetToken === b.cacheResetToken;
+const sameCard = (a, b) => a.first === b.first && a.expires === b.expires && a.content === b.content;
+const orderedCards = cards => [...cards].sort((a, b) => a.first - b.first || a.id.localeCompare(b.id));
+
+/** Staff-only catalog. Call only with freshly authenticated snapshot pages.
+ * This deliberately ignores the online lease and NEVER writes shared storage.
+ */
+export function readPlaybackBubbleCatalog({ boardId, storage = null, snapshots }) {
+  if (!UUID.test(boardId) || !Array.isArray(snapshots) || !snapshots.length) {
+    throw new TypeError("Authenticated display snapshots are required");
+  }
+  let scope = null, revision = -1n, snapshotAt = null;
+  const incoming = new Map(), hidden = new Set();
+  for (const page of snapshots) {
+    const next = validateScope(page, boardId);
+    if (scope && (!sameScope(scope, next) || next.now < scope.now || BigInt(page.revision) < revision) ||
+        snapshotAt !== null && page.snapshotAt !== snapshotAt || time(page.snapshotAt) > next.now) {
+      throw new TypeError("Display catalog scope changed while paging");
+    }
+    snapshotAt = page.snapshotAt; scope = next; revision = BigInt(page.revision);
+    for (const id of page.removedIds) hidden.add(id);
+    for (const value of page.bubbles) {
+      const card = validateCard(value, scope), previous = incoming.get(card.id);
+      if (previous && !sameCard(previous, card)) throw new TypeError("Display catalog card changed");
+      incoming.set(card.id, card);
+    }
+  }
+  let storageAvailable = Boolean(storage), cacheValid = false;
+  const cards = new Map();
+  let raw;
+  try { raw = storage?.getItem(`moodwall.display.playback.v1:${boardId}`); }
+  catch { storageAvailable = false; }
+  try {
+    if (raw) {
+      if (raw.length > 4_000_000) throw new TypeError("Cache too large");
+      const saved = JSON.parse(raw);
+      if (saved.version !== 1 || !sameScope(saved.scope, scope) || !Array.isArray(saved.cards) || saved.cards.length > 10_000) {
+        throw new TypeError("Stale cache");
+      }
+      for (const value of saved.cards) { const card = validateCard(value, scope); cards.set(card.id, card); }
+      cacheValid = true;
+    }
+  } catch { cards.clear(); }
+  for (const card of incoming.values()) {
+    const previous = cards.get(card.id);
+    if (previous && !sameCard(previous, card)) throw new TypeError("Stored display card changed");
+    cards.set(card.id, card);
+  }
+  for (const id of hidden) cards.delete(id);
+  const bubbles = orderedCards(cards.values()).map(({ first, expires, ...card }) =>
+    ({ ...card, phase: scope.now >= expires ? "AMBIENT" : "FLOATING" }));
+  return { bubbles, storageAvailable, cacheValid, businessDate: scope.businessDate,
+    deviceGeneration: scope.deviceGeneration };
+}
 
 export class PlaybackBubbleCache {
-  constructor({ boardId, storage = null, maxCards = 2000 }) {
+  constructor({ boardId, storage = null, maxCards = 5000 }) {
     if (!UUID.test(boardId) || !Number.isInteger(maxCards) || maxCards < 1 || maxCards > 10_000) {
       throw new TypeError("Invalid v2 cache configuration");
     }
@@ -67,6 +121,9 @@ export class PlaybackBubbleCache {
     this.connected = false;
     this.storageAvailable = Boolean(storage);
     this.revision = -1n;
+    this.authEpoch = 0;
+    this.cachedView = null;
+    this.nextPhaseAt = Infinity;
     // Never reinterpret acceptedAt + 1h legacy records as first-start records.
     try {
       storage?.removeItem(`moodwall.display.day.v1:${boardId}`);
@@ -102,6 +159,85 @@ export class PlaybackBubbleCache {
     } catch { this.storageAvailable = false; }
   }
 
+  #invalidateView() { this.cachedView = null; this.nextPhaseAt = Infinity; }
+
+  #stale(next, revision) {
+    return this.scope && (next.businessDate < this.scope.businessDate ||
+      BigInt(next.deviceGeneration) < BigInt(this.scope.deviceGeneration) ||
+      next.deviceGeneration === this.scope.deviceGeneration && next.businessDate === this.scope.businessDate &&
+      (BigInt(revision) < this.revision || BigInt(next.cacheResetToken) < BigInt(this.scope.cacheResetToken)));
+  }
+
+  #merge(next, incoming, removedIds, revision, monotonicNow, rtt) {
+    if (sameScope(next, this.scope)) {
+      for (const card of incoming) {
+        const previous = this.cards.get(card.id);
+        if (previous && !sameCard(previous, card)) return false;
+      }
+    }
+    if (!sameScope(next, this.scope)) {
+      const initial = this.scope === null;
+      this.cards.clear(); this.hidden.clear(); this.connected = false;
+      if (initial) this.#restore(next);
+      else this.#removeStored();
+    }
+    const oldNow = this.scope ? this.scope.now + Math.max(0, monotonicNow - this.anchor) : 0;
+    next.now = Math.max(next.now + rtt, oldNow);
+    this.scope = next; this.anchor = monotonicNow; this.revision = BigInt(revision);
+    for (const id of removedIds) { this.hidden.add(id); this.cards.delete(id); }
+    for (const card of incoming) if (!this.hidden.has(card.id)) this.cards.set(card.id, card);
+    const ordered = orderedCards(this.cards.values());
+    for (const card of ordered.slice(0, Math.max(0, ordered.length - this.maxCards))) this.cards.delete(card.id);
+    this.#invalidateView(); this.#save();
+    return true;
+  }
+
+  /** Persist only a confirmed DONE under its authenticated scope. An ACK never
+   * establishes/extends public visibility, mode or the snapshot online lease.
+   * expectedAuthEpoch must be captured before sending the complete command.
+   */
+  acceptCompleted(ack, item, monotonicNow, requestStartedAt, expectedAuthEpoch) {
+    const rtt = monotonicNow - requestStartedAt;
+    if (expectedAuthEpoch !== this.authEpoch || !Number.isFinite(monotonicNow) ||
+        !Number.isFinite(rtt) || rtt < 0 || rtt >= 5000) return false;
+    let next, card;
+    try {
+      const metadata = ack?.cacheScope;
+      next = validateScope({ ...metadata, bubbles: [] }, this.boardId);
+      const completed = ack.attempt;
+      if (ack.displayProtocolVersion !== "2" || ack.boardId !== next.boardId ||
+          ack.deviceGeneration !== next.deviceGeneration || ack.revision !== metadata.revision ||
+          ack.mode !== metadata.mode || time(ack.serverNow) !== next.now ||
+          !UUID.test(completed?.attemptId) || completed.status !== "DONE" || completed.presentationStatus !== "DONE" ||
+          completed.deviceGeneration !== next.deviceGeneration || completed.submissionId !== item?.id ||
+          (completed.item !== null && (completed.item.id !== item.id || completed.item.content !== item.content ||
+            completed.item.firstStartAuthorizedAt !== item.firstStartAuthorizedAt ||
+            completed.item.contentDeleteAt !== item.contentDeleteAt))) return false;
+      card = validateCard(item, next);
+      const matches = sameScope(next, this.scope);
+      if (metadata.removedIds.includes(card.id) || matches && this.hidden.has(card.id)) return false;
+      const priorNow = this.scope ? this.scope.now + Math.max(0, monotonicNow - this.anchor) : 0;
+      if (Math.max(next.now + rtt, priorNow) >= next.until) return false;
+      if (matches && BigInt(metadata.revision) < this.revision) {
+        // A later page may have newer board metadata but a snapshotAt before
+        // this completion. Keep the confirmed body under the newer scope;
+        // never rewind its clock, revision, tombstones, mode or online lease.
+        const previous = this.cards.get(card.id);
+        if (previous && !sameCard(previous, card)) return false;
+        for (const id of metadata.removedIds) { this.hidden.add(id); this.cards.delete(id); }
+        this.cards.set(card.id, card);
+        const ordered = orderedCards(this.cards.values());
+        for (const old of ordered.slice(0, Math.max(0, ordered.length - this.maxCards))) this.cards.delete(old.id);
+        this.#invalidateView(); this.#save();
+        return true;
+      }
+      if (this.#stale(next, metadata.revision)) return false;
+      if (!this.#merge(next, [card], metadata.removedIds, metadata.revision, monotonicNow, rtt)) return false;
+      if (metadata.mode !== "MOODWALL") this.disconnect();
+      return true;
+    } catch { return false; }
+  }
+
   synchronize(snapshot, monotonicNow, requestStartedAt = monotonicNow) {
     const rtt = monotonicNow - requestStartedAt;
     if (!Number.isFinite(rtt) || rtt < 0 || rtt >= 5000 || !Number.isFinite(monotonicNow)) {
@@ -112,74 +248,53 @@ export class PlaybackBubbleCache {
       next = validateScope(snapshot, this.boardId);
       incoming = snapshot.bubbles.map(value => validateCard(value, next));
     } catch { this.disconnect(); return false; }
-    if (this.scope && (next.businessDate < this.scope.businessDate ||
-        BigInt(next.deviceGeneration) < BigInt(this.scope.deviceGeneration) ||
-        next.deviceGeneration === this.scope.deviceGeneration &&
-        next.businessDate === this.scope.businessDate && (BigInt(snapshot.revision) < this.revision ||
-          BigInt(next.cacheResetToken) < BigInt(this.scope.cacheResetToken)))) return false;
-    if (sameScope(next, this.scope)) {
-      const staged = new Map(this.cards);
-      for (const card of incoming) {
-        const existing = staged.get(card.id);
-        if (existing && (existing.first !== card.first || existing.expires !== card.expires ||
-            existing.content !== card.content)) { this.disconnect(); return false; }
-        staged.set(card.id, card);
-      }
+    if (this.#stale(next, snapshot.revision)) return false;
+    if (!this.#merge(next, incoming, snapshot.removedIds, snapshot.revision, monotonicNow, rtt)) {
+      this.disconnect(); return false;
     }
-    if (!sameScope(next, this.scope)) {
-      const initial = this.scope === null;
-      this.cards.clear(); this.hidden.clear();
-      if (initial) this.#restore(next);
-      else this.#removeStored();
-    }
-    const oldNow = this.scope ? this.scope.now + Math.max(0, monotonicNow - this.anchor) : 0;
-    next.now = Math.max(next.now + rtt, oldNow);
-    this.scope = next;
-    this.anchor = monotonicNow;
-    this.revision = BigInt(snapshot.revision);
     this.lease = snapshot.onlineLeaseUntil === null ? 0 : time(snapshot.onlineLeaseUntil);
     this.mode = snapshot.mode;
-    for (const id of snapshot.removedIds) { this.hidden.add(id); this.cards.delete(id); }
-    // Missing IDs may be another page or deleted source rows; absence never removes local text.
-    for (const card of incoming) if (!this.hidden.has(card.id)) this.cards.set(card.id, card);
-    const ordered = [...this.cards.values()].sort((a, b) => a.first - b.first || a.id.localeCompare(b.id));
-    for (const card of ordered.slice(0, Math.max(0, ordered.length - this.maxCards))) this.cards.delete(card.id);
     this.connected = true;
-    this.#save();
     return true;
   }
 
   view(monotonicNow) {
-    const empty = { visible: false, bubbles: [], totalCount: 0 };
-    if (!this.scope || !Number.isFinite(monotonicNow) || monotonicNow < this.anchor) return empty;
+    if (!this.scope || !Number.isFinite(monotonicNow) || monotonicNow < this.anchor) return EMPTY_VIEW;
     const now = this.scope.now + monotonicNow - this.anchor;
-    if (now >= this.scope.until) { this.clear(); return empty; }
-    if (!this.connected || this.mode !== "MOODWALL" || now >= this.lease) return empty;
-    const bubbles = [...this.cards.values()].sort((a, b) => a.first - b.first || a.id.localeCompare(b.id))
-      .map(({ first, expires, ...card }) => ({ ...card, phase: now >= expires ? "AMBIENT" : "FLOATING" }));
-    return { visible: true, bubbles, totalCount: bubbles.length };
+    if (now >= this.scope.until) { this.clear(); return EMPTY_VIEW; }
+    if (!this.connected || this.mode !== "MOODWALL" || now >= this.lease) return EMPTY_VIEW;
+    if (!this.cachedView || now >= this.nextPhaseAt) {
+      this.nextPhaseAt = Infinity;
+      const bubbles = orderedCards(this.cards.values()).map(({ first, expires, ...card }) => {
+        if (expires > now) this.nextPhaseAt = Math.min(this.nextPhaseAt, expires);
+        return { ...card, phase: now >= expires ? "AMBIENT" : "FLOATING" };
+      });
+      this.cachedView = { visible: true, bubbles, totalCount: bubbles.length };
+    }
+    return this.cachedView;
   }
 
   disconnect() { this.connected = false; }
   hide(id) {
     if (!UUID.test(id)) throw new TypeError("Invalid hidden bubble ID");
-    this.hidden.add(id); this.cards.delete(id); this.#save();
+    this.hidden.add(id); this.cards.delete(id); this.#invalidateView(); this.#save();
   }
   clear() {
     this.cards.clear(); this.hidden.clear(); this.scope = null; this.connected = false;
-    this.revision = -1n; this.#removeStored();
+    this.revision = -1n; this.authEpoch++; this.#invalidateView(); this.#removeStored();
   }
 }
 
 /** Authenticated sequential pagination, with cancellation fencing for reconnect/auth changes. */
 export class PlaybackBubbleSynchronizer {
-  constructor({ cache, fetchPage, now = () => performance.now() }) {
+  constructor({ cache, fetchPage, now = () => performance.now(), onSnapshot = () => {} }) {
     if (!(cache instanceof PlaybackBubbleCache) || typeof fetchPage !== "function" || typeof now !== "function") {
       throw new TypeError("Invalid v2 synchronization configuration");
     }
     this.cache = cache;
     this.fetchPage = fetchPage;
     this.now = now;
+    this.onSnapshot = onSnapshot;
     this.epoch = 0;
     this.controller = null;
   }
@@ -225,6 +340,7 @@ export class PlaybackBubbleSynchronizer {
         time(page.snapshotAt);
         if (time(page.snapshotAt) > time(page.serverNow)) throw new TypeError("Invalid snapshot time");
         if (!this.cache.synchronize(page, this.now(), started)) throw new TypeError("Invalid or stale v2 snapshot");
+        this.onSnapshot(page);
         pages++;
         snapshotAt = page.snapshotAt;
         cursor = page.nextCursor;

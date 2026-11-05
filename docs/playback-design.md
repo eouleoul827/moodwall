@@ -1,5 +1,7 @@
 # 무드월 준비 완료 순서와 15초 재생 설계
 
+2026-11-05 추가 구현: [전광판 오류 비노출과 기존 동작 보존](display-recovery-design.md)을 코드에 반영했다. 공개 오류 안내와 자동 등록 화면 전환을 분리하고 이 문서의 재생·보관 계약을 유지한다. 최신 계약은 HTTP 0.11.0, DB head는 `0008_display_diagnostics`이며 [현재 구현과 검증 범위](display-recovery-implementation.md)를 따른다.
+
 기준일: 2026-11-04. v2 재생 API·영수증·DB migration과 독립 클라이언트 모듈을 구현했다. HTTP 계약은 0.8.0, DB head는 `0006_playback_receipts`다. 실행 경로·실제 검증·미완료 범위는 [로컬 구현 가이드](playback-local-implementation.md)와 [구현 상태](implementation-status.md)를 따른다. 생성형 배경은 향후 확장이며 현재는 감정별 고정 테마 메타데이터를 준비한다.
 
 ## 확정한 동작과 초기 운영값

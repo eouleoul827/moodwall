@@ -7,9 +7,11 @@
 
 처음 실행할 때는 **[백엔드 실행 가이드](backend/README.md)**를 읽으세요. Docker Compose로 로컬 DB·API·작업자를 실행하고, 운영자를 생성한 뒤 접수·송출을 명시적으로 재개하는 순서입니다. 현재 구현·검증·미완료 범위는 [구현 상태](docs/implementation-status.md)에 구분합니다.
 
+**Gemini API 키를 받았다면** 저장소 루트에서 `python scripts/setup_gemini.py --start`를 실행하세요. 키를 숨겨 입력받아 기존 로컬 비밀을 보존하고 프론트·이미지 빌드·DB migration·서비스 시작까지 연결합니다. 처음 운영자 계정도 만들려면 `--create-operator`를 추가합니다. 실제 키를 사용한 품질·청구 검증과 현장 배포는 별도입니다. [Gemini 연결·실행 가이드](docs/gemini-moderation-implementation.md)
+
 팀에서 전달받은 [전광판·모바일 HTML 시안](prototypes/README.md)도 포함합니다. 실제 모델 bundle은 [학생 모델 v0 사전 릴리스](https://github.com/eouleoul827/moodwall/releases/tag/student-model-v0-0c45710941f2)의 첨부 파일로 제공합니다. 코드는 기능 브랜치와 PR에서 검토하며, AI 팀의 학습 코드·시드 데이터는 [AI PR #2](https://github.com/eouleoul827/moodwall/pull/2)에 있습니다.
 
-**새 v2 백엔드와 실제 React 화면을 연결했습니다.** 검수·감정 테마 준비를 마친 순서로 한 글씩 전체 화면에 최소 15초 재생하고, 최초 시작 승인부터 1시간 후 원문 공급을 끝내며 같은 내용의 투명 말풍선은 자정까지 유지합니다. 새 글은 현재 재생이 끝날 때까지 기다립니다. [로컬 구현·연결 가이드](docs/playback-local-implementation.md), [세부 재생 설계](docs/playback-design.md), [접수·오류 계약](docs/submission-status-errors.md)을 참고하세요. OpenAPI는 0.8.0, DB head는 `0006_playback_receipts`입니다. 감정 배경은 준비된 테마와 CSS/SVG 효과이며 AI 이미지 생성 기능은 포함하지 않습니다.
+**새 v2 백엔드와 실제 React 화면을 연결했습니다.** 검수·감정 테마 준비를 마친 순서로 한 글씩 전체 화면에 최소 15초 재생하고, 최초 시작 승인부터 1시간 후 원문 공급을 끝내며 같은 내용의 투명 말풍선은 자정까지 유지합니다. 새 글은 현재 재생이 끝날 때까지 기다립니다. [로컬 구현·연결 가이드](docs/playback-local-implementation.md), [세부 재생 설계](docs/playback-design.md), [접수·오류 계약](docs/submission-status-errors.md)을 참고하세요. OpenAPI는 0.10.0, DB head는 `0007_provider_moderation`입니다. 감정 배경은 준비된 테마와 CSS/SVG 효과이며 AI 이미지 생성 기능은 포함하지 않습니다.
 
 학생에게는 [기존 시안의 완료 카드](docs/student-ux.md)를 유지합니다. 접수를 확인하면 메시지를 보냈어요!를 보여주고 상세 처리 단계는 노출하지 않으며, 문제가 확정된 경우에만 짧게 안내합니다.
 
@@ -39,6 +41,9 @@
 - [HTTP API 계약](docs/openapi.json)
 - [AI 담당과의 연결 계약](docs/ai-contract.md)
 - [AI 담당에게 보낼 요청서와 작업 분담](docs/ai-team-request.md)
+- [게시 허용과 차단 기준](docs/content-policy.md)
+- [Gemini 검수 연결·실행](docs/gemini-moderation-implementation.md) — 키 설정·실제 HTTP·모의 검수·지원/신고·예산 원장
+- [Gemini 서버 검수 전체 설계·프롬프트·평가·운영](docs/gemini-moderation-design.md)
 - [욕설 정규화·필터·제재 구현 정책](docs/profanity-policy.md)
 - [권한과 운영](docs/security-and-operations.md)
 - [배포·성능·관측·운영 수락 기준](docs/delivery-and-operations.md)

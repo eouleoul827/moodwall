@@ -22,9 +22,9 @@ if (result.state === "ACCEPTED") {
 
 `begin()`은 메모리에 새 UUID와 본문을 고정한다. 같은 요청의 네트워크 유실·HTML 응답·5xx에는 새 키를 만들지 않는다. 결과가 불명확한 동안 다른 본문으로 `begin()`하면 오류가 나므로 먼저 기존 의도를 확인한다. `recover()`의 404도 새 접수가 안전하다는 확정으로 보지 않고 UNKNOWN을 유지한다. `send()`를 다시 호출하면 기존 의도를 그대로 재전송한다.
 
-`getReceipt()`는 본인 글 경로만 조회한다. `watchReceipt()`는 기본 2초 간격·최대 20회, terminal에서 멈추며 UI에 상세 처리를 강요하지 않는다. 40초 뒤 조회가 끝났어도 서버의 검수·표시는 계속된다. 카드가 닫히면 `stopWatching()`, 인증 경계가 바뀌면 `resetAuthentication()`으로 지연 응답을 무효화한다.
+`getReceipt()`는 본인 글 경로만 조회한다. `watchReceipt()`는 기본 3초 간격에서 기한과 읽기 실패에 따라 조정하며 terminal에서 멈춘다. 10분 게시 대기와 실제 표시 시작 뒤의 기한을 구분해 기존 5분 종료로 결과를 놓치지 않게 한다. 카드가 닫히면 `stopWatching()`, 인증 경계가 바뀌면 `resetAuthentication()`으로 지연 응답을 무효화한다. 화면 복귀 때에도 결과를 다시 확인한다.
 
-본문·쿠키·CSRF·접수 키를 localStorage에 자동 저장하지 않는다. 새로고침 이후 미전송 초안이나 응답 불명 요청을 유지하려면 학생에게 알리는 보관 정책과 별도 구현이 필요하다. URL이나 로그에 본문을 넣지 않는다.
+전송 직전에 UUID·영수증 ID·만료 시각만 `sessionStorage`에 저장한다. 본문·쿠키·CSRF는 저장하지 않는다. `restorePending()`은 새로고침 뒤 본인 접수 결과를 조회하고, 원문이 없는 상태에서는 글을 재전송하지 않는다. 일반 5xx와 조회 404는 미확정 결과로 유지하며 새 UUID를 자동 발급하지 않는다. 저장소를 사용할 수 없으면 현재 탭의 메모리 복구를 유지하고 새로고침 복구 한계를 짧게 안내한다. URL이나 로그에 본문을 넣지 않는다.
 
 ```sh
 node --test clients/student/submission-client.test.mjs
