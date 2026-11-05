@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>무드월 전광판 · 상시 화면</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&amp;family=Noto+Sans+KR:wght@500;700;900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#3D7BFF}a:hover{color:#2A5FD6}
+@keyframes mwDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(3400px,0,0)}}
+@keyframes mwRainFall{from{transform:translate3d(0,-120px,0) rotate(12deg)}to{transform:translate3d(-190px,900px,0) rotate(12deg)}}
+@keyframes mwSnowFall{from{transform:translate3d(0,-40px,0)}to{transform:translate3d(0,860px,0)}}
+@keyframes mwSway{0%,100%{transform:translate3d(-18px,0,0)}50%{transform:translate3d(18px,0,0)}}
+@keyframes mwGlow{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.08);opacity:1}}
+@keyframes mwTwinkle{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes mwBolt{0%,88%,91%,93.5%,100%{opacity:0}89%,92.5%{opacity:1}}
+@keyframes mwFlash{0%,88%,91%,93.5%,100%{opacity:0}89%,92.5%{opacity:.22}}
+@keyframes mwDriftFar{from{transform:translate3d(0,0,0)}to{transform:translate3d(4000px,0,0)}}
+div,p,h1,span{transition: background-color 4s ease, color 4s ease, border-color 4s ease}
+@keyframes mwBob{0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-14px,0)}}
+</style>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+#mw-host{position:absolute;transform-origin:0 0;width:2400px;height:800px}
+#mw-ctl{position:fixed;right:12px;bottom:12px;z-index:99;display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:rgba(20,22,27,.85);color:#fff;font:14px system-ui,sans-serif}
+#mw-ctl select,#mw-ctl button{font:inherit;padding:4px 6px;border-radius:6px}
+body.kiosk #mw-ctl{display:none}
+</style>
+</head>
+<body>
+<template id="mw-template">
+
+<div style="width: 2400px; height: 800px; position: relative; overflow: hidden; background: {{t.bg}}; color: {{t.ink}}; font-family: 'Noto Sans KR', system-ui, sans-serif; box-sizing: border-box">
+
+  <div aria-hidden="true" style="position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, {{sk.dayTop}} 0%, {{sk.dayBot}} 100%); opacity: {{sk.dayOp}}; transition: opacity 3s ease"></div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, {{sk.duskTop}} 0%, {{sk.duskBot}} 100%); opacity: {{sk.duskOp}}; transition: opacity 3s ease"></div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, {{sk.nightTop}} 0%, {{sk.nightBot}} 100%); opacity: {{sk.nightOp}}; transition: opacity 3s ease"></div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none">
+    <sc-if value="{{fx.sun}}" hint-placeholder-val="{{ true }}">
+      <div style="position: absolute; inset: 0; opacity: {{sk.sunOp}}; transition: opacity 3s ease">
+      <div style="position: absolute; left: 1380px; top: -360px; width: 760px; height: 760px; border-radius: 50%; background: radial-gradient(circle, rgba(255,248,214,0.95) 0%, rgba(255,236,170,0.55) 22%, rgba(255,236,170,0.18) 45%, rgba(255,236,170,0) 70%); animation: mwGlow 8s ease-in-out infinite"></div>
+      </div>
+    </sc-if>
+    <sc-if value="{{fx.stars}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; inset: 0; opacity: {{sk.starOp}}; transition: opacity 3s ease">
+      <sc-for list="{{stars}}" as="p" hint-placeholder-count="40">
+        <div style="position: absolute; left: {{p.x}}; top: {{p.y}}; width: {{p.s}}; height: {{p.s}}; border-radius: 50%; background: #FFFFFF; animation: mwTwinkle {{p.dur}} ease-in-out {{p.delay}} infinite"></div>
+      </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{fx.overcast}}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{greys}}" as="g" hint-placeholder-count="5">
+        <div style="position: absolute; left: -1500px; top: {{g.top}}; width: {{g.w}}; height: {{g.h}}; opacity: {{g.op}}; animation: mwDriftFar {{g.dur}} linear {{g.delay}} infinite">
+          <svg viewBox="{{g.vb}}" preserveAspectRatio="none" width="100%" height="100%" aria-hidden="true"><path d="{{g.d}}" fill="{{g.fill}}"></path></svg>
+        </div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{fx.rain}}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{drops}}" as="p" hint-placeholder-count="60">
+        <div style="position: absolute; left: {{p.x}}; top: 0; width: 3px; height: {{p.len}}; border-radius: 3px; background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(235,244,255,0.75) 100%); animation: mwRainFall {{p.dur}} linear {{p.delay}} infinite"></div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{fx.snow}}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{flakes}}" as="p" hint-placeholder-count="60">
+        <div style="position: absolute; left: {{p.x}}; top: 0; animation: mwSnowFall {{p.dur}} linear {{p.delay}} infinite">
+          <div style="width: {{p.s}}; height: {{p.s}}; border-radius: 50%; background: #FFFFFF; box-shadow: 0 0 6px rgba(70,90,120,0.35); opacity: {{p.op}}; animation: mwSway {{p.sway}} ease-in-out infinite"></div>
+        </div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{fx.storm}}" hint-placeholder-val="{{ false }}">
+      <svg viewBox="0 0 120 420" width="150" height="525" aria-hidden="true" style="position: absolute; left: 1640px; top: -20px; animation: mwBolt 7s linear infinite; filter: drop-shadow(0 0 18px rgba(255,250,210,0.9))"><path d="M70 0 L28 190 L62 190 L22 420 L104 150 L66 150 L96 0 Z" fill="#FFF7C8"></path></svg>
+      <svg viewBox="0 0 120 420" width="90" height="315" aria-hidden="true" style="position: absolute; left: 980px; top: -10px; animation: mwBolt 11s linear 3.5s infinite; filter: drop-shadow(0 0 14px rgba(255,250,210,0.9))"><path d="M70 0 L28 190 L62 190 L22 420 L104 150 L66 150 L96 0 Z" fill="#FFF7C8"></path></svg>
+      <div style="position: absolute; inset: 0; background: #FFFFFF; animation: mwFlash 7s linear infinite"></div>
+    </sc-if>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; z-index: 0">
+    <sc-for list="{{bubbles}}" as="b" hint-placeholder-count="14">
+      <div style="position: absolute; left: -800px; top: {{b.top}}; animation: mwDrift {{b.dur}} linear {{b.delay}} infinite; will-change: transform">
+        <div style="position: relative; width: {{b.w}}; height: {{b.h}}; font-size: {{b.size}}; opacity: {{b.op}}; filter: drop-shadow(0 6px 10px {{b.shadow}}); will-change: transform; animation: mwBob {{b.bob}} ease-in-out infinite">
+          <svg viewBox="{{b.vb}}" preserveAspectRatio="none" width="100%" height="100%" aria-hidden="true" style="position: absolute; inset: 0; transform: {{b.flip}}"><defs><radialGradient id="{{b.gid}}" cx="{{b.gcx}}" cy="{{b.gcy}}" r="0.6"><stop offset="0" stop-color="{{b.g2}}"></stop><stop offset="0.5" stop-color="{{b.g2}}"></stop><stop offset="1" stop-color="{{b.g1}}"></stop></radialGradient></defs><path d="{{b.d}}" fill="url(#{{b.gid}})"></path></svg>
+          <div style="position: absolute; left: {{b.tl}}; width: {{b.tw}}; top: {{b.ty}}; transform: translateY(-50%); text-align: center; color: {{b.ink}}; font-weight: 500; white-space: nowrap; line-height: 1.3">{{b.emoji}} {{b.text}}</div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="position: relative; z-index: 1; height: 100%; box-sizing: border-box; padding: 48px; display: flex; flex-direction: row; gap: 40px">
+
+    <div style="width: 440px; flex-shrink: 0; background: {{t.panel}}; border-radius: 36px; padding: 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+      <div style="font-size: 22px; font-weight: 900; letter-spacing: 0.2em; color: {{t.sub}}">MOOD WALL</div>
+      <h1 style="margin: 0; font-family: 'Jua', 'Noto Sans KR', sans-serif; font-weight: 400; font-size: 56px; line-height: 1.2; color: {{t.ink}}">오늘 기분,<br>한 줄로 남겨요</h1>
+      
+      <p style="margin: 0; font-size: 24px; line-height: 1.5; color: {{t.sub}}"><br></p><div style="width: 355px; height: 344px; border-radius: 24px; border: 4px dashed {{t.line}}; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; color: {{t.sub}}">QR 코드</div>
+    </div>
+
+    <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 16px 24px; box-sizing: border-box">
+      <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: flex-start; gap: 24px">
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <div style="font-size: 28px; font-weight: 700; color: {{sk.sub}}">{{dateText}}</div>
+          <div style="font-family: 'Jua', 'Noto Sans KR', sans-serif; font-size: 84px; line-height: 1.15; color: {{sk.ink}}">오늘 {{total}}개의 구름이<br>모였어요</div>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px">
+          <div style="font-size: 64px; font-weight: 900; line-height: 1.1; color: {{sk.ink}}">{{timeText}}</div>
+          <div style="font-size: 48px; font-weight: 900; line-height: 1.1; color: {{sk.ink}}">{{tempText}}</div>
+        </div>
+      </div>
+      
+    </div>
+
+    <div style="width: 520px; flex-shrink: 0; background: {{t.panel}}; border-radius: 36px; padding: 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+      <div style="font-size: 22px; font-weight: 900; letter-spacing: 0.2em; color: {{t.sub}}">오늘의 무드 예보</div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 18px">
+        <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="{{t.ink}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 11.2 3.5 3.5 0 0 0 7 18z"></path></svg>
+        <div style="font-family: 'Jua', 'Noto Sans KR', sans-serif; font-size: 50px; line-height: 1.15; color: {{t.ink}}">{{weather}}</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 6px">
+        <sc-for list="{{stats}}" as="s" hint-placeholder-count="7">
+          <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 64px; align-items: center; gap: 14px">
+            <div style="font-size: 26px; font-weight: 700; color: {{s.ink}}">{{s.label}}</div>
+            <div style="height: 22px; border-radius: 999px; background: {{s.track}}; overflow: hidden">
+              <div style="height: 100%; width: {{s.width}}; border-radius: 999px; background: {{s.color}}"></div>
+            </div>
+            <div style="font-size: 24px; font-weight: 700; text-align: right; color: {{s.sub}}">{{s.pct}}</div>
+          </div>
+        </sc-for>
+      </div>
+      
+    </div>
+
+  </div>
+</div>
+</template>
+<div id="mw-host"></div>
+<div id="mw-ctl"><label>theme <select onchange="mwSetProp('theme',this.value)"><option selected>낮</option><option>밤</option></select></label><label>weather <select onchange="mwSetProp('weather',this.value)"><option selected>맑음</option><option>흐림</option><option>비</option><option>눈</option><option>뇌우</option></select></label><button onclick="this.parentNode.remove()">닫기</button></div>
+<script src="./runtime.js"></script>
+<script>
+if (new URLSearchParams(location.search).has("kiosk")) document.body.classList.add("kiosk");
+var MW_THEMES = {
+  "낮": { bg: "#F2EFE8", panel: "#FFFFFF", ink: "#14161B", sub: "#4B505B", line: "#C9C3B6", track: "#ECE8DF", ph1: "#8CC8F0", ph2: "#D4ECFA", bubbleBg: "#FFFFFF", bubbleOp: 0.94, bubbleShadow: "rgba(20,22,27,0.12)", bubbleInk: "#2E323B", bubbleBorder: "rgba(20,22,27,0.12)" },
+  "밤": { bg: "#0D1120", panel: "#171C2E", ink: "#F5F3EE", sub: "#B5BBC8", line: "#3A4260", track: "#262C42", ph1: "#0A1430", ph2: "#1D2E5C", bubbleBg: "#232B47", bubbleOp: 0.92, bubbleShadow: "rgba(0,0,0,0.35)", bubbleInk: "#E2E5EC", bubbleBorder: "rgba(255,255,255,0.22)" }
+};
+var MW_COLORS = { "축하": "#FF7A3D", "기쁨": "#FF5C8A", "응원": "#3D7BFF", "설렘": "#B66BFF", "피곤": "#8A8F99", "슬픔": "#4FA3C7", "화남": "#E0453A" };
+var MW_BUBBLES = [
+  ["😴", "1교시 실화냐", "피곤"], ["🍜", "오늘 학식 맛집 인정", "기쁨"], ["📚", "중간고사 끝!! 자유다", "축하"], ["🔥", "오늘은 진짜 집중된다", "응원"],
+  ["🌙", "밤새면 내일의 내가 하겠지", "피곤"], ["🎂", "오늘 내 생일 축하해줘요", "축하"], ["☔", "우산 놓고 왔다…", "슬픔"], ["💌", "고백 성공했어요", "설렘"],
+  ["😤", "프린터 또 고장남", "화남"], ["✨", "다들 오늘도 수고했어요", "응원"], ["🎉", "자격증 합격했다!!", "축하"], ["☕", "커피 수혈 중", "피곤"],
+  ["💪", "시험기간 끝까지 화이팅", "응원"], ["🌸", "내일 첫 데이트 ㅎㅎ", "설렘"], ["🍀", "장학금 붙었다 ㅠㅠ", "기쁨"]
+];
+var MW_TINT = {
+  "낮": { "축하": "#FFBE9E", "기쁨": "#FFB0C6", "응원": "#AFC6FF", "설렘": "#D8B6FF", "피곤": "#C9CDD6", "슬픔": "#9FD3EC", "화남": "#F6A79F" },
+  "밤": { "축하": "#7A3F24", "기쁨": "#7A2C4C", "응원": "#2C4A99", "설렘": "#583A9C", "피곤": "#424860", "슬픔": "#1E5F80", "화남": "#7E2C26" }
+};
+var MW_COUNTS = [["축하", 8], ["기쁨", 14], ["응원", 11], ["설렘", 6], ["피곤", 21], ["슬픔", 7], ["화남", 3]];
+var MW_WEATHER = { "축하": "맑음 · 축하 폭죽 주의", "기쁨": "맑음 · 웃음 가득", "응원": "화창 · 응원 바람", "설렘": "봄바람 · 설렘 지수 높음", "피곤": "흐림 · 피곤 주의보", "슬픔": "비 · 토닥토닥 필요", "화남": "천둥 · 잠깐 쉬어가요" };
+function mwRand(seed) { var x = Math.sin(seed * 9301 + 49297) * 233280; return x - Math.floor(x); }
+var MW_SHAPES = [{"vh": 352, "d": "M713 350 L681 351 L663 349 L634 344 L599 335 L535 349 L483 351 L440 344 L408 335 L355 346 L311 349 L286 347 L257 343 L209 327 L173 333 L138 336 L100 335 L58 326 L40 319 L24 309 L11 296 L3 281 L-1 268 L-1 252 L4 234 L11 222 L22 207 L40 191 L67 175 L100 163 L138 158 L172 161 L199 168 L207 152 L221 133 L235 120 L252 110 L273 102 L291 99 L315 99 L334 101 L356 67 L377 46 L393 33 L416 20 L443 9 L477 1 L491 -1 L533 -1 L562 5 L587 13 L608 22 L634 38 L664 66 L674 80 L690 109 L721 104 L738 104 L766 109 L778 114 L795 122 L807 131 L823 147 L839 173 L864 169 L892 169 L913 173 L934 179 L949 186 L968 198 L984 215 L995 234 L999 247 L999 266 L994 284 L985 299 L976 307 L953 321 L923 331 L899 335 L849 335 L804 328 L758 344 L713 350Z", "tl": 0.087, "tr": 0.912, "ty": 0.63}, {"vh": 369, "d": "M265 368 L230 368 L210 367 L181 362 L152 354 L98 359 L75 357 L48 352 L22 341 L8 328 L-1 308 L-0 289 L8 271 L21 258 L37 248 L50 244 L72 241 L88 216 L97 207 L116 195 L138 188 L165 184 L201 191 L212 169 L228 147 L250 130 L273 118 L300 112 L332 112 L372 122 L388 90 L398 75 L428 43 L449 29 L478 14 L502 6 L528 1 L557 -1 L587 3 L623 13 L647 24 L677 44 L699 66 L709 80 L724 106 L737 146 L777 149 L796 154 L819 164 L831 173 L848 187 L865 214 L899 213 L923 216 L945 223 L961 231 L978 242 L986 250 L995 266 L999 279 L999 299 L997 305 L991 318 L979 331 L952 347 L928 354 L907 357 L860 357 L796 347 L753 358 L724 363 L708 365 L657 365 L620 360 L568 349 L510 363 L480 367 L459 367 L411 360 L369 348 L305 363 L265 368Z", "tl": 0.147, "tr": 0.811, "ty": 0.64}, {"vh": 360, "d": "M753 358 L709 359 L685 356 L651 346 L628 336 L595 349 L567 356 L541 359 L515 359 L468 351 L450 344 L422 329 L394 343 L377 349 L350 356 L327 359 L288 359 L265 356 L250 352 L209 337 L158 349 L136 351 L91 349 L62 343 L42 335 L24 324 L16 316 L9 307 L1 290 L-1 281 L-1 256 L3 240 L9 225 L20 206 L36 187 L64 166 L79 158 L113 148 L136 147 L173 152 L186 124 L202 106 L219 94 L239 87 L262 83 L278 85 L298 90 L312 96 L327 67 L342 47 L358 32 L374 21 L398 9 L428 1 L471 -1 L510 9 L538 23 L552 33 L568 50 L589 84 L623 66 L662 58 L690 60 L712 65 L727 71 L757 88 L774 104 L793 129 L805 157 L808 158 L840 148 L856 148 L874 152 L890 158 L905 168 L916 181 L924 195 L929 212 L950 217 L969 224 L987 240 L994 253 L999 276 L997 287 L991 301 L981 314 L969 323 L953 331 L921 339 L893 340 L864 337 L836 330 L805 346 L780 354 L753 358Z", "tl": 0.079, "tr": 0.874, "ty": 0.62}, {"vh": 299, "d": "M732 297 L688 296 L660 292 L625 283 L609 283 L579 289 L530 295 L447 298 L378 293 L315 283 L305 283 L266 290 L227 290 L204 287 L165 276 L119 283 L75 281 L52 276 L39 271 L21 261 L13 253 L6 242 L-0 227 L-1 204 L4 188 L17 168 L35 151 L64 136 L89 130 L106 128 L127 130 L150 135 L172 116 L201 101 L233 93 L248 91 L271 92 L294 73 L325 58 L351 51 L384 49 L413 27 L441 13 L473 4 L507 -1 L528 -1 L564 4 L585 10 L617 26 L634 38 L652 55 L661 69 L674 97 L706 90 L737 88 L758 92 L778 98 L799 108 L824 127 L862 119 L899 119 L922 124 L948 134 L966 146 L984 164 L994 182 L999 205 L999 214 L995 230 L990 240 L981 251 L971 259 L954 268 L923 277 L899 281 L868 281 L822 275 L781 290 L758 295 L732 297Z", "tl": 0.073, "tr": 0.932, "ty": 0.62}, {"vh": 332, "d": "M588 331 L543 331 L528 329 L500 324 L455 313 L412 323 L373 329 L356 331 L295 331 L269 328 L239 321 L224 317 L194 303 L136 312 L113 312 L82 308 L56 300 L40 292 L29 285 L14 269 L3 248 L-1 235 L1 202 L6 187 L15 168 L27 151 L42 136 L71 115 L108 98 L150 89 L187 87 L205 89 L236 95 L273 110 L290 90 L313 75 L326 71 L349 66 L375 65 L404 37 L429 21 L446 14 L469 6 L492 1 L532 -1 L556 2 L590 12 L610 21 L634 38 L652 54 L670 79 L679 97 L687 120 L716 132 L741 127 L762 127 L782 131 L798 136 L826 152 L838 164 L848 177 L860 201 L886 190 L914 185 L934 186 L955 193 L973 202 L987 216 L993 227 L998 239 L999 253 L997 264 L987 284 L972 297 L957 304 L940 309 L920 312 L866 311 L826 324 L792 329 L742 328 L722 324 L674 311 L628 325 L588 331Z", "tl": 0.059, "tr": 0.799, "ty": 0.62}, {"vh": 358, "d": "M732 357 L703 357 L677 354 L648 347 L614 335 L568 351 L527 357 L507 357 L458 349 L416 333 L381 344 L338 352 L290 351 L272 347 L235 336 L179 349 L141 349 L116 344 L93 335 L66 337 L50 335 L31 330 L22 325 L13 319 L3 303 L-1 292 L-1 270 L6 251 L12 242 L22 232 L44 218 L75 210 L80 195 L89 181 L104 164 L119 153 L132 147 L154 141 L184 139 L215 147 L234 157 L251 170 L256 170 L264 165 L268 151 L276 135 L292 117 L309 106 L328 99 L347 95 L375 96 L387 72 L398 57 L419 35 L436 23 L462 11 L488 3 L512 -1 L537 -1 L557 2 L581 9 L612 25 L631 39 L641 49 L653 64 L663 82 L686 78 L706 78 L733 84 L757 97 L771 110 L782 126 L791 148 L794 172 L797 172 L821 161 L838 158 L859 158 L879 163 L903 177 L913 187 L923 203 L950 207 L974 218 L987 232 L996 246 L999 259 L999 275 L993 294 L978 312 L956 325 L925 335 L889 340 L859 338 L819 331 L782 347 L754 354 L732 357Z", "tl": 0.129, "tr": 0.869, "ty": 0.63}, {"vh": 420, "d": "M909 420 L884 419 L861 412 L844 401 L828 387 L821 381 L801 393 L783 401 L764 405 L741 408 L721 406 L700 402 L680 393 L660 381 L641 393 L628 399 L609 405 L588 407 L562 406 L541 402 L520 394 L500 381 L478 395 L458 402 L429 407 L411 407 L390 404 L372 399 L358 392 L340 381 L318 395 L298 402 L278 406 L252 407 L231 405 L212 399 L198 393 L179 381 L157 401 L140 411 L117 419 L94 420 L77 417 L62 412 L51 406 L37 396 L14 374 L8 365 L1 350 L0 334 L3 322 L8 312 L26 284 L37 271 L51 261 L62 256 L77 251 L99 246 L101 225 L116 200 L132 187 L148 180 L164 177 L181 179 L201 186 L204 186 L218 160 L230 145 L242 134 L258 123 L275 116 L293 112 L304 110 L329 112 L332 111 L347 85 L362 64 L383 43 L405 27 L429 15 L458 5 L490 0 L511 0 L535 3 L557 9 L574 15 L597 28 L617 42 L631 55 L646 74 L663 98 L684 96 L709 97 L733 104 L754 114 L773 129 L784 141 L795 158 L805 178 L808 178 L830 171 L851 170 L863 172 L876 177 L888 185 L896 193 L905 204 L910 216 L914 228 L916 247 L947 260 L958 267 L969 277 L978 288 L994 316 L998 325 L1000 335 L999 350 L993 364 L987 373 L964 396 L951 405 L940 412 L924 417 L909 420Z", "tl": 0.151, "tr": 0.864, "ty": 0.62}, {"vh": 375, "d": "M909 375 L884 374 L862 367 L844 357 L828 342 L821 337 L801 349 L783 356 L764 361 L741 363 L721 362 L700 357 L680 349 L661 337 L641 348 L628 354 L609 360 L588 363 L562 362 L541 357 L520 349 L500 337 L478 350 L458 358 L429 363 L411 363 L390 360 L372 354 L358 348 L340 337 L318 350 L298 358 L278 362 L252 363 L231 360 L212 354 L198 348 L179 337 L157 357 L140 366 L117 374 L94 375 L77 373 L62 367 L51 361 L37 351 L14 329 L8 320 L1 305 L0 289 L2 280 L7 269 L25 241 L33 231 L44 221 L55 215 L85 203 L86 184 L91 163 L101 145 L113 131 L131 119 L142 114 L154 112 L174 111 L200 116 L216 83 L231 63 L243 51 L256 40 L279 27 L304 18 L331 14 L359 16 L390 24 L414 36 L434 51 L450 68 L460 81 L469 98 L473 99 L493 95 L511 94 L524 71 L538 52 L554 37 L579 19 L600 9 L621 3 L644 0 L662 0 L684 3 L707 10 L728 20 L747 33 L767 51 L779 66 L787 79 L801 108 L827 103 L848 104 L872 112 L888 122 L904 139 L914 159 L920 181 L920 203 L942 212 L955 220 L968 231 L977 242 L994 271 L999 282 L1000 299 L995 316 L986 329 L956 358 L933 370 L909 375Z", "tl": 0.136, "tr": 0.87, "ty": 0.59}, {"vh": 278, "d": "M919 278 L896 277 L879 273 L863 265 L843 250 L824 260 L811 264 L793 266 L776 264 L755 256 L735 241 L718 254 L706 260 L693 264 L676 266 L658 264 L646 260 L634 254 L617 241 L602 253 L591 259 L579 263 L565 266 L550 266 L533 262 L518 255 L500 241 L497 242 L480 255 L466 262 L449 266 L434 266 L419 263 L408 258 L397 252 L382 241 L364 255 L350 262 L331 266 L318 266 L302 263 L292 259 L281 253 L265 241 L244 256 L224 264 L206 266 L188 264 L175 260 L157 250 L137 265 L122 272 L104 277 L83 278 L66 275 L49 269 L34 260 L21 249 L10 232 L4 220 L0 201 L0 187 L3 171 L8 158 L16 145 L27 133 L41 123 L52 117 L66 112 L87 108 L90 87 L110 85 L119 69 L129 57 L141 48 L154 43 L167 40 L177 40 L196 44 L212 53 L229 69 L247 40 L256 30 L266 23 L278 16 L290 11 L306 9 L317 8 L338 12 L359 22 L376 36 L390 53 L393 52 L404 40 L418 31 L434 25 L448 22 L461 23 L480 27 L494 34 L511 47 L514 45 L529 26 L551 10 L564 5 L578 1 L600 0 L621 4 L636 11 L657 26 L672 42 L675 42 L691 29 L706 22 L726 17 L740 17 L761 21 L779 31 L792 41 L809 67 L812 66 L829 54 L840 50 L851 49 L861 49 L874 52 L883 55 L893 63 L902 71 L909 82 L917 108 L936 113 L952 119 L966 127 L979 139 L993 160 L997 172 L1000 186 L1000 201 L996 219 L991 232 L979 248 L966 260 L952 269 L935 275 L919 278Z", "tl": 0.074, "tr": 0.926, "ty": 0.57}, {"vh": 412, "d": "M909 412 L884 411 L861 404 L844 394 L828 379 L821 374 L801 386 L783 393 L764 398 L741 400 L721 399 L700 394 L680 386 L660 374 L641 385 L628 391 L609 397 L588 400 L562 399 L541 395 L520 386 L500 374 L478 387 L458 395 L429 400 L411 400 L390 397 L372 391 L358 385 L340 374 L318 387 L298 395 L278 399 L252 400 L231 397 L212 391 L198 385 L179 374 L157 394 L140 404 L117 411 L94 412 L77 410 L62 404 L51 399 L37 388 L14 366 L8 358 L1 342 L0 326 L6 308 L25 278 L37 264 L55 250 L52 232 L53 219 L56 200 L63 184 L72 171 L84 159 L98 150 L117 141 L125 116 L136 91 L147 75 L164 53 L178 41 L197 27 L230 11 L263 2 L281 0 L301 0 L328 4 L350 10 L376 22 L392 32 L414 50 L429 67 L444 88 L457 113 L460 112 L473 106 L489 100 L514 96 L527 96 L543 99 L572 109 L592 122 L608 139 L621 158 L630 179 L632 181 L652 159 L668 148 L690 139 L715 137 L731 140 L744 144 L758 151 L768 159 L778 169 L787 182 L794 198 L798 214 L801 216 L808 215 L819 200 L827 193 L837 187 L847 183 L860 181 L874 182 L885 186 L896 191 L906 199 L915 213 L920 224 L923 242 L941 249 L954 256 L964 265 L975 277 L995 309 L1000 327 L999 342 L993 357 L987 365 L964 388 L951 398 L940 404 L924 409 L909 412Z", "tl": 0.104, "tr": 0.87, "ty": 0.62}, {"vh": 420, "d": "M909 420 L884 419 L862 412 L844 401 L828 387 L821 381 L801 394 L783 401 L764 405 L741 408 L721 406 L700 402 L680 394 L661 381 L641 393 L628 399 L609 405 L588 408 L562 406 L541 402 L520 394 L500 381 L478 395 L458 402 L429 407 L411 407 L390 404 L372 399 L358 393 L340 381 L318 395 L298 402 L278 406 L252 408 L231 405 L212 399 L198 393 L179 381 L157 401 L140 411 L117 419 L94 420 L77 417 L62 412 L51 406 L37 396 L14 374 L8 365 L1 350 L0 334 L3 322 L8 312 L26 284 L38 271 L52 261 L63 255 L77 250 L98 246 L100 243 L100 227 L102 224 L147 223 L163 198 L170 191 L181 183 L193 178 L209 174 L221 174 L238 178 L252 185 L262 193 L273 206 L280 221 L284 222 L291 195 L299 176 L310 160 L322 149 L332 141 L346 134 L359 129 L379 126 L393 126 L407 128 L422 132 L454 150 L465 115 L479 86 L503 56 L522 38 L545 23 L579 8 L613 1 L644 0 L672 4 L695 10 L722 23 L742 36 L763 54 L782 77 L792 93 L807 123 L827 119 L847 118 L861 119 L877 123 L895 132 L909 141 L919 150 L932 166 L943 188 L947 207 L949 230 L944 257 L964 272 L978 289 L997 320 L1000 333 L1000 343 L996 358 L989 370 L963 397 L949 407 L939 412 L924 417 L909 420Z", "tl": 0.15, "tr": 0.896, "ty": 0.62}, {"vh": 500, "d": "M865 500 L835 499 L812 492 L795 484 L774 470 L736 450 L708 466 L684 475 L654 482 L623 484 L590 483 L553 475 L527 466 L501 450 L471 466 L442 477 L409 483 L368 484 L344 481 L314 474 L291 465 L264 450 L227 470 L207 484 L188 493 L155 500 L127 499 L108 494 L89 486 L66 470 L43 459 L26 446 L15 435 L5 419 L0 403 L0 390 L5 372 L17 354 L32 341 L49 329 L66 310 L89 292 L85 262 L87 234 L96 205 L110 182 L128 163 L141 153 L179 135 L205 99 L221 83 L243 66 L264 55 L289 45 L331 38 L354 38 L380 42 L429 58 L465 31 L482 21 L507 11 L534 4 L560 0 L599 1 L642 11 L666 21 L686 33 L710 50 L731 72 L747 93 L764 122 L807 133 L826 144 L840 154 L864 181 L879 212 L886 243 L884 281 L912 294 L928 304 L941 316 L953 330 L978 349 L993 368 L999 384 L1000 402 L994 421 L982 439 L963 455 L935 470 L913 485 L887 496 L865 500Z", "tl": 0.137, "tr": 0.835, "ty": 0.58}, {"vh": 412, "d": "M916 412 L892 411 L872 405 L852 395 L833 379 L814 390 L799 396 L778 400 L765 400 L747 397 L732 392 L719 385 L706 374 L703 373 L687 385 L669 394 L651 399 L630 400 L613 397 L596 392 L583 385 L570 374 L567 373 L551 385 L533 394 L516 399 L495 400 L477 397 L460 392 L447 385 L434 374 L431 373 L416 385 L397 394 L380 399 L359 400 L341 397 L324 392 L312 385 L298 374 L295 373 L281 384 L268 391 L252 397 L234 400 L221 400 L201 396 L186 390 L166 379 L149 394 L131 404 L109 411 L86 412 L68 409 L51 403 L35 393 L22 382 L10 364 L4 352 L0 332 L0 318 L5 295 L17 274 L25 264 L35 256 L61 241 L65 223 L70 211 L80 197 L94 187 L105 183 L118 181 L127 181 L146 184 L159 164 L171 153 L190 141 L209 134 L228 132 L248 134 L263 139 L284 149 L297 128 L311 110 L330 95 L346 85 L368 77 L385 73 L397 72 L425 73 L444 51 L467 32 L486 20 L510 10 L526 5 L548 1 L565 0 L588 1 L611 5 L627 10 L643 17 L661 27 L692 52 L719 85 L742 90 L756 94 L773 102 L788 113 L805 130 L820 151 L842 150 L854 152 L869 156 L884 164 L899 178 L911 196 L916 214 L919 236 L940 243 L955 249 L971 261 L982 273 L995 295 L1000 318 L999 339 L992 360 L979 381 L963 395 L940 406 L916 412Z", "tl": 0.117, "tr": 0.867, "ty": 0.61}, {"vh": 345, "d": "M916 345 L892 344 L872 338 L852 328 L833 312 L814 323 L799 329 L778 333 L765 333 L747 330 L732 325 L719 318 L706 307 L703 306 L687 318 L669 327 L651 331 L630 333 L613 330 L596 325 L583 318 L570 307 L567 306 L551 318 L533 327 L515 331 L495 333 L477 330 L460 325 L447 318 L434 307 L431 306 L416 318 L397 327 L380 331 L359 333 L341 330 L324 325 L312 318 L298 307 L295 306 L281 317 L268 324 L252 330 L234 333 L221 333 L201 329 L186 323 L166 312 L149 327 L131 337 L109 344 L86 345 L68 342 L51 336 L35 326 L22 315 L10 297 L4 285 L0 265 L0 251 L3 235 L7 223 L22 200 L30 192 L44 183 L73 170 L73 146 L75 129 L81 111 L90 95 L105 79 L115 70 L128 63 L142 57 L165 53 L177 53 L193 56 L217 65 L238 81 L241 82 L254 60 L266 44 L277 33 L293 21 L312 11 L328 5 L347 1 L372 0 L392 3 L407 7 L437 22 L452 33 L462 44 L474 59 L485 78 L488 78 L506 64 L524 55 L543 51 L561 49 L579 52 L595 57 L612 65 L630 79 L633 76 L642 60 L655 43 L665 33 L683 20 L702 10 L719 4 L743 0 L761 0 L780 3 L795 7 L824 21 L840 33 L850 44 L862 60 L875 83 L903 85 L915 88 L927 94 L938 102 L947 110 L960 131 L964 144 L966 157 L966 167 L963 186 L983 207 L995 228 L1000 252 L1000 264 L998 276 L989 298 L979 313 L970 322 L957 332 L946 337 L932 342 L916 345Z", "tl": 0.123, "tr": 0.915, "ty": 0.57}, {"vh": 442, "d": "M909 442 L884 441 L861 433 L844 423 L828 408 L820 403 L800 415 L783 423 L764 427 L741 430 L721 428 L700 423 L679 415 L660 403 L641 415 L628 421 L609 426 L588 429 L562 428 L541 424 L520 416 L500 403 L478 417 L458 424 L429 429 L411 429 L390 426 L372 421 L358 414 L340 403 L318 417 L298 424 L278 428 L252 429 L231 426 L212 421 L198 415 L179 403 L157 423 L140 433 L117 441 L94 442 L77 439 L62 434 L51 428 L37 418 L14 396 L8 387 L1 372 L0 356 L6 337 L31 300 L45 287 L67 274 L67 251 L70 236 L75 223 L88 204 L97 196 L114 183 L120 148 L132 114 L148 86 L167 62 L185 45 L199 35 L218 23 L237 14 L255 8 L276 3 L299 0 L321 0 L345 3 L365 8 L384 15 L403 24 L422 36 L443 52 L460 71 L469 82 L487 113 L494 129 L501 152 L506 187 L506 207 L500 241 L502 245 L522 246 L526 244 L532 225 L540 208 L550 196 L565 182 L587 171 L610 167 L622 167 L641 171 L657 177 L670 186 L681 197 L688 206 L695 219 L702 237 L705 236 L717 218 L730 207 L745 200 L763 196 L774 196 L787 199 L804 207 L819 219 L835 244 L856 227 L875 220 L886 220 L896 222 L905 226 L914 231 L923 239 L930 250 L933 259 L936 276 L962 293 L978 310 L996 341 L1000 354 L1000 363 L997 377 L990 390 L963 419 L949 429 L939 434 L924 439 L909 442Z", "tl": 0.118, "tr": 0.879, "ty": 0.64}, {"vh": 464, "d": "M910 464 L884 463 L860 455 L841 444 L820 424 L801 436 L787 443 L771 448 L749 451 L731 451 L704 446 L681 437 L661 424 L638 438 L616 446 L590 451 L571 451 L550 448 L534 443 L520 436 L500 424 L480 437 L458 446 L439 450 L416 451 L392 448 L375 443 L359 436 L339 424 L321 436 L305 443 L289 448 L265 451 L249 451 L223 446 L204 439 L180 425 L160 444 L142 455 L117 463 L93 464 L75 461 L59 455 L47 449 L33 438 L13 415 L7 405 L1 390 L0 374 L3 362 L14 334 L22 321 L34 308 L49 297 L60 291 L75 286 L98 282 L100 278 L100 261 L102 259 L125 258 L129 256 L133 225 L143 197 L150 185 L163 169 L183 152 L209 139 L226 134 L242 132 L267 133 L293 140 L297 139 L324 110 L349 91 L363 74 L381 55 L403 37 L422 25 L448 13 L474 5 L509 0 L533 0 L567 5 L592 13 L618 24 L639 37 L661 55 L679 74 L694 95 L708 120 L731 144 L734 144 L755 138 L773 135 L788 135 L806 138 L823 143 L841 151 L860 165 L870 175 L884 195 L894 219 L898 236 L902 281 L926 286 L941 291 L952 297 L967 308 L979 321 L987 334 L998 363 L1000 373 L1000 386 L995 402 L990 411 L971 435 L959 445 L943 455 L926 461 L910 464Z", "tl": 0.18, "tr": 0.849, "ty": 0.61}];
+function mwMix(a, b, t) {
+  function p(h, k) { return parseInt(h.substr(1 + k * 2, 2), 16); }
+  var o = "#";
+  for (var k = 0; k < 3; k++) { var v = Math.round(p(a, k) * (1 - t) + p(b, k) * t); o += (v < 16 ? "0" : "") + v.toString(16); }
+  return o;
+}
+function mwCloud(i, bg, label) {
+  var tw = 0;
+  for (var c = 0; c < label.length; c++) {
+    var ch = label.charCodeAt(c);
+    if (ch === 32) tw += 0.3; else if (ch >= 0xD800 && ch <= 0xDFFF) tw += 0.6; else if (ch > 0x2000) tw += 0.98; else tw += 0.6;
+  }
+  var sh = MW_SHAPES[(i * 7) % MW_SHAPES.length];
+  var flip = mwRand(i + 1700) > 0.5;
+  var tl = flip ? 1 - sh.tr : sh.tl, tr = flip ? 1 - sh.tl : sh.tr;
+  var W = (tw + 0.8) / (tr - tl);
+  var H = Math.min(5.2, Math.max(3.8, W * sh.vh / 1000));
+  return { flip: flip ? "scaleX(-1)" : "none", bg: bg, d: sh.d, vb: "0 0 1000 " + sh.vh, w: W.toFixed(2) + "em", h: H.toFixed(2) + "em",
+    tl: (tl * 100).toFixed(1) + "%", tw: ((tr - tl) * 100).toFixed(1) + "%", ty: (sh.ty * 100).toFixed(0) + "%", gcx: ((tl + tr) / 2).toFixed(3), gcy: sh.ty.toFixed(2) };
+}
+
+var MW_DUSK = { "맑음": ["#F28D6E", "#FFD2A1"], "흐림": ["#9A8C97", "#D8C5BF"], "비": ["#565B72", "#9898AD"], "눈": ["#A79DB3", "#E3D7DC"], "뇌우": ["#383344", "#5D5367"] };
+var MW_SKY = {
+  "맑음": { day: ["#5FB4F0", "#CDEBFC", 0], night: ["#0A1430", "#1D2E5C", 1], temp: "12°C" },
+  "흐림": { day: ["#9AA8B6", "#D8DEE5", 0], night: ["#151A26", "#2A3242", 1], temp: "9°C" },
+  "비":   { day: ["#5E6E82", "#A3B1BF", 1], night: ["#0E131E", "#222B3A", 1], temp: "8°C" },
+  "눈":   { day: ["#AEBCCB", "#E6ECF2", 0], night: ["#1A2234", "#323D55", 1], temp: "-2°C" },
+  "뇌우": { day: ["#363F4F", "#5F6A7B", 1], night: ["#07090F", "#1A1F2B", 1], temp: "17°C" }
+};
+function mwFx(w, night) {
+  var fx = { sun: w === "맑음", stars: w === "맑음", overcast: w === "흐림" || w === "비" || w === "뇌우", rain: w === "비" || w === "뇌우", snow: w === "눈", storm: w === "뇌우" };
+  var stars = [], greys = [], drops = [], flakes = [];
+  if (fx.stars) for (var a = 0; a < 40; a++) stars.push({ x: Math.round(mwRand(a + 3000) * 2400) + "px", y: Math.round(mwRand(a + 3100) * 520) + "px", s: (2 + mwRand(a + 3200) * 3).toFixed(1) + "px", dur: (2 + mwRand(a + 3300) * 3).toFixed(1) + "s", delay: (-mwRand(a + 3400) * 5).toFixed(1) + "s" });
+  if (fx.overcast) {
+    var fill = w === "흐림" ? (night ? "#3A4357" : "#EEF1F4") : (night ? "#252C3B" : (w === "뇌우" ? "#4A5363" : "#8C99A8"));
+    for (var g = 0; g < 5; g++) { var sh = MW_SHAPES[(g * 5 + 3) % MW_SHAPES.length], wd = 900 + mwRand(g + 3500) * 500; greys.push({ top: Math.round(-80 + g * 120 + mwRand(g + 3600) * 60) + "px", w: Math.round(wd) + "px", h: Math.round(wd * sh.vh / 1000) + "px", vb: "0 0 1000 " + sh.vh, d: sh.d, fill: fill, op: (0.55 + mwRand(g + 3700) * 0.3).toFixed(2), dur: Math.round(160 + mwRand(g + 3800) * 80) + "s", delay: (-mwRand(g + 3900) * 220).toFixed(0) + "s" }); }
+  }
+  if (fx.rain) { var n = w === "뇌우" ? 160 : 110; for (var r = 0; r < n; r++) drops.push({ x: Math.round(mwRand(r + 4000) * 2700) + "px", len: Math.round(50 + mwRand(r + 4100) * 40) + "px", dur: ((w === "뇌우" ? 0.55 : 0.8) + mwRand(r + 4200) * 0.4).toFixed(2) + "s", delay: (-mwRand(r + 4300) * 2).toFixed(2) + "s" }); }
+  if (fx.snow) for (var f = 0; f < 90; f++) flakes.push({ x: Math.round(mwRand(f + 5000) * 2400) + "px", s: Math.round(6 + mwRand(f + 5100) * 9) + "px", op: (0.6 + mwRand(f + 5200) * 0.4).toFixed(2), dur: (9 + mwRand(f + 5300) * 8).toFixed(1) + "s", delay: (-mwRand(f + 5400) * 17).toFixed(1) + "s", sway: (3 + mwRand(f + 5500) * 3).toFixed(1) + "s" });
+  return { fx: fx, stars: stars, greys: greys, drops: drops, flakes: flakes };
+}
+
+class Component extends DCLogic {
+  componentDidUpdate(prev) {
+    if (prev.theme !== this.props.theme) {
+      var self = this;
+      clearTimeout(this.mwDuskT);
+      this.setState({ dusk: true });
+      this.mwDuskT = setTimeout(function () { self.setState({ dusk: false }); }, 3000);
+    }
+  }
+  componentDidMount() {
+    var self = this;
+    this.mwClock = setInterval(function () { self.setState({ now: Date.now() }); }, 30000);
+  }
+  componentWillUnmount() { clearInterval(this.mwClock); clearTimeout(this.mwDuskT); }
+  renderVals() {
+    var s = this.state || {};
+    var t = MW_THEMES[this.props.theme] || MW_THEMES["낮"];
+    var tint = MW_TINT[this.props.theme] || MW_TINT["낮"];
+    var night = this.props.theme === "밤";
+    var bubbles = MW_BUBBLES.map(function (b, i) {
+      var g = mwCloud(i, tint[b[2]], b[0] + " " + b[1]);
+      return {
+        emoji: b[0], text: b[1],
+        top: Math.round(48 + (i % 6) * 116 + mwRand(i + 300) * 14) + "px",
+        dur: Math.round(80 + mwRand(i + 400) * 60) + "s",
+        delay: (-mwRand(i + 500) * 140).toFixed(1) + "s",
+        bob: (4 + mwRand(i + 700) * 3).toFixed(1) + "s",
+        size: Math.round(21 + mwRand(i + 600) * 4) + "px",
+        bg: g.bg, ink: t.bubbleInk, op: t.bubbleOp, shadow: t.bubbleShadow,
+        d: g.d, vb: g.vb, w: g.w, h: g.h, flip: g.flip, tl: g.tl, tw: g.tw, ty: g.ty, gcx: g.gcx, gcy: g.gcy,
+        gid: "mwcg" + i, g1: night ? mwMix(g.bg, "#FFFFFF", 0.25) : mwMix(g.bg, "#FFFFFF", 0.75), g2: g.bg
+      };
+    });
+    var total = 0, top = MW_COUNTS[0];
+    MW_COUNTS.forEach(function (c) { total += c[1]; if (c[1] > top[1]) top = c; });
+    var stats = MW_COUNTS.map(function (c) {
+      return {
+        label: c[0], pct: Math.round(c[1] / total * 100) + "%",
+        width: Math.round(c[1] / top[1] * 100) + "%",
+        color: MW_COLORS[c[0]], track: t.track, ink: t.ink, sub: t.sub
+      };
+    });
+    var now = new Date(s.now || Date.now());
+    var night = this.props.theme === "밤";
+    var dusk = !!s.dusk;
+    var wk = MW_SKY[this.props.weather] ? this.props.weather : "맑음";
+    var sky = MW_SKY[wk][night ? "night" : "day"];
+    var lightText = sky[2] === 1;
+    var fxv = mwFx(wk, night);
+    return {
+      sk: { dayTop: MW_SKY[wk].day[0], dayBot: MW_SKY[wk].day[1], nightTop: MW_SKY[wk].night[0], nightBot: MW_SKY[wk].night[1], duskTop: MW_DUSK[wk][0], duskBot: MW_DUSK[wk][1], dayOp: !night && !dusk ? 1 : 0, duskOp: dusk ? 1 : 0, nightOp: night && !dusk ? 1 : 0, sunOp: night ? 0 : 1, starOp: night ? 1 : 0, ink: lightText ? "#F7F8FA" : "#14161B", sub: lightText ? "#DDE3EA" : "#3E4552" },
+      fx: fxv.fx, stars: fxv.stars, greys: fxv.greys, drops: fxv.drops, flakes: fxv.flakes, tempText: MW_SKY[wk].temp,
+      t: t, bubbles: bubbles, stats: stats, total: total, weather: MW_WEATHER[top[0]],
+      dateText: now.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "long" }),
+      timeText: now.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })
+    };
+  }
+}
+MoodWall.mount(Component, {"theme": "낮", "weather": "맑음"}, document.getElementById("mw-host"), 2400, 800);
+</script>
+</body>
+</html>

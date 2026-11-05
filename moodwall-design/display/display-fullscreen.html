@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>무드월 전광판 · 새 구름 풀스크린</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&amp;family=Noto+Sans+KR:wght@500;700;900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#3D7BFF}a:hover{color:#2A5FD6}
+@keyframes mwFall{from{transform:translateY(-80px) rotate(0deg)}to{transform:translateY(900px) rotate(540deg)}}
+@keyframes mwRain{from{transform:translateY(-120px)}to{transform:translateY(900px)}}
+@keyframes mwRise{0%{transform:translateY(0) scale(.6);opacity:0}15%{opacity:1}100%{transform:translateY(-860px) scale(1.15);opacity:0}}
+@keyframes mwTwinkle{0%,100%{transform:scale(.2);opacity:0}50%{transform:scale(1);opacity:1}}
+@keyframes mwCount{from{width:100%}to{width:0%}}
+</style>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+#mw-host{position:absolute;transform-origin:0 0;width:2400px;height:800px}
+#mw-ctl{position:fixed;right:12px;bottom:12px;z-index:99;display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:rgba(20,22,27,.85);color:#fff;font:14px system-ui,sans-serif}
+#mw-ctl select,#mw-ctl button{font:inherit;padding:4px 6px;border-radius:6px}
+body.kiosk #mw-ctl{display:none}
+</style>
+</head>
+<body>
+<template id="mw-template">
+
+<div style="width: 2400px; height: 800px; position: relative; overflow: hidden; background: {{t.bg}}; color: {{t.ink}}; font-family: 'Noto Sans KR', system-ui, sans-serif; box-sizing: border-box">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: {{cur.color}}; opacity: {{t.tint}}"></div>
+  <div aria-hidden="true" style="position: absolute; right: 120px; top: 50%; margin-top: -360px; font-size: 640px; line-height: 1; opacity: 0.28">{{cur.emoji}}</div>
+
+  <div aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none">
+    <sc-if value="{{isConfetti}}" hint-placeholder-val="{{ true }}">
+      <sc-for list="{{particles}}" as="p" hint-placeholder-count="48">
+        <div style="position: absolute; top: -60px; left: {{p.left}}; width: 20px; height: 32px; border-radius: 4px; background: {{p.color}}; animation: mwFall {{p.dur}} linear {{p.delay}} infinite"></div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{isRain}}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{particles}}" as="p" hint-placeholder-count="48">
+        <div style="position: absolute; top: -100px; left: {{p.left}}; width: 5px; height: 90px; border-radius: 5px; background: {{p.color}}; opacity: 0.5; animation: mwRain {{p.dur}} linear {{p.delay}} infinite"></div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{isHearts}}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{particles}}" as="p" hint-placeholder-count="48">
+        <div style="position: absolute; bottom: -80px; left: {{p.left}}; animation: mwRise {{p.dur}} ease-out {{p.delay}} infinite">
+          <svg viewBox="0 0 24 24" width="{{p.size}}" height="{{p.size}}" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2.1 0 3.6 1.2 4.4 2.6C11.8 6.2 13.3 5 15.4 5 19 5 21 8.6 19.6 11.8 17.5 16.4 12 21 12 21z" fill="{{p.color}}"></path></svg>
+        </div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{isSparkle}}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{particles}}" as="p" hint-placeholder-count="48">
+        <div style="position: absolute; top: {{p.top}}; left: {{p.left}}; animation: mwTwinkle {{p.dur}} ease-in-out {{p.delay}} infinite">
+          <svg viewBox="0 0 24 24" width="{{p.size}}" height="{{p.size}}" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z" fill="{{p.color}}"></path></svg>
+        </div>
+      </sc-for>
+    </sc-if>
+  </div>
+
+  
+
+  <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 12px; background: {{t.track}}">
+    <div style="height: 100%; background: {{cur.color}}; animation: mwCount 60s linear infinite"></div>
+  </div>
+<div style="position: relative; height: 100%; box-sizing: border-box; padding: 56px 96px; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 24px">
+      <div style="padding: 12px 34px; border-radius: 999px; background: {{cur.color}}; color: #14161B; font-size: 38px; font-weight: 900">{{cur.emotion}}</div>
+      <div style="font-size: 32px; font-weight: 700; color: {{t.sub}}">새 구름이 도착했어요</div>
+    </div>
+    <div style="flex: 1 1 auto; display: flex; align-items: center; min-height: 0">
+      <p style="margin: 0; max-width: 1800px; font-family: 'Jua', 'Noto Sans KR', sans-serif; font-size: 124px; line-height: 1.2; color: {{t.ink}}; word-break: keep-all">{{cur.text}}</p>
+    </div>
+    <div style="display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 24px">
+      
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 20px; padding: 14px 14px 14px 28px; border-radius: 24px; background: {{t.panel}}">
+        <div style="font-size: 26px; font-weight: 700; line-height: 1.35; color: {{t.ink}}">나도 남기기<br><span style="font-weight: 500; color: {{t.sub}}">QR을 찍어주세요</span></div>
+        <div style="width: 110px; height: 110px; border-radius: 14px; border: 3px dashed {{t.line}}; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: {{t.sub}}">QR</div>
+      </div>
+    </div>
+  </div></div>
+</template>
+<div id="mw-host"></div>
+<div id="mw-ctl"><label>theme <select onchange="mwSetProp('theme',this.value)"><option selected>낮</option><option>밤</option></select></label><label>emotion <select onchange="mwSetProp('emotion',this.value)"><option selected>자동 순환</option><option>축하</option><option>기쁨</option><option>응원</option><option>설렘</option><option>피곤</option><option>슬픔</option><option>화남</option></select></label><button onclick="this.parentNode.remove()">닫기</button></div>
+<script src="./runtime.js"></script>
+<script>
+if (new URLSearchParams(location.search).has("kiosk")) document.body.classList.add("kiosk");
+var MW_THEMES = {
+  "낮": { bg: "#F2EFE8", panel: "#FFFFFF", ink: "#14161B", sub: "#4B505B", line: "#C9C3B6", track: "#E2DDD2", tint: 0.16 },
+  "밤": { bg: "#0D1120", panel: "#171C2E", ink: "#F5F3EE", sub: "#B5BBC8", line: "#3A4260", track: "#262C42", tint: 0.2 }
+};
+var MW_EMO = {
+  "축하": { color: "#FF7A3D", anim: "confetti" },
+  "기쁨": { color: "#FF5C8A", anim: "hearts" },
+  "응원": { color: "#3D7BFF", anim: "sparkle" },
+  "설렘": { color: "#B66BFF", anim: "hearts" },
+  "피곤": { color: "#8A8F99", anim: "none" },
+  "슬픔": { color: "#4FA3C7", anim: "rain" },
+  "화남": { color: "#E0453A", anim: "none" }
+};
+var MW_SAMPLES = [
+  { emoji: "🎉", emotion: "축하", text: "드디어 자격증 시험 합격했다!!" },
+  { emoji: "😊", emotion: "기쁨", text: "학식 돈까스 나왔다 오늘 운 좋음" },
+  { emoji: "💪", emotion: "응원", text: "시험기간 다들 끝까지 화이팅" },
+  { emoji: "🌸", emotion: "설렘", text: "내일 첫 데이트 ㅎㅎ 떨린다" },
+  { emoji: "☕", emotion: "피곤", text: "과제 세 개 남음… 커피 수혈 중" },
+  { emoji: "🌧️", emotion: "슬픔", text: "발표 망했다 내일은 괜찮겠지" },
+  { emoji: "🔥", emotion: "화남", text: "프린터 또 고장남 진짜 너무해" }
+];
+function mwRand(seed) { var x = Math.sin(seed * 9301 + 49297) * 233280; return x - Math.floor(x); }
+
+class Component extends DCLogic {
+  componentDidMount() {
+    var self = this;
+    this.mwTick = setInterval(function () {
+      var s = self.state || {};
+      self.setState({ idx: (s.idx || 0) + 1 });
+    }, 7000);
+  }
+  componentWillUnmount() { clearInterval(this.mwTick); }
+  renderVals() {
+    var s = this.state || {};
+    var t = MW_THEMES[this.props.theme] || MW_THEMES["낮"];
+    var pick = this.props.emotion || "자동 순환";
+    var sample = MW_SAMPLES[(s.idx || 0) % MW_SAMPLES.length];
+    if (pick !== "자동 순환") {
+      MW_SAMPLES.forEach(function (x) { if (x.emotion === pick) sample = x; });
+    }
+    var emo = MW_EMO[sample.emotion];
+    var palette = ["#FF7A3D", "#FFC83D", "#3D7BFF", "#FF5C8A", "#B66BFF", "#3DC48A"];
+    var particles = [];
+    for (var i = 0; i < 48; i++) {
+      var r1 = mwRand(i + 1), r2 = mwRand(i + 101), r3 = mwRand(i + 201);
+      var color = emo.anim === "confetti" ? palette[i % palette.length] : emo.color;
+      if (emo.anim === "sparkle" && i % 3 === 0) color = "#FFC83D";
+      particles.push({
+        left: (r1 * 98).toFixed(1) + "%",
+        top: (r2 * 92).toFixed(1) + "%",
+        size: Math.round(36 + r3 * 48),
+        color: color,
+        dur: (emo.anim === "rain" ? 0.9 + r2 * 0.8 : emo.anim === "sparkle" ? 1.6 + r2 * 1.6 : 3.5 + r2 * 3).toFixed(2) + "s",
+        delay: (-r3 * 6).toFixed(2) + "s"
+      });
+    }
+    return {
+      t: t, particles: particles,
+      cur: { emoji: sample.emoji, emotion: sample.emotion, text: sample.text, color: emo.color },
+      isConfetti: emo.anim === "confetti", isRain: emo.anim === "rain",
+      isHearts: emo.anim === "hearts", isSparkle: emo.anim === "sparkle"
+    };
+  }
+}
+MoodWall.mount(Component, {"theme": "낮", "emotion": "자동 순환"}, document.getElementById("mw-host"), 2400, 800);
+</script>
+</body>
+</html>
