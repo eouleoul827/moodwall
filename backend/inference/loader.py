@@ -42,6 +42,15 @@ def load_analyzer(settings):
             or getattr(settings, "moderation_policy_version", release_id) != release_id
         ):
             raise ValueError("Gemini release does not match deployment")
+        emotion_predictor = None
+        emotion_manifest = getattr(settings, "emotion_manifest_path", None)
+        if emotion_manifest is not None:
+            from inference.local_emotion import load_emotion_predictor
+
+            emotion_predictor = load_emotion_predictor(
+                emotion_manifest,
+                expected_parameters=settings.provider_release_parameters["local_emotion"],
+            )
         if settings.analyzer == "gemini":
             from inference.gemini_http import GeminiHTTPTransport
 
@@ -60,10 +69,13 @@ def load_analyzer(settings):
                 moderation_profile="gemini",
                 max_input_tokens=settings.provider_max_input_tokens,
                 max_output_tokens=settings.provider_max_output_tokens,
+                emotion_predictor=emotion_predictor,
             )
         # Fixture contracts are validated at construction. Do not spend a
         # synthetic provider invocation on the legacy startup warmup message.
-        return GeminiModerationAnalyzer(release_id, settings.inference_policy_version)
+        return GeminiModerationAnalyzer(
+            release_id, settings.inference_policy_version, emotion_predictor=emotion_predictor
+        )
     if settings.analyzer == "fake":
         if settings.environment not in {"development", "test"}:
             raise ValueError("fake analyzer is forbidden outside development/test")

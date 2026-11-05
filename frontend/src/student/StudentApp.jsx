@@ -8,7 +8,7 @@ import './student.css';
 const defaultApi = createStudentApi();
 const defaultClient = options => new SubmissionClient(options);
 const COMPLETE = { card: 'COMPLETE', title: '메시지를 보냈어요!',
-  message: '확인 후 전광판에 순서대로 올라가요. 표시되면 15초 동안 크게 보여요.' };
+  message: '메시지 확인 후 표시 여부가 정해져요.\n전광판에 표시되면 15초 동안 크게 보여요.' };
 
 function formatTime(value) {
   return new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' }).format(new Date(value));
@@ -32,7 +32,7 @@ function postingAvailability(session, usage, now) {
 
 function MoodPreview({ content, complete = false }) {
   return <div className={`student-preview${complete ? ' is-complete' : ''}`}>
-    <div className="student-preview-orbit" aria-hidden="true"><span>✦</span><span>✧</span><span>·</span></div>
+    <svg className="student-preview-cloud" viewBox="0 0 160 100" aria-hidden="true"><path d="M26 82C2 82 0 48 23 43 20 14 61 3 76 26 97 2 134 18 131 43 161 44 167 82 139 82Z" /></svg>
     <p>{content || '여기에 내 멘션이 보여요'}</p>
   </div>;
 }
@@ -254,7 +254,6 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
 
   return <main className="student-shell">
     <div className="student-page">
-      <header className="student-header"><a className="student-wordmark" href="/">moodwall<span aria-hidden="true">✦</span></a><span className="student-header-label">우리의 오늘이 모이는 곳</span></header>
       {updateRequired && <aside className="student-update" role="alert"><p>화면이 업데이트됐어요. 새로고침하면 작성 중인 글이 지워져요. 자동으로 다시 보내지 않아요.</p><button type="button" className="student-button student-button-secondary" onClick={reload}>새로고침하기</button></aside>}
       {boot === 'loading' ? <section className="student-entry" aria-live="polite"><div className="student-loading" aria-hidden="true" /><h1>무드월에 들어가는 중이에요</h1><p>잠깐만 기다려 주세요.</p></section>
         : boot === 'error' || !session ? <section className="student-entry">
@@ -263,36 +262,35 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
           {boot === 'error' && <button className="student-button" onClick={() => setBootKey(value => value + 1)}>다시 연결하기</button>}
         </section> : screen === 'compose' ? <form className="student-compose" onSubmit={send}>
           <div className="student-compose-main">
-            <div className="student-intro"><span className="student-eyebrow">YOUR MOMENT, OUR MOOD</span><h1>지금 기분이 어때요?</h1><p>오늘의 한마디를 전광판에 띄워봐요.</p></div>
+            <div className="student-intro"><h1>지금 기분이 어때요?</h1></div>
             <div className="student-input-group">
               <label className="student-sr-only" htmlFor="mention">멘션 입력</label>
-              <textarea id="mention" rows="3" placeholder="오늘 기분을 한 줄로 남겨주세요" value={text} readOnly={sending || unconfirmed || updateRequired}
+              <textarea id="mention" rows="2" placeholder="오늘 기분을 한 줄로 남겨주세요" value={text} readOnly={sending || unconfirmed || updateRequired}
                 onChange={event => { setText(event.target.value); setNotice(''); }} aria-describedby="mention-count mention-rules" aria-invalid={length > 30} />
               <div id="mention-count" className={`student-counter${length > 30 ? ' is-over' : ''}`}>{length}<span>/30</span></div>
             </div>
-            <div className="student-preview-section"><h2>전광판 미리보기</h2><MoodPreview content={text} /><p className="student-preview-note">한마디에 어울리는 배경으로 전해져요.</p></div>
-            {(notice || availability.text) && <p className={`student-notice${notice ? ' is-error' : ''}`} role={notice ? 'alert' : 'status'}>{notice || availability.text}</p>}
+            {(notice || availability.text) && <p className="student-notice" role={notice ? 'alert' : 'status'}>{notice || availability.text}</p>}
           </div>
           <div className="student-actions">
             {unconfirmed ? <><button type="button" className="student-button" disabled={sending || updateRequired} onClick={() => recover()}>{sending ? '확인하는 중…' : '다시 확인'}</button>{client.canResend !== false && <button type="button" className="student-text-button" disabled={sending || updateRequired} onClick={() => recover(true)}>같은 메시지 다시 보내기</button>}</>
-              : <button className="student-button" type="submit" disabled={sending || updateRequired || Boolean(validation) || availability.blocked}>{sending ? '보내는 중…' : '전광판에 올리기'}<span aria-hidden="true">↗</span></button>}
-            <p id="mention-rules" className="student-rules">최근 1시간 남은 횟수 <strong>{usage?.remainingSlots ?? '–'}/{usage?.limit ?? 3}</strong><br />서로를 배려하는 한마디를 남겨 주세요.</p>
+              : <button className="student-button" type="submit" disabled={sending || updateRequired || Boolean(validation) || availability.blocked}>{sending ? '보내는 중…' : '전광판에 올리기'}</button>}
+            <p id="mention-rules" className="student-rules">서로를 배려하는 한마디를 남겨 주세요.</p>
           </div>
         </form> : <section className="student-receipt">
           <div className="student-receipt-main">
-            <div className={`student-result-mark${view.card === 'SUPPORT' ? ' is-support' : view.card !== 'COMPLETE' ? ' is-notice' : ''}`} aria-hidden="true">{view.card === 'COMPLETE' ? <svg viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7.5" /></svg> : view.card === 'SUPPORT' ? '♡' : '!'}</div>
-            <div aria-live="polite"><h1>{view.title}</h1><p className="student-result-copy">{view.message}</p></div>
+            <div className={`student-result-mark${view.card === 'SUPPORT' ? ' is-support' : view.card === 'REWRITE' ? ' is-notice' : view.card !== 'COMPLETE' ? ' is-neutral' : ''}`} aria-hidden="true">{view.card === 'COMPLETE' ? <svg viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7.5" /></svg> : view.card === 'SUPPORT' ? '♡' : view.card === 'REWRITE' ? '!' : '…'}</div>
+            <div aria-live="polite"><h1>{view.card === 'COMPLETE' ? COMPLETE.title : view.title}</h1><p className="student-result-copy">{view.card === 'COMPLETE' ? COMPLETE.message : view.message}</p></div>
             {preview && view.card !== 'SUPPORT' && <MoodPreview content={preview} complete />}
-            {view.card === 'COMPLETE' && <div className="student-wait-note"><span aria-hidden="true">✦</span><p>앞선 메시지가 있으면<br />잠시 기다릴 수 있어요.</p></div>}
+            {view.card === 'COMPLETE' && <div className="student-wait-note"><p>표시되는 메시지는 앞선 구름이 지나간 뒤 순서대로 보여요.</p></div>}
           </div>
           <div className="student-actions">
             {view.card === 'SUPPORT' && <button className="student-button" type="button" onClick={() => setHelpOpen(true)}>도움받는 방법 보기</button>}
             <button className="student-button student-button-secondary" disabled={availability.blocked || updateRequired} onClick={writeAgain}>{view.card === 'SUPPORT' ? '작성 화면으로' : view.card === 'REWRITE' ? '수정하기' : view.card === 'UNCERTAIN' ? '다시 작성하기' : view.card === 'COMPLETE' ? '하나 더 쓰기' : '다시 쓰기'}</button>
-            <p className="student-rules" role="status">{availability.text || <>최근 1시간 남은 횟수 <strong>{usage?.remainingSlots ?? '–'}/{usage?.limit ?? 3}</strong></>}</p>
+            {availability.text && <p className="student-rules" role="status">{availability.text}</p>}
           </div>
         </section>}
       <StudentHelp open={helpOpen} onOpenChange={setHelpOpen} api={api} csrfToken={() => csrfRef.current} refreshSession={refreshSession} canReport={Boolean(session)} showReportEntry={screen === 'receipt'} />
-      <footer className="student-footer">작은 한마디가 오늘의 분위기가 돼요.</footer>
+      <footer className="student-footer">moodwall · 우리의 오늘이 모이는 곳</footer>
     </div>
   </main>;
 }

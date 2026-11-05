@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -151,21 +153,22 @@ async def connection():
     yield None
 
 
-def runtime_with_confirmed_curse(settings, provider):
+def runtime_with_analysis(settings, provider, *, analysis=None, content="씨발 죽고 싶어"):
     now, run_token, submission_id = datetime.now(UTC), uuid4(), uuid4()
     claim = {
         "id": submission_id,
-        "content": "씨발 죽고 싶어",
+        "content": content,
         "processing_run_token": run_token,
         "processing_lease_until": now + timedelta(seconds=15),
         "moderation_policy_version": settings.moderation_policy_version,
     }
-    analysis = AnalysisResult(
-        model_bundle_version=settings.model_bundle_version,
-        inference_policy_version=settings.inference_policy_version,
-        safety=SafetyResult(verdict="BLOCK", reason_codes=["SELF_CRISIS"]),
-        emotion=None,
-    )
+    if analysis is None:
+        analysis = AnalysisResult(
+            model_bundle_version=settings.model_bundle_version,
+            inference_policy_version=settings.inference_policy_version,
+            safety=SafetyResult(verdict="BLOCK", reason_codes=["SELF_CRISIS"]),
+            emotion=None,
+        )
     analyzer = SimpleNamespace(
         analyze_moderated=Mock(return_value=analysis), last_usage={"input_tokens": 10, "output_tokens": 10}
     )
@@ -180,7 +183,7 @@ def runtime_with_confirmed_curse(settings, provider):
 
 async def test_confirmed_curse_is_deferred_so_support_never_becomes_a_strike(monkeypatch):
     provider = SimpleNamespace(begin_dispatch=AsyncMock(), finish_dispatch=AsyncMock())
-    runtime, now, submission_id = runtime_with_confirmed_curse(mock_settings(), provider)
+    runtime, now, submission_id = runtime_with_analysis(mock_settings(), provider)
     monkeypatch.setattr("app.worker.db_time", AsyncMock(return_value=now))
     await run_submission(runtime, submission_id)
     runtime.analyzer.analyze_moderated.assert_called_once()
@@ -198,7 +201,7 @@ async def test_failed_or_uncertain_dispatch_ack_never_executes_analyzer(monkeypa
         begin_dispatch=AsyncMock(side_effect=ProviderUnavailable("PROVIDER_DISPATCH_FORBIDDEN")),
         finish_dispatch=AsyncMock(),
     )
-    runtime, now, submission_id = runtime_with_confirmed_curse(mock_settings(), provider)
+    runtime, now, submission_id = runtime_with_analysis(mock_settings(), provider)
     monkeypatch.setattr("app.worker.db_time", AsyncMock(return_value=now))
     await run_submission(runtime, submission_id)
     runtime.analyzer.analyze_moderated.assert_not_called()
@@ -208,7 +211,7 @@ async def test_failed_or_uncertain_dispatch_ack_never_executes_analyzer(monkeypa
 
 async def test_probe_usage_cannot_overwrite_finished_submission_usage(monkeypatch):
     provider = SimpleNamespace(begin_dispatch=AsyncMock(), finish_dispatch=AsyncMock())
-    runtime, now, submission_id = runtime_with_confirmed_curse(mock_settings(), provider)
+    runtime, now, submission_id = runtime_with_analysis(mock_settings(), provider)
     monkeypatch.setattr("app.worker.db_time", AsyncMock(return_value=now))
 
     class ProbeImmediatelyAfterUnlock:
@@ -224,6 +227,92 @@ async def test_probe_usage_cannot_overwrite_finished_submission_usage(monkeypatc
     await run_submission(runtime, submission_id)
     assert runtime.analyzer.last_usage["input_tokens"] == 999
     assert provider.finish_dispatch.call_args.kwargs["usage"] == {"input_tokens": 10, "output_tokens": 10}
+
+
+async def test_local_emotion_can_finish_after_transport_budget_within_wrapper(monkeypatch):
+    # Scale the two budgets only for this unit test. Validated provider defaults
+    # remain a 15-second lease, 8-second HTTP workflow and 12-second wrapper.
+    settings = mock_settings().model_copy(
+        update={"provider_timeout_seconds": 0.03, "provider_wrapper_timeout_seconds": 0.4}
+    )
+    analysis = AnalysisResult(
+        model_bundle_version=settings.model_bundle_version,
+        inference_policy_version=settings.inference_policy_version,
+        safety=SafetyResult(verdict="ALLOW"),
+        emotion=EmotionResult(label="JOY", source="MODEL", score=0.9),
+    )
+    provider = SimpleNamespace(begin_dispatch=AsyncMock(), finish_dispatch=AsyncMock())
+    runtime, now, submission_id = runtime_with_analysis(
+        settings, provider, analysis=analysis, content="오늘은 기분 좋아"
+    )
+    finished, phases = Event(), []
+
+    def analyze(*_args, **_kwargs):
+        try:
+            time.sleep(0.02)  # The simulated moderation completes inside HTTP's budget.
+            phases.append("moderated")
+            time.sleep(0.06)  # Local emotion exceeds that budget, but fits the wrapper.
+            phases.append("emotion")
+            return analysis
+        finally:
+            finished.set()
+
+    runtime.analyzer.analyze_moderated.side_effect = analyze
+    monkeypatch.setattr("app.worker.db_time", AsyncMock(return_value=now))
+    try:
+        await run_submission(runtime, submission_id)
+    finally:
+        assert await asyncio.to_thread(finished.wait, 1), "analysis thread did not finish"
+    outcome = runtime.service.finalize.call_args.args[1]
+    assert isinstance(outcome, ModelAnalyzed)
+    assert outcome.analysis.safety.verdict == "ALLOW" and outcome.analysis.emotion.label == "JOY"
+    assert phases == ["moderated", "emotion"]
+    assert runtime.poisoned is False
+    assert provider.finish_dispatch.call_args.kwargs["success"] is True
+    runtime.analyzer.analyze_moderated.assert_called_once()
+
+
+async def test_wrapper_timeout_fails_closed_poisoning_worker_without_replay(monkeypatch):
+    settings = mock_settings().model_copy(
+        update={"provider_timeout_seconds": 0.01, "provider_wrapper_timeout_seconds": 0.04}
+    )
+    provider = SimpleNamespace(begin_dispatch=AsyncMock(), finish_dispatch=AsyncMock())
+    runtime, now, submission_id = runtime_with_analysis(settings, provider, content="조금 기다려 주세요")
+    finished = Event()
+
+    def analyze(*_args, **_kwargs):
+        try:
+            time.sleep(0.16)  # Finite work that outlives the wrapper; never leave a hung thread.
+            return AnalysisResult(
+                model_bundle_version=settings.model_bundle_version,
+                inference_policy_version=settings.inference_policy_version,
+                safety=SafetyResult(verdict="ALLOW"),
+                emotion=EmotionResult(label="JOY", source="MODEL", score=0.9),
+            )
+        finally:
+            finished.set()
+
+    runtime.analyzer.analyze_moderated.side_effect = analyze
+    control = SimpleNamespace(send=Mock())
+    control.recv = Mock(side_effect=lambda: {"type": "ACK", "run_token": control.send.call_args.args[0]["run_token"]})
+    runtime.control = control
+    monkeypatch.setattr("app.worker.db_time", AsyncMock(return_value=now))
+    try:
+        await run_submission(runtime, submission_id)
+    finally:
+        assert await asyncio.to_thread(finished.wait, 1), "analysis thread did not finish"
+    assert runtime.service.finalize.call_args.args[1].error_code == "INFERENCE_TIMEOUT"
+    assert runtime.poisoned is True
+    control.send.assert_any_call({"type": "FAULT", "code": "INFERENCE_TIMEOUT"})
+    assert provider.finish_dispatch.call_args.kwargs["usage"] is None
+    assert provider.finish_dispatch.call_args.kwargs["success"] is False
+    await run_submission(runtime, submission_id)
+    runtime.analyzer.analyze_moderated.assert_called_once()
+    runtime.service.claim.assert_awaited_once()
+    provider.begin_dispatch.assert_awaited_once()
+    provider.finish_dispatch.assert_awaited_once()
+    runtime.service.finalize.assert_awaited_once()
+    runtime.service.retry_before_model.assert_not_awaited()
 
 
 @pytest.mark.integration

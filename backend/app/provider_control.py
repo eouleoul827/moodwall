@@ -460,7 +460,9 @@ class ProviderControlService:
 
             result = await asyncio.wait_for(
                 asyncio.to_thread(analyzer.analyze_moderated, AnalysisInput(text="오늘 너무 우울해")),
-                timeout=self.settings.provider_timeout_seconds,
+                # Includes the optional emotion step after the independently
+                # bounded provider HTTP workflow.
+                timeout=self.settings.provider_wrapper_timeout_seconds,
             )
             parsed = AnalysisResult.model_validate(result)
             success = (

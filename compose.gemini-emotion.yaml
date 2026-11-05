@@ -1,0 +1,32 @@
+# Apply after compose.gemini.yaml. The local model chooses colors only after
+# Gemini approves text. API verifies the same immutable files without torch.
+services:
+  api:
+    healthcheck:
+      # The API hashes the immutable bundle once before serving requests.
+      start_period: 180s
+    environment:
+      MOODWALL_EMOTION_MANIFEST_PATH: /opt/student-model/manifest.json
+    volumes:
+      - type: bind
+        source: ${MOODWALL_EMOTION_BUNDLE_DIR:-./models/student-v0}
+        target: /opt/student-model
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    image: moodwall-gemini-emotion:local
+    build:
+      context: ./backend
+      target: student-model
+    environment:
+      MOODWALL_EMOTION_MANIFEST_PATH: /opt/student-model/manifest.json
+      # Cold CPU model imports/weights are startup work, not per-post latency.
+      MOODWALL_WORKER_WARMUP_SECONDS: 360
+    volumes:
+      - type: bind
+        source: ${MOODWALL_EMOTION_BUNDLE_DIR:-./models/student-v0}
+        target: /opt/student-model
+        read_only: true
+        bind:
+          create_host_path: false

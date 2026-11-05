@@ -1,0 +1,64 @@
+{
+  "date": "2026-11-05",
+  "scope": "New React design, Gemini-first policy, optional local emotion colors; no live Gemini or production acceptance",
+  "baseCommit": "62c5b54",
+  "openapiVersion": "0.11.0",
+  "migration": "0008_display_diagnostics",
+  "externalGeminiCalls": 0,
+  "realCredentialsReadOrUsed": false,
+  "productionMigrationApplied": false,
+  "fullscreenSeconds": 15,
+  "frontend": {
+    "command": "npm.cmd --prefix frontend test -- --maxWorkers=1",
+    "filesPassed": 10,
+    "passed": 99,
+    "seconds": 65.61,
+    "productionBuildPassed": true,
+    "coverage": "Student/support/recovery, public display/session/QR, operator, themes, 16 cloud geometries, joined emoji and wide ASCII"
+  },
+  "backendEmotionUnit": {
+    "files": ["test_local_emotion.py", "test_student_model.py", "test_provider_moderation.py"],
+    "passed": 234,
+    "seconds": 34.22,
+    "network": "none",
+    "note": "Synthetic verified bundles and provider doubles; real model smoke is recorded separately"
+  },
+  "backendFocused": {
+    "files": ["test_provider_runtime.py", "test_gemini_connected_flow.py", "test_provider_support_flow.py"],
+    "environment": "Python 3.12, PostgreSQL 16, isolated internal Docker network, synthetic provider HTTP",
+    "initialPassed": 43,
+    "initialFailed": 1,
+    "initialSeconds": 71.0,
+    "initialFailure": "test_parallel_reservations_cannot_exceed_project_rpm: psycopg_pool.PoolTimeout at the existing 0.50-second acquisition limit",
+    "failedTestOnlyRetry": {"passed": 1, "seconds": 2.57, "sourceChangesBeforeRetry": false},
+    "note": "The initial run was not fully green. Only its failed test was retried; limits were not weakened. Includes two new finite-delay wrapper/no-replay tests."
+  },
+  "wholeBackendRegressionRun": false,
+  "bootstrap": {"passed": 17, "seconds": 0.514, "realEnvFileRead": false},
+  "staticChecks": {
+    "ruffCheckPassed": true,
+    "ruffFormatPassed": true,
+    "formattedPythonFiles": 93,
+    "gitDiffCheckPassed": true,
+    "geminiDesignCases": 77,
+    "geminiDesignInvalidExamplesRejected": 15,
+    "composeConfigPassedWithSyntheticEnv": true
+  },
+  "realLocalEmotion": {
+    "bundle": "student-emotion-v0-0c45710941f2",
+    "network": "none",
+    "input": "Synthetic Korean text, no student data",
+    "result": {"label": "JOY", "source": "MODEL"},
+    "firstRun": {"startupSeconds": 272.128, "predictionSeconds": 0.187},
+    "secondRun": {"lightImportSeconds": 1.288, "verificationSeconds": 15.786, "workerReverifyLoadWarmupSeconds": 112.639, "predictionSeconds": 0.477, "totalSeconds": 130.189},
+    "startupConfiguration": "Only the optional emotion worker uses a 360-second startup allowance; API healthcheck start_period is 180 seconds",
+    "perSubmissionLimitsSeconds": {"http": 8, "wrapperIncludingEmotion": 12, "inferenceLease": 15},
+    "note": "Windows Docker bind-mount and VM/cache timing; this is not an emotion-quality evaluation or a guaranteed performance bound"
+  },
+  "notPerformed": [
+    "Live Gemini authentication, classification quality or billing validation",
+    "Browser screenshot review: no browser provider was available in this session",
+    "School phone, laptop and HDMI panel acceptance",
+    "Production deployment or production database changes"
+  ]
+}

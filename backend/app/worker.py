@@ -112,9 +112,9 @@ async def run_submission(runtime: Runtime, submission_id):
                             AnalysisInput(text=claim["content"]),
                             confirmed_profanity=scan.decision == "CONFIRMED",
                         ),
-                        timeout=min(
-                            runtime.settings.provider_timeout_seconds, runtime.settings.provider_wrapper_timeout_seconds
-                        ),
+                        # The transport owns the shorter HTTP deadline. Leave
+                        # the rest of the wrapper for optional local emotion.
+                        timeout=runtime.settings.provider_wrapper_timeout_seconds,
                     )
                 except TimeoutError:
                     # wait_for cannot kill a native thread. Withdraw READY and

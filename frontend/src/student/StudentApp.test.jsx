@@ -32,11 +32,14 @@ async function submit(content = '오늘도 좋은 하루!') {
 describe('student composition and receipts', () => {
   it('connects the QR entry, submits text only, and keeps a single normal completion card', async () => {
     const { api, client } = setup();
+    expect(await screen.findByRole('heading', { name: '지금 기분이 어때요?' })).toBeTruthy();
     await submit();
     expect(await screen.findByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
     expect(api.connect).toHaveBeenCalledWith('test-ticket', expect.any(AbortSignal));
     expect(client.begin).toHaveBeenCalledExactlyOnceWith('오늘도 좋은 하루!');
     expect(screen.queryByText('배경 이모지 고르기')).toBeNull();
+    expect(screen.getByText(/표시되면 15초 동안 크게 보여요/)).toBeTruthy();
+    expect(screen.queryByText(/전광판에 곧 올라가요|약 1분|자정까지/)).toBeNull();
     const watched = client.watchReceipt.mock.calls[0][0];
     act(() => watched.onChange(accepted('SHOWING')));
     expect(screen.getByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
@@ -71,6 +74,7 @@ describe('student composition and receipts', () => {
   it('allows an emoji grapheme and blocks 31 visible characters', async () => {
     setup();
     const input = await screen.findByRole('textbox', { name: '멘션 입력' });
+    expect(input.getAttribute('maxlength')).toBeNull();
     fireEvent.change(input, { target: { value: '가'.repeat(31) } });
     expect(screen.getByRole('button', { name: /전광판에 올리기/ }).disabled).toBe(true);
     fireEvent.change(input, { target: { value: '👨‍👩‍👧‍👦'.repeat(30) } });
@@ -85,7 +89,38 @@ describe('student composition and receipts', () => {
     fireEvent.change(input, { target: { value: '기분 좋아' } });
     expect(screen.getByRole('button', { name: /전광판에 올리기/ }).disabled).toBe(true);
     expect(screen.getByText('전광판의 새 QR을 찍으면 참여할 수 있어요.')).toBeTruthy();
-    expect(screen.getByText('1/3')).toBeTruthy();
+    expect(screen.queryByText('1/3')).toBeNull();
+  });
+
+  it('retains the server rolling quota and explains when writing is available again', async () => {
+    setup({ connectedSession: { ...session(), usage: { ...usage, remainingSlots: 0,
+      nextSlotAt: new Date(Date.now() + 300000).toISOString() } } });
+    const input = await screen.findByRole('textbox', { name: '멘션 입력' });
+    fireEvent.change(input, { target: { value: '잠깐 쉬었다 올게' } });
+    expect(screen.getByRole('button', { name: /전광판에 올리기/ }).disabled).toBe(true);
+    expect(screen.getByRole('status').textContent).toMatch(/부터 다시 쓸 수 있어요/);
+    expect(screen.queryByText(/오늘은 다 썼어요|자정에 다시|3번 반복|5번/)).toBeNull();
+  });
+
+  it('lets the server decide content policy without adding local warning or ban counters', async () => {
+    const { client } = setup({ sendResult: accepted('NEEDS_REWRITE') });
+    await submit('시발 오늘 진짜 힘들다');
+    expect(await screen.findByRole('heading', { name: '표현을 조금 바꿔 주세요' })).toBeTruthy();
+    expect(client.begin).toHaveBeenCalledExactlyOnceWith('시발 오늘 진짜 힘들다');
+    expect(screen.queryByText(/3번|5번|경고|시도 \d/)).toBeNull();
+    expect(screen.queryByText(/테스트용 기록 초기화|오늘 내가 띄운 구름/)).toBeNull();
+  });
+
+  it('keeps an uncertain moderation result neutral without a warning or publication promise', async () => {
+    const { studentReceiptView } = await import('@clients/student/submission-client.mjs');
+    const receipt = { userStatus: 'NEEDS_REWRITE', reasonCode: 'CONTENT_REVIEW_UNCERTAIN', contentStatus: 'PURGED' };
+    setup({ sendResult: { state: 'ACCEPTED', receipt, view: studentReceiptView(receipt) } });
+    await submit('조금 복잡한 마음');
+    expect(await screen.findByRole('heading', { name: '공개 여부를 판단하기 어려웠어요' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '다시 작성하기' })).toBeTruthy();
+    expect(document.querySelector('.student-result-mark.is-neutral')).toBeTruthy();
+    expect(document.querySelector('.student-result-mark.is-notice')).toBeNull();
+    expect(screen.queryByText(/경고|정지|잘못|곧 올라가요/)).toBeNull();
   });
 
   it('keeps a new draft when the prior receipt needs rewriting', async () => {
