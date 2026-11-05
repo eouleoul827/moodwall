@@ -80,7 +80,18 @@ async def test_diagnostics_require_csrf_origin_and_small_body(clients):
 
 
 @pytest.mark.integration
-async def test_diagnostic_budget_does_not_consume_display_write_budget(clients, database):
+async def test_diagnostic_budget_does_not_consume_display_write_budget(clients, database, monkeypatch):
+    import app.request_limits as limits
+
+    # A new minute legitimately opens a fresh fixed-window budget. Keep only
+    # the limiter's clock fixed while exercising the real HTTP and DB paths.
+    async with database.connection() as conn:
+        fixed_now = await db_time(conn)
+
+    async def clock(_conn):
+        return fixed_now
+
+    monkeypatch.setattr(limits, "db_time", clock)
     for _ in range(10):
         response = await clients["display"].post("/api/display/diagnostics", json=report())
         assert response.status_code == 200, response.text
