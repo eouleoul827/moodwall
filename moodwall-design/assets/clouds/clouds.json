@@ -1,0 +1,146 @@
+[
+  {
+    "file": "cloud-01.svg",
+    "viewBoxHeight": 352,
+    "textBox": {
+      "left": 0.087,
+      "right": 0.912,
+      "centerY": 0.63
+    }
+  },
+  {
+    "file": "cloud-02.svg",
+    "viewBoxHeight": 369,
+    "textBox": {
+      "left": 0.147,
+      "right": 0.811,
+      "centerY": 0.64
+    }
+  },
+  {
+    "file": "cloud-03.svg",
+    "viewBoxHeight": 360,
+    "textBox": {
+      "left": 0.079,
+      "right": 0.874,
+      "centerY": 0.62
+    }
+  },
+  {
+    "file": "cloud-04.svg",
+    "viewBoxHeight": 299,
+    "textBox": {
+      "left": 0.073,
+      "right": 0.932,
+      "centerY": 0.62
+    }
+  },
+  {
+    "file": "cloud-05.svg",
+    "viewBoxHeight": 332,
+    "textBox": {
+      "left": 0.059,
+      "right": 0.799,
+      "centerY": 0.62
+    }
+  },
+  {
+    "file": "cloud-06.svg",
+    "viewBoxHeight": 358,
+    "textBox": {
+      "left": 0.129,
+      "right": 0.869,
+      "centerY": 0.63
+    }
+  },
+  {
+    "file": "cloud-07.svg",
+    "viewBoxHeight": 420,
+    "textBox": {
+      "left": 0.151,
+      "right": 0.864,
+      "centerY": 0.62
+    }
+  },
+  {
+    "file": "cloud-08.svg",
+    "viewBoxHeight": 375,
+    "textBox": {
+      "left": 0.136,
+      "right": 0.87,
+      "centerY": 0.59
+    }
+  },
+  {
+    "file": "cloud-09.svg",
+    "viewBoxHeight": 278,
+    "textBox": {
+      "left": 0.074,
+      "right": 0.926,
+      "centerY": 0.57
+    }
+  },
+  {
+    "file": "cloud-10.svg",
+    "viewBoxHeight": 412,
+    "textBox": {
+      "left": 0.104,
+      "right": 0.87,
+      "centerY": 0.62
+    }
+  },
+  {
+    "file": "cloud-11.svg",
+    "viewBoxHeight": 420,
+    "textBox": {
+      "left": 0.15,
+      "right": 0.896,
+      "centerY": 0.62
+    }
+  },
+  {
+    "file": "cloud-12.svg",
+    "viewBoxHeight": 500,
+    "textBox": {
+      "left": 0.137,
+      "right": 0.835,
+      "centerY": 0.58
+    }
+  },
+  {
+    "file": "cloud-13.svg",
+    "viewBoxHeight": 412,
+    "textBox": {
+      "left": 0.117,
+      "right": 0.867,
+      "centerY": 0.61
+    }
+  },
+  {
+    "file": "cloud-14.svg",
+    "viewBoxHeight": 345,
+    "textBox": {
+      "left": 0.123,
+      "right": 0.915,
+      "centerY": 0.57
+    }
+  },
+  {
+    "file": "cloud-15.svg",
+    "viewBoxHeight": 442,
+    "textBox": {
+      "left": 0.118,
+      "right": 0.879,
+      "centerY": 0.64
+    }
+  },
+  {
+    "file": "cloud-16.svg",
+    "viewBoxHeight": 464,
+    "textBox": {
+      "left": 0.18,
+      "right": 0.849,
+      "centerY": 0.61
+    }
+  }
+]

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>무드월 · 오늘 기분 남기기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@500;700;900&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#F2EFE8; --card:#FFFFFF; --ink:#14161B; --sub:#4B505B; --line:#D9D4C8; --soft:#ECE8DF;
+  --accent:#2F6BEB; --accent-soft:#E3ECFF; --on-accent:#FFFFFF; --error:#C8352A; --error-soft:#FCE8E6;
+  --preview-bg:#F2EFE8; --preview-ink:#14161B;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#0D1120; --card:#171C2E; --ink:#F5F3EE; --sub:#B5BBC8; --line:#3A4260; --soft:#222842;
+    --accent-soft:#1E2C55; --error:#FF6B5E; --error-soft:#3A1E24;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0D1120; --card:#171C2E; --ink:#F5F3EE; --sub:#B5BBC8; --line:#3A4260; --soft:#222842;
+  --accent-soft:#1E2C55; --error:#FF6B5E; --error-soft:#3A1E24;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:'Noto Sans KR',system-ui,-apple-system,sans-serif;-webkit-text-size-adjust:100%}
+.app{max-width:440px;margin:0 auto;min-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));padding:28px 24px;display:flex;flex-direction:column;gap:20px}
+.screen{display:none;flex:1 1 auto;flex-direction:column;gap:20px}
+.screen.on{display:flex}
+.body{flex:1 1 auto;display:flex;flex-direction:column;justify-content:flex-start;padding-top:156px;gap:20px}
+#s-done .body,#s-limit .body{padding-top:64px}
+#lm-icon{height:72px;display:flex;align-items:center}
+h1{margin:0;font-family:'Jua','Noto Sans KR',sans-serif;font-weight:400;font-size:32px;line-height:1.22}
+.lead{margin:0;font-size:16px;line-height:1.6;color:var(--sub)}
+.label{font-size:15px;font-weight:700}
+.field{display:flex;flex-direction:column;gap:6px}
+textarea{width:100%;resize:none;border-radius:16px;border:2px solid var(--line);background:var(--card);color:var(--ink);padding:14px 16px;font:inherit;font-size:18px;line-height:1.45}
+textarea.bad{border-color:var(--error)}
+.count{align-self:flex-end;font-size:14px;font-weight:700;color:var(--sub)}
+.count.full{color:var(--error)}
+.emojis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.emojis button{height:48px;border-radius:12px;border:2px solid var(--line);background:var(--card);font-size:24px;padding:0;cursor:pointer}
+.emojis button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.preview{position:relative;width:100%;aspect-ratio:3/1;border-radius:16px;overflow:hidden;background:var(--preview-bg);border:2px solid var(--line);display:flex;align-items:center;padding:0 20px}
+.preview .pe{position:absolute;right:-6px;bottom:-22px;font-size:92px;line-height:1;opacity:.28}
+.preview .pt{position:relative;font-family:'Jua','Noto Sans KR',sans-serif;font-size:20px;line-height:1.25;color:var(--preview-ink);word-break:keep-all;max-width:70%}
+.alert{display:flex;gap:12px;padding:16px;border-radius:16px;background:var(--error-soft)}
+.alert svg{flex-shrink:0}
+.alert strong{display:block;font-size:16px;color:var(--error);margin-bottom:4px}
+.alert p{margin:0;font-size:14px;line-height:1.55}
+.tries{display:flex;justify-content:space-between;font-size:14px;font-weight:700}
+.tries .t{color:var(--error)}
+.foot{display:flex;flex-direction:column;gap:10px}
+.btn{height:56px;border-radius:16px;border:0;background:var(--accent);color:var(--on-accent);font:inherit;font-size:19px;font-weight:700;cursor:pointer}
+.btn:disabled{background:var(--soft);color:var(--sub);cursor:default}
+.btn.ghost{background:var(--card);color:var(--ink);border:2px solid var(--line)}
+.note{text-align:center;font-size:13px;color:var(--sub)}
+.check{width:72px;height:72px}
+.box{padding:14px 16px;border-radius:14px;background:var(--card);font-size:14px;line-height:1.55;color:var(--sub)}
+.mine{display:flex;flex-direction:column;gap:10px}
+.mine div{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:var(--card)}
+.mine .e{font-size:24px}.mine .x{flex:1 1 auto;font-size:16px}.mine .tm{font-size:13px;color:var(--sub)}
+.link{background:none;border:0;color:var(--sub);text-decoration:underline;font:inherit;font-size:13px;cursor:pointer;align-self:center;padding:0 4px;line-height:19px}
+.toast{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:408px;z-index:10;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:16px;background:var(--ink);color:var(--bg);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.toast[hidden]{display:none}
+.toast svg{flex-shrink:0}
+.toast strong{display:block;font-size:15px}
+.toast span{font-size:13px;line-height:1.45}
+.check{animation:mwPop .6s cubic-bezier(.3,1.4,.5,1) both}
+.check .hop{width:72px;height:72px;border-radius:999px;background:var(--accent);display:flex;align-items:center;justify-content:center;animation:mwHop 2.2s ease-in-out .7s infinite}
+.check path{stroke-dasharray:24;animation:mwDraw .45s ease-out .35s both}
+@keyframes mwPop{0%{transform:scale(0)}55%{transform:scale(1.18)}75%{transform:scale(.92)}90%{transform:scale(1.04)}100%{transform:scale(1)}}
+@keyframes mwHop{0%,55%,100%{transform:translateY(0) scale(1,1)}10%{transform:translateY(0) scale(1.08,.92)}25%{transform:translateY(-18px) scale(.94,1.06)}40%{transform:translateY(0) scale(1.1,.9)}48%{transform:translateY(-5px) scale(.98,1.02)}}
+@media (prefers-reduced-motion: reduce){.check,.check .hop,.check path{animation:none}}
+@keyframes mwDraw{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
+textarea:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion: no-preference){
+  .screen.on .body{animation:rise .35s ease-out}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+}
+</style>
+</head>
+<body>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden>
+  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+  <div><strong>작성 횟수를 초과했어요</strong><span>잠시 후 다시 구름을 띄워주세요</span></div>
+</div>
+<main class="app">
+
+  <!-- 작성 -->
+  <section class="screen on" id="s-write" aria-labelledby="h-write">
+    <div class="body">
+      <h1 id="h-write">지금 기분이 어때요?</h1>
+      <div class="field">
+        <textarea id="text" maxlength="30" rows="2" placeholder="오늘 기분을 한 줄로 남겨주세요" aria-label="구름 입력"></textarea>
+        <div class="count" id="count">0/30</div>
+      </div>
+      <div class="field" style="gap:10px">
+        <div class="label" id="emoji-label">배경 이모지 고르기</div>
+        <div class="emojis" id="emojis" role="group" aria-labelledby="emoji-label"></div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="send" disabled>전광판에 올리기</button>
+      <div class="note">욕설·비방 글은 전광판에 올라가지 않아요</div>
+    </div>
+  </section>
+
+  <!-- 경고 -->
+  <section class="screen" id="s-warn" aria-labelledby="h-warn">
+    <div class="body">
+      <h1 id="h-warn">지금 기분이 어때요?</h1>
+      <div class="alert" role="alert">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--error)"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/></svg>
+        <div><strong>앗, 표현을 조금 바꿔볼까요?</strong><p>전광판에 올리기 어려운 표현이 있어요. 3번 반복되면 경고, 5번이면 하루 동안 쓸 수 없어요.</p></div>
+      </div>
+      <div class="field">
+        <textarea id="text2" class="bad" maxlength="30" rows="2" aria-label="구름 다시 입력"></textarea>
+        <div class="tries"><span class="t" id="tries">시도 1/5</span><span style="color:var(--sub)" id="count2">0/30</span></div>
+      </div>
+      <p class="lead" style="font-size:14px">어떤 단어가 걸렸는지는 따로 알려주지 않아요.</p>
+    </div>
+    <div class="foot">
+      <button class="btn" id="resend">고쳐서 다시 올리기</button>
+      <div class="note">욕설·비방 글은 전광판에 올라가지 않아요</div>
+    </div>
+  </section>
+
+  <!-- 완료 -->
+  <section class="screen" id="s-done" aria-labelledby="h-done">
+    <div class="body">
+      <div class="check"><div class="hop"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div></div>
+      <h1 id="h-done">전광판에 곧 올라가요!</h1>
+      <p class="lead">약 1분 동안 화면 가득 보여요.<br>고개를 들어 전광판을 봐주세요.</p>
+      <div class="preview" aria-hidden="true"><div class="pe" id="dn-e">😊</div><div class="pt" id="dn-t"></div></div>
+      <div class="box">다른 구름이 떠 있는 중이면 잠깐 기다렸다가 순서대로 올라가요.</div>
+    </div>
+    <div class="foot">
+      <button class="btn ghost" id="again">하나 더 쓰기</button>
+      <div class="note">구름은 오늘 자정까지 전광판을 떠다녀요</div>
+    </div>
+  </section>
+
+  <!-- 끝 / 정지 -->
+  <section class="screen" id="s-limit" aria-labelledby="h-limit">
+    <div class="body">
+      <div aria-hidden="true" style="font-size:64px;line-height:1" id="lm-icon">🌙</div>
+      <h1 id="h-limit">오늘은 쉬어갈게요</h1>
+      <p class="lead" id="lm-lead">부적절한 표현이 5번 감지돼서<br>오늘은 더 남길 수 없어요. 내일 다시 열려요.</p>
+      <div class="field" style="gap:10px" id="mine-wrap">
+        <div class="label">오늘 내가 띄운 구름</div>
+        <div class="mine" id="mine"></div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" disabled>내일 다시 쓸 수 있어요</button>
+      <button class="link" id="reset">테스트용 기록 초기화</button>
+    </div>
+  </section>
+
+  <p class="note" style="margin:0">시안 버전 · 아직 전광판과 연결되지 않았어요</p>
+</main>
+
+<script>
+(function(){
+  var EMOJIS=[["😊","웃음"],["🎉","축하"],["💪","응원"],["🌸","설렘"],["☕","커피"],["😴","졸림"],["🌧️","비"],["🔥","불꽃"],["📚","책"],["🍜","라면"],["💌","편지"],["✨","반짝"]];
+  var MAX_PER_HOUR=3, HOUR=3600000, KEY="moodwall-proto";
+  var $=function(id){return document.getElementById(id)};
+  var today=new Date().toLocaleDateString("ko-KR");
+  var emoji="😊";
+
+  function load(){
+    var d=null;
+    try{d=JSON.parse(localStorage.getItem(KEY)||"null")}catch(e){}
+    if(!d||d.date!==today)d={date:today,posts:[],tries:0,banned:false};
+    if(!d.times)d.times=[];
+    return d;
+  }
+  function save(d){try{localStorage.setItem(KEY,JSON.stringify(d))}catch(e){}}
+  var st=load();
+
+  // 욕설 필터 (시안용 간단 버전 — 실제 필터는 서버에서)
+  var CHO="ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ",JUNG="ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ",JONG=["","ㄱ","ㄲ","ㄳ","ㄴ","ㄵ","ㄶ","ㄷ","ㄹ","ㄺ","ㄻ","ㄼ","ㄽ","ㄾ","ㄿ","ㅀ","ㅁ","ㅂ","ㅄ","ㅅ","ㅆ","ㅇ","ㅈ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+  function jamo(s){
+    var out="";
+    for(var i=0;i<s.length;i++){
+      var c=s.charCodeAt(i);
+      if(c>=0xAC00&&c<=0xD7A3){c-=0xAC00;out+=CHO[Math.floor(c/588)]+JUNG[Math.floor((c%588)/28)]+JONG[c%28];}
+      else out+=s[i];
+    }
+    return out;
+  }
+  function norm(s){
+    var j=jamo(s.toLowerCase()).replace(/[^ㄱ-ㅣa-z0-9]/g,"");
+    return j.replace(/(.)\1+/g,"$1");
+  }
+  var BAD=["씨발","시발","ㅅㅂ","병신","ㅂㅅ","개새끼","새끼","좆","tlqkf","qudtls"].map(norm);
+  function isBad(s){var n=norm(s);return BAD.some(function(b){return b&&n.indexOf(b)>-1});}
+
+  // 화면 전환
+  function show(id){
+    ["s-write","s-warn","s-done","s-limit"].forEach(function(s){$(s).classList.toggle("on",s===id)});
+    window.scrollTo(0,0);
+  }
+  function recent(){var n=Date.now();st.times=st.times.filter(function(x){return n-x<HOUR});return st.times.length}
+  var toastTimer;
+  function toast(){var el=$("toast");el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(function(){el.hidden=true},4000)}
+
+  // 이모지
+  var box=$("emojis");
+  EMOJIS.forEach(function(x){
+    var b=document.createElement("button");
+    b.type="button";b.textContent=x[0];b.setAttribute("aria-label",x[1]+" 이모지");
+    b.setAttribute("aria-pressed",x[0]===emoji?"true":"false");
+    b.addEventListener("click",function(){
+      emoji=x[0];
+      box.querySelectorAll("button").forEach(function(o){o.setAttribute("aria-pressed",o===b?"true":"false")});
+    });
+    box.appendChild(b);
+  });
+
+  // 입력
+  function sync(src){
+    var v=src.value;
+    $("text").value=v;$("text2").value=v;
+    $("count").textContent=v.length+"/30";$("count2").textContent=v.length+"/30";
+    $("count").classList.toggle("full",v.length>=30);
+    $("send").disabled=!v.trim();
+  }
+  $("text").addEventListener("input",function(){sync(this)});
+  $("text2").addEventListener("input",function(){sync(this)});
+
+  function submit(){
+    var v=$("text").value.trim();
+    if(!v)return;
+    if(recent()>=MAX_PER_HOUR){save(st);toast();return;}
+    if(isBad(v)){
+      st.tries++;
+      if(st.tries>=5)st.banned=true;
+      save(st);
+      if(st.banned){renderLimit();show("s-limit");return;}
+      $("tries").textContent=(st.tries>=3?"경고 · ":"")+"시도 "+st.tries+"/5";
+      show("s-warn");$("text2").focus();
+      return;
+    }
+    var now=new Date();
+    st.times.push(Date.now());
+    st.posts.push({e:emoji,t:v,at:now.toLocaleTimeString("ko-KR",{hour:"numeric",minute:"2-digit"})});
+    save(st);
+    $("dn-e").textContent=emoji;$("dn-t").textContent=v;
+    show("s-done");
+    var ck=document.querySelector("#s-done .check");ck.style.animation="none";void ck.offsetWidth;ck.style.animation="";
+  }
+  $("send").addEventListener("click",submit);
+  $("resend").addEventListener("click",submit);
+
+  $("again").addEventListener("click",function(){
+    $("text").value="";sync($("text"));
+    show("s-write");
+  });
+
+  function renderLimit(){
+    if(st.banned){
+      $("lm-icon").textContent="⏸️";$("h-limit").textContent="오늘은 쉬어갈게요";
+      $("lm-lead").innerHTML="부적절한 표현이 5번 감지돼서<br>오늘은 더 남길 수 없어요. 내일 다시 열려요.";
+    }else{
+      $("lm-icon").textContent="🌙";$("h-limit").textContent="오늘은 다 썼어요";
+      $("lm-lead").innerHTML="자정에 다시 열려요. 내일 또 만나요!";
+    }
+    var m=$("mine");m.innerHTML="";
+    $("mine-wrap").style.display=st.posts.length?"flex":"none";
+    st.posts.forEach(function(p){
+      var d=document.createElement("div");
+      var e=document.createElement("span");e.className="e";e.setAttribute("aria-hidden","true");e.textContent=p.e;
+      var x=document.createElement("span");x.className="x";x.textContent=p.t;
+      var t=document.createElement("span");t.className="tm";t.textContent=p.at;
+      d.appendChild(e);d.appendChild(x);d.appendChild(t);m.appendChild(d);
+    });
+  }
+  $("reset").addEventListener("click",function(){
+    try{localStorage.removeItem(KEY)}catch(e){}
+    st=load();$("text").value="";sync($("text"));
+    show("s-write");
+  });
+
+  // 시작
+  if(st.banned){renderLimit();show("s-limit");}
+  sync($("text"));
+})();
+</script>
+</body>
+</html>
