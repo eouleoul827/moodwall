@@ -1,5 +1,7 @@
 # 백엔드 구현 계약
 
+**현재 v2 계약:** [준비 완료 순서와 15초 재생](playback-design.md), [접수 상태와 오류 계약](submission-status-errors.md), [로컬 구현 가이드](playback-local-implementation.md). OpenAPI 0.8.0은 기존 27개와 새 10개 작업을 함께 정의한다. 아래 이전 0.7.0의 즉시 말풍선 설명은 v1 호환 경로에 적용한다.
+
 상태: 설계 기준 · 2026-10-29 · HTTP 계약 0.7.0 · 현재 실행 증거는 [구현 상태](implementation-status.md) 참조
 
 이 문서는 클래스의 호출 경계, HTTP 오류와 재시도, 목록과 화면 조회의 일관성을 정한다. 실제 요청·응답의 필드와 경로는 [OpenAPI](openapi.json), 쓰기 트랜잭션과 잠금은 [데이터 설계](data-and-recovery.md), 인증은 [보안 설계](security-and-operations.md)가 기준이다. 코드 블록은 인터페이스 예시이며 서버 구현이 아니다.

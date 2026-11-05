@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Moodwall HTTP API",
-    "version": "0.7.0",
-    "description": "구현 기준 설계 계약. 목표 2026-11-05. 학교 하나, 전광판 하나. 최근 60분 접수 기준 승인·검수 중 3회, 현재/직전 QR 10분 고정 유효. 모든 시점은 UTC RFC3339, businessDate는 일일 제재용 Asia/Seoul 날짜. 공통 오류는 RFC9457 application/problem+json. 같은 요청 키 재전송은 서버 결과를 다시 확인하며, 전송 실패가 미접수를 의미하지 않음. JSON ingress: UTF-8, 정확히 한 object, 중복 이름(escape 해석 후 포함)·NaN/Infinity·잘못된 Unicode 거절. 모든 POST는 application/json, 비압축 body <=4096 bytes를 streaming으로 검사. Idempotency-Key는 이 프로젝트의 raw UUID wire profile이며 IETF draft의 structured quoted string과 다름. 구현과 프론트 연결을 위한 검토된 API 계약. 승인된 멘션은 별도 강조·4개 자리 제한·표시 대기 없이 즉시 떠다니는 말풍선으로 공개. 전광판 목록은 100개씩 전송하고 모든 페이지를 동기화하며, 이는 표시 개수 제한이 아님. expiresAt=accepted_at+1시간은 서버 DB 원문·제출 행과 API 원문 공급 종료이며 화면 전체 삭제가 아님. 전광판이 이미 받은 공개 카드는 당일 로컬 캐시에 저장하고 expiresAt부터 내용 담긴 투명 말풍선으로 바꿔 ambientUntil인 다음 KST자정까지 유지. snapshot의 ID부재는 캐시 삭제 신호가 아님. removedIds의 명시적 숨김·cacheResetToken 변경·deviceGeneration 변경·자정은 캐시 정리 경계. DB 보관은 대기·중단·오프라인으로 연장하지 않으며 조회는 정확한 경계부터 제외하고 약5초 주기 작은 배치로 제출 행·원문 DELETE. 멱등 응답 보장도 접수 후1시간까지만. DB DELETE가 노트북 당일 사본·백업·WAL의 즉시 소거를 뜻하지 않음."
+    "version": "0.11.0",
+    "description": "Moodwall API: legacy v1 floating bubbles remain compatible. V2 accepts content only, stores a text-free owner receipt for 24 hours, and orders completed preparation by committed READY sequence. A fenced display instance claims one message, obtains a five-second start authorization, reports the first frame, then reports completion after at least 15 seconds. New arrivals wait. Source text expires one hour after the first start authorization; local transparent bubbles remain until KST midnight. Predisplay waiting is separately bounded at ten minutes. Admission reservations are atomic and rolling-hour post quotas remain distinct from endpoint request limits. All POST requests require the exact Origin and JSON object body within 4096 bytes. Authenticated writes require CSRF; command and submission keys use raw UUID headers. Authentication, owner scopes, request limits and RFC 9457 errors apply to both versions. Model safety policy remains unchanged; this contract does not authorize model deployment. Provider moderation adds support-aware receipts and private reports. Gemini transport is server-only, with durable accounting, readiness probes and circuit controls; the mock profile performs no external calls."
   },
   "servers": [
     {
@@ -317,6 +317,12 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
           }
         }
       }
@@ -371,6 +377,12 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
           }
         }
       }
@@ -596,6 +608,12 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
           }
         },
         "description": "유효 소유 세션으로만 조회. accepted_at+1시간인 expiresAt부터404 NOT_FOUND이며 정리 지연 중에도 만료된 원문·결과를 반환하지 않음. deadlineAt은 검수120초 기한으로 수명과 별개."
@@ -760,6 +778,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         }
       }
@@ -818,6 +839,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         }
       }
@@ -879,6 +903,9 @@
           },
           "422": {
             "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "parameters": [
@@ -950,6 +977,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         }
       }
@@ -966,7 +996,7 @@
             "displaySession": []
           }
         ],
-        "description": "기존 mode와 기존 lease로 먼저 정산하고 새 lease를 30초 연장한다. 10초마다 호출. heartbeat는 실제 물리 화면 노출의 증명이 아니다. 인증된 장치 자격 hash/version/expiry는 board 잠금을 획득한 뒤 다시 검사한다.",
+        "description": "기존 mode와 기존 lease로 먼저 정산하고 새 lease를 30초 연장한다. 10초마다 호출. heartbeat는 실제 물리 화면 노출의 증명이 아니다. 인증된 장치 자격 hash/version/expiry는 board 잠금을 획득한 뒤 다시 검사한다. With displayProtocolVersion='2', returns PlaybackState and renews the fenced instance lease. Without it, preserves the legacy HeartbeatResponse. Neither form proves rendering.",
         "parameters": [
           {
             "name": "X-CSRF-Token",
@@ -1004,7 +1034,69 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HeartbeatResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/HeartbeatResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PlaybackState"
+                    }
+                  ]
+                },
+                "examples": {
+                  "legacy": {
+                    "value": {
+                      "serverNow": "2026-11-04T03:00:00Z",
+                      "onlineLeaseUntil": "2026-11-04T03:00:30Z",
+                      "revision": 1
+                    }
+                  },
+                  "v2": {
+                    "value": {
+                      "displayProtocolVersion": "2",
+                      "boardId": "10000000-0000-4000-8000-000000000001",
+                      "deviceGeneration": "1",
+                      "playbackEpoch": "1",
+                      "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                      "leaseUntil": "2026-11-04T03:00:32Z",
+                      "serverNow": "2026-11-04T03:00:03Z",
+                      "revision": "4",
+                      "mode": "MOODWALL",
+                      "waitingCount": 0,
+                      "attempt": {
+                        "attemptId": "40000000-0000-4000-8000-000000000001",
+                        "submissionId": "20000000-0000-4000-8000-000000000001",
+                        "status": "PLAYING",
+                        "presentationStatus": "PLAYING",
+                        "reasonCode": null,
+                        "attemptNumber": 1,
+                        "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                        "deviceGeneration": "1",
+                        "playbackEpoch": "1",
+                        "claimedAt": "2026-11-04T03:00:00Z",
+                        "startAuthorizedAt": "2026-11-04T03:00:02Z",
+                        "startNotAfter": "2026-11-04T03:00:07Z",
+                        "firstFrameAt": "2026-11-04T03:00:03Z",
+                        "completedAt": null,
+                        "leaseUntil": "2026-11-04T03:00:32Z",
+                        "item": {
+                          "displayProtocolVersion": "2",
+                          "id": "20000000-0000-4000-8000-000000000001",
+                          "content": "오늘도 힘내!",
+                          "emotion": "SUPPORT",
+                          "animationId": "sparkles",
+                          "sceneId": "support",
+                          "sceneVersion": "1",
+                          "sceneSeed": "0123456789abcdef",
+                          "readySequence": "1",
+                          "acceptedAt": "2026-11-04T03:00:00Z",
+                          "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                          "contentDeleteAt": "2026-11-04T04:00:02Z",
+                          "ambientUntil": "2026-11-04T15:00:00Z"
+                        }
+                      }
+                    }
+                  }
                 }
               }
             },
@@ -1051,6 +1143,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         }
       }
@@ -1155,6 +1250,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         }
       }
@@ -1318,6 +1416,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -1412,6 +1513,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -1517,6 +1621,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "requestBody": {
@@ -1630,6 +1737,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -1733,6 +1843,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "description": "PAUSED는 display_paused=true. MOODWALL/CHATBOT은 display_paused=false와 기본 모드를 설정. 장치가 운영자 중단을 해제하지 못함.",
@@ -1842,6 +1955,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -1963,6 +2079,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -2102,6 +2221,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -2203,6 +2325,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         },
         "x-roles": [
@@ -2310,6 +2435,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
           }
         }
       }
@@ -2385,6 +2513,2488 @@
           },
           "503": {
             "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ]
+      }
+    },
+    "/api/v2/submissions": {
+      "post": {
+        "operationId": "submitMentionV2",
+        "summary": "submitMentionV2",
+        "tags": [
+          "student"
+        ],
+        "description": "202 means durable acceptance, not publication. A same-key/same-normalized-input retry returns the owner receipt with 200 even after source deletion; conflicting input returns 409. Receipt retention is 24h, preparation 120s, predisplay at most ten minutes, and active reservations at most 32. Actual configured budgets may be lower.",
+        "security": [
+          {
+            "participantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "새 의도마다 UUID. 재전송은 같은 키를 유지한다. wire 값은 raw UUID. IETF Internet-Draft의 quoted structured string과 다름."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "X-Moodwall-Client-Features",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Contains support-v1 for new provider-profile submissions and receipt recovery. Missing capability returns409 CLIENT_UPDATE_REQUIRED; ownership checked before receipt capability."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Existing durable receipt",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionReceipt"
+                },
+                "example": {
+                  "receiptVersion": "2",
+                  "submissionId": "20000000-0000-4000-8000-000000000001",
+                  "acceptedAt": "2026-11-04T03:00:00Z",
+                  "receiptExpiresAt": "2026-11-05T03:00:00Z",
+                  "processingStatus": "PENDING",
+                  "presentationStatus": null,
+                  "userStatus": "PREPARING",
+                  "contentStatus": "AVAILABLE",
+                  "lastDisplayStatus": null,
+                  "reasonCode": null,
+                  "firstStartAuthorizedAt": null,
+                  "contentDeleteAt": null,
+                  "completedAt": null,
+                  "revision": "1",
+                  "statusUrl": "/api/v2/submissions/20000000-0000-4000-8000-000000000001",
+                  "message": "메시지를 보냈어요!"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "New work durably accepted",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionReceipt"
+                },
+                "example": {
+                  "receiptVersion": "2",
+                  "submissionId": "20000000-0000-4000-8000-000000000001",
+                  "acceptedAt": "2026-11-04T03:00:00Z",
+                  "receiptExpiresAt": "2026-11-05T03:00:00Z",
+                  "processingStatus": "PENDING",
+                  "presentationStatus": null,
+                  "userStatus": "PREPARING",
+                  "contentStatus": "AVAILABLE",
+                  "lastDisplayStatus": null,
+                  "reasonCode": null,
+                  "firstStartAuthorizedAt": null,
+                  "contentDeleteAt": null,
+                  "completedAt": null,
+                  "revision": "1",
+                  "statusUrl": "/api/v2/submissions/20000000-0000-4000-8000-000000000001",
+                  "message": "메시지를 보냈어요!"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionRequestV2"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/submissions/{submissionId}": {
+      "get": {
+        "operationId": "getOwnSubmissionV2",
+        "summary": "getOwnSubmissionV2",
+        "tags": [
+          "student"
+        ],
+        "description": "Only the submitting participant can read the text-free receipt. Known terminal outcomes are 200, not an HTTP failure. Missing, other-owner and expired receipts are indistinguishable 404.",
+        "security": [
+          {
+            "participantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submissionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Moodwall-Client-Features",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Contains support-v1 for new provider-profile submissions and receipt recovery. Missing capability returns409 CLIENT_UPDATE_REQUIRED; ownership checked before receipt capability."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionReceipt"
+                },
+                "example": {
+                  "receiptVersion": "2",
+                  "submissionId": "20000000-0000-4000-8000-000000000001",
+                  "acceptedAt": "2026-11-04T03:00:00Z",
+                  "receiptExpiresAt": "2026-11-05T03:00:00Z",
+                  "processingStatus": "PENDING",
+                  "presentationStatus": null,
+                  "userStatus": "PREPARING",
+                  "contentStatus": "AVAILABLE",
+                  "lastDisplayStatus": null,
+                  "reasonCode": null,
+                  "firstStartAuthorizedAt": null,
+                  "contentDeleteAt": null,
+                  "completedAt": null,
+                  "revision": "1",
+                  "statusUrl": "/api/v2/submissions/20000000-0000-4000-8000-000000000001",
+                  "message": "메시지를 보냈어요!"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/submission-receipts/lookup": {
+      "post": {
+        "operationId": "lookupSubmissionReceipt",
+        "summary": "lookupSubmissionReceipt",
+        "tags": [
+          "student"
+        ],
+        "description": "",
+        "security": [
+          {
+            "participantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "X-Moodwall-Client-Features",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Contains support-v1 for new provider-profile submissions and receipt recovery. Missing capability returns409 CLIENT_UPDATE_REQUIRED; ownership checked before receipt capability."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionReceipt"
+                },
+                "example": {
+                  "receiptVersion": "2",
+                  "submissionId": "20000000-0000-4000-8000-000000000001",
+                  "acceptedAt": "2026-11-04T03:00:00Z",
+                  "receiptExpiresAt": "2026-11-05T03:00:00Z",
+                  "processingStatus": "PENDING",
+                  "presentationStatus": null,
+                  "userStatus": "PREPARING",
+                  "contentStatus": "AVAILABLE",
+                  "lastDisplayStatus": null,
+                  "reasonCode": null,
+                  "firstStartAuthorizedAt": null,
+                  "contentDeleteAt": null,
+                  "completedAt": null,
+                  "revision": "1",
+                  "statusUrl": "/api/v2/submissions/20000000-0000-4000-8000-000000000001",
+                  "message": "메시지를 보냈어요!"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptLookupRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/playback": {
+      "get": {
+        "operationId": "getDisplayPlayback",
+        "summary": "getDisplayPlayback",
+        "tags": [
+          "display"
+        ],
+        "description": "",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "clientInstanceId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "deviceGeneration": "1",
+                  "playbackEpoch": "1",
+                  "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                  "leaseUntil": "2026-11-04T03:00:32Z",
+                  "serverNow": "2026-11-04T03:00:03Z",
+                  "revision": "4",
+                  "mode": "MOODWALL",
+                  "waitingCount": 0,
+                  "attempt": {
+                    "attemptId": "40000000-0000-4000-8000-000000000001",
+                    "submissionId": "20000000-0000-4000-8000-000000000001",
+                    "status": "PLAYING",
+                    "presentationStatus": "PLAYING",
+                    "reasonCode": null,
+                    "attemptNumber": 1,
+                    "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                    "deviceGeneration": "1",
+                    "playbackEpoch": "1",
+                    "claimedAt": "2026-11-04T03:00:00Z",
+                    "startAuthorizedAt": "2026-11-04T03:00:02Z",
+                    "startNotAfter": "2026-11-04T03:00:07Z",
+                    "firstFrameAt": "2026-11-04T03:00:03Z",
+                    "completedAt": null,
+                    "leaseUntil": "2026-11-04T03:00:32Z",
+                    "item": {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                      "contentDeleteAt": "2026-11-04T04:00:02Z",
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/display/state": {
+      "get": {
+        "operationId": "getDisplayStateV2",
+        "summary": "getDisplayStateV2",
+        "tags": [
+          "display"
+        ],
+        "description": "",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackDisplayState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "businessDate": "2026-11-04",
+                  "deviceGeneration": "1",
+                  "revision": "5",
+                  "serverNow": "2026-11-04T03:00:20Z",
+                  "snapshotAt": "2026-11-04T03:00:20Z",
+                  "ambientUntil": "2026-11-04T15:00:00Z",
+                  "mode": "MOODWALL",
+                  "onlineLeaseUntil": "2026-11-04T03:00:32Z",
+                  "removedIds": [],
+                  "cacheResetToken": "0",
+                  "bubbles": [
+                    {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                      "contentDeleteAt": "2026-11-04T04:00:02Z",
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  ],
+                  "bubbleTotalCount": 1,
+                  "nextCursor": null
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/playback/claim": {
+      "post": {
+        "operationId": "claimDisplayPlayback",
+        "summary": "claimDisplayPlayback",
+        "tags": [
+          "display"
+        ],
+        "description": "Claims the earliest committed READY sequence. An interrupted current item has priority for one replay. Empty queue returns 204 with no body. Only one client instance owns the 30-second renewable board lease; generation and epoch fence stale commands.",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "새 의도마다 UUID. 재전송은 같은 키를 유지한다. wire 값은 raw UUID. IETF Internet-Draft의 quoted structured string과 다름."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "deviceGeneration": "1",
+                  "playbackEpoch": "1",
+                  "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                  "leaseUntil": "2026-11-04T03:00:32Z",
+                  "serverNow": "2026-11-04T03:00:03Z",
+                  "revision": "4",
+                  "mode": "MOODWALL",
+                  "waitingCount": 0,
+                  "attempt": {
+                    "attemptId": "40000000-0000-4000-8000-000000000001",
+                    "submissionId": "20000000-0000-4000-8000-000000000001",
+                    "status": "CLAIMED",
+                    "presentationStatus": "CLAIMED",
+                    "reasonCode": null,
+                    "attemptNumber": 1,
+                    "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                    "deviceGeneration": "1",
+                    "playbackEpoch": "1",
+                    "claimedAt": "2026-11-04T03:00:00Z",
+                    "startAuthorizedAt": null,
+                    "startNotAfter": null,
+                    "firstFrameAt": null,
+                    "completedAt": null,
+                    "leaseUntil": "2026-11-04T03:00:10Z",
+                    "item": {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": null,
+                      "contentDeleteAt": null,
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No playable item",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackClaimRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/playback/{attemptId}/start": {
+      "post": {
+        "operationId": "startDisplayPlayback",
+        "summary": "startDisplayPlayback",
+        "tags": [
+          "display"
+        ],
+        "description": "Authorize a first frame before immutable startNotAfter=start+5s. First authorization anchors source expiry at +1h.",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "새 의도마다 UUID. 재전송은 같은 키를 유지한다. wire 값은 raw UUID. IETF Internet-Draft의 quoted structured string과 다름."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "deviceGeneration": "1",
+                  "playbackEpoch": "1",
+                  "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                  "leaseUntil": "2026-11-04T03:00:32Z",
+                  "serverNow": "2026-11-04T03:00:03Z",
+                  "revision": "4",
+                  "mode": "MOODWALL",
+                  "waitingCount": 0,
+                  "attempt": {
+                    "attemptId": "40000000-0000-4000-8000-000000000001",
+                    "submissionId": "20000000-0000-4000-8000-000000000001",
+                    "status": "START_AUTHORIZED",
+                    "presentationStatus": "START_AUTHORIZED",
+                    "reasonCode": null,
+                    "attemptNumber": 1,
+                    "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                    "deviceGeneration": "1",
+                    "playbackEpoch": "1",
+                    "claimedAt": "2026-11-04T03:00:00Z",
+                    "startAuthorizedAt": "2026-11-04T03:00:02Z",
+                    "startNotAfter": "2026-11-04T03:00:07Z",
+                    "firstFrameAt": null,
+                    "completedAt": null,
+                    "leaseUntil": "2026-11-04T03:00:32Z",
+                    "item": {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                      "contentDeleteAt": "2026-11-04T04:00:02Z",
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackCommandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/playback/{attemptId}/frame": {
+      "post": {
+        "operationId": "frameDisplayPlayback",
+        "summary": "frameDisplayPlayback",
+        "tags": [
+          "display"
+        ],
+        "description": "Report the first actual visible frame before startNotAfter. A late report cannot begin playback.",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "새 의도마다 UUID. 재전송은 같은 키를 유지한다. wire 값은 raw UUID. IETF Internet-Draft의 quoted structured string과 다름."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "deviceGeneration": "1",
+                  "playbackEpoch": "1",
+                  "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                  "leaseUntil": "2026-11-04T03:00:32Z",
+                  "serverNow": "2026-11-04T03:00:03Z",
+                  "revision": "4",
+                  "mode": "MOODWALL",
+                  "waitingCount": 0,
+                  "attempt": {
+                    "attemptId": "40000000-0000-4000-8000-000000000001",
+                    "submissionId": "20000000-0000-4000-8000-000000000001",
+                    "status": "PLAYING",
+                    "presentationStatus": "PLAYING",
+                    "reasonCode": null,
+                    "attemptNumber": 1,
+                    "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                    "deviceGeneration": "1",
+                    "playbackEpoch": "1",
+                    "claimedAt": "2026-11-04T03:00:00Z",
+                    "startAuthorizedAt": "2026-11-04T03:00:02Z",
+                    "startNotAfter": "2026-11-04T03:00:07Z",
+                    "firstFrameAt": "2026-11-04T03:00:03Z",
+                    "completedAt": null,
+                    "leaseUntil": "2026-11-04T03:00:32Z",
+                    "item": {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                      "contentDeleteAt": "2026-11-04T04:00:02Z",
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackCommandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/playback/{attemptId}/complete": {
+      "post": {
+        "operationId": "completeDisplayPlayback",
+        "summary": "completeDisplayPlayback",
+        "tags": [
+          "display"
+        ],
+        "description": "Confirm PLAYING only after server firstFrameAt+15s. Too-early 409 is transient and does not consume the command key.",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "새 의도마다 UUID. 재전송은 같은 키를 유지한다. wire 값은 raw UUID. IETF Internet-Draft의 quoted structured string과 다름."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "deviceGeneration": "1",
+                  "playbackEpoch": "1",
+                  "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                  "leaseUntil": "2026-11-04T03:00:32Z",
+                  "serverNow": "2026-11-04T03:00:18Z",
+                  "revision": "4",
+                  "mode": "MOODWALL",
+                  "waitingCount": 0,
+                  "attempt": {
+                    "attemptId": "40000000-0000-4000-8000-000000000001",
+                    "submissionId": "20000000-0000-4000-8000-000000000001",
+                    "status": "DONE",
+                    "presentationStatus": "DONE",
+                    "reasonCode": null,
+                    "attemptNumber": 1,
+                    "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                    "deviceGeneration": "1",
+                    "playbackEpoch": "1",
+                    "claimedAt": "2026-11-04T03:00:00Z",
+                    "startAuthorizedAt": "2026-11-04T03:00:02Z",
+                    "startNotAfter": "2026-11-04T03:00:07Z",
+                    "firstFrameAt": "2026-11-04T03:00:03Z",
+                    "completedAt": "2026-11-04T03:00:18Z",
+                    "leaseUntil": "2026-11-04T03:00:32Z",
+                    "item": {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                      "contentDeleteAt": "2026-11-04T04:00:02Z",
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackCommandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/playback/{attemptId}/interrupt": {
+      "post": {
+        "operationId": "interruptDisplayPlayback",
+        "summary": "interruptDisplayPlayback",
+        "tags": [
+          "display"
+        ],
+        "description": "Interrupt on page hidden, asset failure, reload, frame gap or network loss. At most one replay; expiry is never renewed.",
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "새 의도마다 UUID. 재전송은 같은 키를 유지한다. wire 값은 raw UUID. IETF Internet-Draft의 quoted structured string과 다름."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error410"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackState"
+                },
+                "example": {
+                  "displayProtocolVersion": "2",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "deviceGeneration": "1",
+                  "playbackEpoch": "1",
+                  "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                  "leaseUntil": "2026-11-04T03:00:32Z",
+                  "serverNow": "2026-11-04T03:00:03Z",
+                  "revision": "4",
+                  "mode": "MOODWALL",
+                  "waitingCount": 1,
+                  "attempt": {
+                    "attemptId": "40000000-0000-4000-8000-000000000001",
+                    "submissionId": "20000000-0000-4000-8000-000000000001",
+                    "status": "INTERRUPTED",
+                    "presentationStatus": "INTERRUPTED",
+                    "reasonCode": null,
+                    "attemptNumber": 1,
+                    "clientInstanceId": "30000000-0000-4000-8000-000000000001",
+                    "deviceGeneration": "1",
+                    "playbackEpoch": "1",
+                    "claimedAt": "2026-11-04T03:00:00Z",
+                    "startAuthorizedAt": "2026-11-04T03:00:02Z",
+                    "startNotAfter": "2026-11-04T03:00:07Z",
+                    "firstFrameAt": "2026-11-04T03:00:03Z",
+                    "completedAt": null,
+                    "leaseUntil": "2026-11-04T03:00:32Z",
+                    "item": {
+                      "displayProtocolVersion": "2",
+                      "id": "20000000-0000-4000-8000-000000000001",
+                      "content": "오늘도 힘내!",
+                      "emotion": "SUPPORT",
+                      "animationId": "sparkles",
+                      "sceneId": "support",
+                      "sceneVersion": "1",
+                      "sceneSeed": "0123456789abcdef",
+                      "readySequence": "1",
+                      "acceptedAt": "2026-11-04T03:00:00Z",
+                      "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
+                      "contentDeleteAt": "2026-11-04T04:00:02Z",
+                      "ambientUntil": "2026-11-04T15:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackInterruptRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/reports": {
+      "post": {
+        "operationId": "submitContentReport",
+        "summary": "submitContentReport",
+        "tags": [
+          "student"
+        ],
+        "description": "Fixed category and optional same-board published ID only. No text/upload. Three new reports per participant per ten minutes. Same key recovers existing receipt without consuming quota. Reports never automatically penalize or hide.",
+        "security": [
+          {
+            "participantSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "202": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportReceipt"
+                },
+                "example": {
+                  "reportId": "70000000-0000-4000-8000-000000000001",
+                  "status": "RECEIVED"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportReceipt"
+                },
+                "example": {
+                  "reportId": "70000000-0000-4000-8000-000000000001",
+                  "status": "RECEIVED"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContentReportRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operator/reports": {
+      "get": {
+        "operationId": "listContentReports",
+        "summary": "listContentReports",
+        "tags": [
+          "operator"
+        ],
+        "description": "Board-scoped text-free report metadata, seven-day retention, signed keyset pagination.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportPage"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "reportId": "70000000-0000-4000-8000-000000000001",
+                      "status": "RECEIVED",
+                      "boardId": "10000000-0000-4000-8000-000000000001",
+                      "submissionId": null,
+                      "category": "OTHER",
+                      "receivedAt": "2026-11-04T03:00:00Z",
+                      "resolvedAt": null,
+                      "resolution": null,
+                      "targetAvailable": false
+                    }
+                  ],
+                  "nextCursor": null
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ]
+      }
+    },
+    "/api/operator/reports/{reportId}/resolve": {
+      "post": {
+        "operationId": "resolveContentReport",
+        "summary": "resolveContentReport",
+        "tags": [
+          "operator"
+        ],
+        "description": "Records a resolution once; HIDDEN/BOARD_PAUSED require an already verified hide/pause action. Same command key recovers result; conflicting reuse returns409.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentReportRecord"
+                },
+                "example": {
+                  "reportId": "70000000-0000-4000-8000-000000000001",
+                  "status": "RESOLVED",
+                  "boardId": "10000000-0000-4000-8000-000000000001",
+                  "submissionId": null,
+                  "category": "OTHER",
+                  "receivedAt": "2026-11-04T03:00:00Z",
+                  "resolvedAt": "2026-11-04T03:01:00Z",
+                  "resolution": "NO_ACTION",
+                  "targetAvailable": false
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportResolutionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operator/moderation/provider": {
+      "get": {
+        "operationId": "getModerationProvider",
+        "summary": "getModerationProvider",
+        "tags": [
+          "operator"
+        ],
+        "description": "Reports provider profile, worker readiness, circuit state, safe failure code and conservative daily accounting. Never returns credentials or provider response bodies; this read performs no provider calls.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationProviderStatus"
+                },
+                "example": {
+                  "enabled": false,
+                  "mode": "LEGACY"
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN",
+          "MODERATOR"
+        ]
+      },
+      "post": {
+        "operationId": "setModerationProviderPause",
+        "summary": "setModerationProviderPause",
+        "tags": [
+          "operator"
+        ],
+        "description": "ADMIN-only audited manual pause. Resume starts two spaced recovery probes; the real profile uses budgeted synthetic-text provider calls. It never bypasses readiness, circuit health or budget checks.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "const": 2
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModerationProviderStatus"
+                },
+                "example": {
+                  "enabled": false,
+                  "mode": "LEGACY"
+                }
+              }
+            }
+          }
+        },
+        "x-roles": [
+          "ADMIN"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderPauseRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/display/diagnostics": {
+      "post": {
+        "operationId": "recordDisplayDiagnostic",
+        "summary": "Record bounded device diagnostics",
+        "tags": [
+          "display"
+        ],
+        "security": [
+          {
+            "displaySession": []
+          }
+        ],
+        "description": "Advisory device report, max 4096 actual body bytes, separate ten-per-fixed-minute device-generation budget. Authenticated, Origin and CSRF protected. Never renews heartbeat, ownership, mode, revision or admission. Events retain at most seven days and 1000 entries per board.",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "서버가 해당 역할의 세션에 묶어 발급한 CSRF 토큰"
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "브라우저가 자동 설정한 정확한 서비스 origin. 모든 POST에서 null·누락·불일치 거절. 프론트가 임의로 생성하지 않음."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisplayDiagnosticRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayDiagnosticAccepted"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          }
+        }
+      }
+    },
+    "/api/operator/display/diagnostics": {
+      "get": {
+        "operationId": "getDisplayDiagnostics",
+        "summary": "Read latest device diagnostics",
+        "tags": [
+          "operator"
+        ],
+        "description": "ADMIN/MODERATOR read-only latest component/code reports for the current device generation within seven days. No report is not evidence of panel health. Never invokes a model or renews playback permission.",
+        "security": [
+          {
+            "operatorSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          },
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "Cache-Control": {
+                "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayDiagnostics"
+                }
+              }
+            }
           }
         },
         "x-roles": [
@@ -2443,6 +5053,7 @@
         "type": "string",
         "enum": [
           "NONE",
+          "QUEUED",
           "FLOATING",
           "EXPIRED",
           "HIDDEN"
@@ -2971,6 +5582,17 @@
             "type": "string",
             "format": "uuid",
             "description": "진단용 브라우저 인스턴스 ID. 자격이나 권한의 근거가 아니며 서버 저장 필수 아님."
+          },
+          "displayProtocolVersion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "2"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3585,6 +6207,1427 @@
           "acceptedAt"
         ],
         "description": "검수 승인 즉시 제공되는 공개 말풍선. 강조 자리·표시 대기·잔여 노출 타이머가 없다. expiresAt부터 받은 원문을 로컬 투명 말풍선으로 바꾸어 ambientUntil까지 유지한다."
+      },
+      "SubmissionRequestV2": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "description": "NFC/trim normalized; server validates 1–30 grapheme clusters."
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "ReceiptLookupRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ]
+      },
+      "PresentationStatus": {
+        "type": "string",
+        "enum": [
+          "READY",
+          "CLAIMED",
+          "START_AUTHORIZED",
+          "PLAYING",
+          "INTERRUPTED",
+          "DONE",
+          "FAILED",
+          "EXPIRED",
+          "CANCELLED",
+          "HIDDEN"
+        ]
+      },
+      "SubmissionReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "receiptVersion": {
+            "type": "string",
+            "const": "2"
+          },
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "acceptedAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "receiptExpiresAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "processingStatus": {
+            "$ref": "#/components/schemas/ModerationStatus"
+          },
+          "presentationStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresentationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "userStatus": {
+            "type": "string",
+            "enum": [
+              "PREPARING",
+              "WAITING",
+              "STARTING",
+              "SHOWING",
+              "SHOWN",
+              "NEEDS_REWRITE",
+              "FAILED",
+              "EXPIRED",
+              "CANCELLED",
+              "HIDDEN",
+              "PLAYBACK_UNCONFIRMED"
+            ]
+          },
+          "contentStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "PURGED"
+            ]
+          },
+          "lastDisplayStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresentationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasonCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "pattern": "^[A-Z][A-Z0-9_]{1,99}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SUPPORT_AVAILABLE selects private fixed help before generic NEEDS_REWRITE. Required capability survives source purge/profile rollback. No new moderation status."
+          },
+          "firstStartAuthorizedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contentDeleteAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "statusUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "^/api/v2/submissions/[0-9a-f-]{36}$",
+            "format": "uri-reference"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "receiptVersion",
+          "submissionId",
+          "acceptedAt",
+          "receiptExpiresAt",
+          "processingStatus",
+          "presentationStatus",
+          "userStatus",
+          "contentStatus",
+          "lastDisplayStatus",
+          "reasonCode",
+          "firstStartAuthorizedAt",
+          "contentDeleteAt",
+          "completedAt",
+          "revision",
+          "statusUrl",
+          "message"
+        ],
+        "description": "Owner-scoped text-free receipt. GET stays 200 for known terminal outcomes until receiptExpiresAt. contentStatus is independent of the publication outcome. UI may show one completion card for PREPARING through SHOWN; analysis stages and scores need not be exposed."
+      },
+      "PlaybackItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayProtocolVersion": {
+            "type": "string",
+            "const": "2"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "emotion": {
+            "$ref": "#/components/schemas/Emotion"
+          },
+          "animationId": {
+            "type": "string",
+            "enum": [
+              "fireworks",
+              "hearts",
+              "sparkles",
+              "petals",
+              "clouds",
+              "rain",
+              "embers",
+              "float"
+            ]
+          },
+          "sceneId": {
+            "type": "string",
+            "enum": [
+              "celebration",
+              "joy",
+              "support",
+              "excitement",
+              "tired",
+              "sadness",
+              "anger",
+              "neutral"
+            ]
+          },
+          "sceneVersion": {
+            "type": "string",
+            "const": "1"
+          },
+          "sceneSeed": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 16,
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "readySequence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "acceptedAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "firstStartAuthorizedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contentDeleteAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ambientUntil": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "displayProtocolVersion",
+          "id",
+          "content",
+          "emotion",
+          "animationId",
+          "sceneId",
+          "sceneVersion",
+          "sceneSeed",
+          "readySequence",
+          "acceptedAt",
+          "firstStartAuthorizedAt",
+          "contentDeleteAt",
+          "ambientUntil"
+        ],
+        "description": "Approved scene with no student-selected emoji. The server withholds text at its logical expiry even if a physical cleanup batch is late. ambientUntil governs local-only retention."
+      },
+      "PlaybackAttempt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "CLAIMED",
+              "START_AUTHORIZED",
+              "PLAYING",
+              "DONE",
+              "INTERRUPTED"
+            ]
+          },
+          "presentationStatus": {
+            "$ref": "#/components/schemas/PresentationStatus"
+          },
+          "reasonCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "pattern": "^[A-Z][A-Z0-9_]{1,99}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attemptNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2
+          },
+          "clientInstanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "playbackEpoch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "claimedAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "startAuthorizedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startNotAfter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "firstFrameAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaseUntil": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlaybackItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "attemptId",
+          "submissionId",
+          "status",
+          "presentationStatus",
+          "reasonCode",
+          "attemptNumber",
+          "clientInstanceId",
+          "deviceGeneration",
+          "playbackEpoch",
+          "claimedAt",
+          "startAuthorizedAt",
+          "startNotAfter",
+          "firstFrameAt",
+          "completedAt",
+          "leaseUntil",
+          "item"
+        ]
+      },
+      "PlaybackState": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayProtocolVersion": {
+            "type": "string",
+            "const": "2"
+          },
+          "boardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "playbackEpoch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "clientInstanceId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36,
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaseUntil": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "serverNow": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/BoardMode"
+          },
+          "waitingCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlaybackAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cacheScope": {
+            "$ref": "#/components/schemas/PlaybackCacheScope"
+          }
+        },
+        "required": [
+          "displayProtocolVersion",
+          "boardId",
+          "deviceGeneration",
+          "playbackEpoch",
+          "clientInstanceId",
+          "leaseUntil",
+          "serverNow",
+          "revision",
+          "mode",
+          "waitingCount",
+          "attempt"
+        ],
+        "description": "Current server-owned playback state. Time and decimal-string revisions are fresh on idempotent replay; startNotAfter is immutable for each attempt. Heartbeat alone does not confirm a frame or complete a message."
+      },
+      "PlaybackDisplayState": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayProtocolVersion": {
+            "type": "string",
+            "const": "2"
+          },
+          "boardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "businessDate": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10,
+            "format": "date"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "serverNow": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "snapshotAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "ambientUntil": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/BoardMode"
+          },
+          "onlineLeaseUntil": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "removedIds": {
+            "type": "array",
+            "maxItems": 1000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          "cacheResetToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "bubbles": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/PlaybackItem"
+            }
+          },
+          "bubbleTotalCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "displayProtocolVersion",
+          "boardId",
+          "businessDate",
+          "deviceGeneration",
+          "revision",
+          "serverNow",
+          "snapshotAt",
+          "ambientUntil",
+          "mode",
+          "onlineLeaseUntil",
+          "removedIds",
+          "cacheResetToken",
+          "bubbles",
+          "bubbleTotalCount",
+          "nextCursor"
+        ],
+        "description": "Paged v2 completed bubbles only. Read every nextCursor page to synchronize; page size is not a display-count cap. Absence after source expiry must not erase an already cached transparent bubble. removedIds, cacheResetToken, generation and midnight do erase it."
+      },
+      "PlaybackClaimRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "clientInstanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "playbackEpoch": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 19,
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "clientInstanceId",
+          "deviceGeneration"
+        ]
+      },
+      "PlaybackCommandRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "clientInstanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "playbackEpoch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          }
+        },
+        "required": [
+          "clientInstanceId",
+          "deviceGeneration",
+          "playbackEpoch"
+        ]
+      },
+      "PlaybackInterruptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "clientInstanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "playbackEpoch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "HIDDEN",
+              "PAGE_HIDDEN",
+              "RELOAD",
+              "FRAME_GAP",
+              "ASSET_FAILURE",
+              "NETWORK",
+              "CLIENT_ERROR"
+            ]
+          }
+        },
+        "required": [
+          "clientInstanceId",
+          "deviceGeneration",
+          "playbackEpoch",
+          "reason"
+        ]
+      },
+      "ContentReportRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "HARASSMENT",
+              "PRIVACY",
+              "THREAT",
+              "OTHER"
+            ]
+          },
+          "submissionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36,
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "category"
+        ]
+      },
+      "ReportResolutionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "HIDDEN",
+              "BOARD_PAUSED",
+              "NO_ACTION",
+              "INSUFFICIENT_EVIDENCE"
+            ]
+          }
+        },
+        "required": [
+          "resolution"
+        ]
+      },
+      "ContentReportReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "status": {
+            "const": "RECEIVED",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reportId",
+          "status"
+        ]
+      },
+      "ContentReportRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "boardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "submissionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36,
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "HARASSMENT",
+              "PRIVACY",
+              "THREAT",
+              "OTHER"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECEIVED",
+              "RESOLVED"
+            ]
+          },
+          "receivedAt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "HIDDEN",
+                  "BOARD_PAUSED",
+                  "NO_ACTION",
+                  "INSUFFICIENT_EVIDENCE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetAvailable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reportId",
+          "boardId",
+          "submissionId",
+          "category",
+          "status",
+          "receivedAt",
+          "resolvedAt",
+          "resolution",
+          "targetAvailable"
+        ]
+      },
+      "ContentReportPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentReportRecord"
+            },
+            "maxItems": 50
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "ProviderPauseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paused"
+        ]
+      },
+      "ModerationProviderStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "const": false
+              },
+              "mode": {
+                "type": "string",
+                "const": "LEGACY"
+              }
+            },
+            "required": [
+              "enabled",
+              "mode"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "const": true
+              },
+              "profile": {
+                "type": "string",
+                "enum": [
+                  "gemini_mock",
+                  "gemini"
+                ]
+              },
+              "transportConfigured": {
+                "type": "boolean"
+              },
+              "syntheticAccounting": {
+                "type": "boolean"
+              },
+              "workerReady": {
+                "type": "boolean"
+              },
+              "lastFailureCode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "OPEN",
+                  "PAUSED",
+                  "OPEN_CIRCUIT",
+                  "HALF_OPEN"
+                ]
+              },
+              "releaseId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "consecutiveFailures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "budgetDay": {
+                "type": "string",
+                "format": "date"
+              },
+              "chargedMicroUsd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reservedMicroUsd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "dailyBudgetMicroUsd": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unknownAttempts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "probeSuccesses": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "enabled",
+              "profile",
+              "transportConfigured",
+              "syntheticAccounting",
+              "workerReady",
+              "lastFailureCode",
+              "mode",
+              "releaseId",
+              "consecutiveFailures",
+              "budgetDay",
+              "chargedMicroUsd",
+              "reservedMicroUsd",
+              "dailyBudgetMicroUsd",
+              "unknownAttempts",
+              "probeSuccesses"
+            ]
+          }
+        ]
+      },
+      "PlaybackCacheScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayProtocolVersion": {
+            "type": "string",
+            "const": "2"
+          },
+          "boardId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36,
+            "format": "uuid"
+          },
+          "businessDate": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10,
+            "format": "date"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "serverNow": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "ambientUntil": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "format": "date-time"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/BoardMode"
+          },
+          "onlineLeaseUntil": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "removedIds": {
+            "type": "array",
+            "maxItems": 1000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 36,
+              "format": "uuid"
+            }
+          },
+          "cacheResetToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          }
+        },
+        "required": [
+          "displayProtocolVersion",
+          "boardId",
+          "businessDate",
+          "deviceGeneration",
+          "revision",
+          "serverNow",
+          "ambientUntil",
+          "mode",
+          "onlineLeaseUntil",
+          "removedIds",
+          "cacheResetToken"
+        ],
+        "description": "Authenticated storage scope for a received DONE card; grants no online permission. Public rendering requires a validated bubble snapshot."
+      },
+      "DisplayDiagnosticRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "enum": [
+              "SESSION",
+              "QR",
+              "PLAYBACK",
+              "CACHE",
+              "RENDER"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "CONNECTION_FAILED",
+              "AUTH_REQUIRED",
+              "QR_UNAVAILABLE",
+              "PLAYBACK_OWNED",
+              "PLAYBACK_INTERRUPTED",
+              "PLAYBACK_UNKNOWN",
+              "ASSET_FAILURE",
+              "STORAGE_UNAVAILABLE",
+              "RENDER_FAILURE"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "FAILED",
+              "RECOVERED"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "const": "1"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "component",
+          "code",
+          "state",
+          "version",
+          "count",
+          "occurredAt"
+        ],
+        "description": "No arbitrary text or secrets. Timezone-aware timestamp within the last ten minutes and no more than two minutes ahead."
+      },
+      "DisplayDiagnostic": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "enum": [
+              "SESSION",
+              "QR",
+              "PLAYBACK",
+              "CACHE",
+              "RENDER"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "CONNECTION_FAILED",
+              "AUTH_REQUIRED",
+              "QR_UNAVAILABLE",
+              "PLAYBACK_OWNED",
+              "PLAYBACK_INTERRUPTED",
+              "PLAYBACK_UNKNOWN",
+              "ASSET_FAILURE",
+              "STORAGE_UNAVAILABLE",
+              "RENDER_FAILURE"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "FAILED",
+              "RECOVERED"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "const": "1"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "maxLength": 40
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "component",
+          "code",
+          "state",
+          "version",
+          "count",
+          "occurredAt",
+          "receivedAt"
+        ]
+      },
+      "DisplayDiagnosticAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "const": true
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "accepted",
+          "receivedAt"
+        ]
+      },
+      "DisplayDiagnostics": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 45,
+            "items": {
+              "$ref": "#/components/schemas/DisplayDiagnostic"
+            }
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deviceGeneration": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "lastReceivedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "serverNow",
+          "deviceGeneration",
+          "lastReceivedAt"
+        ]
       }
     },
     "responses": {
@@ -4035,6 +8078,43 @@
               "detail": "요청을 처리할 수 없습니다.",
               "instance": "urn:uuid:7e9c7097-a6d1-4324-a90c-108285ef84a3",
               "code": "INTERNAL_ERROR",
+              "requestId": "7e9c7097-a6d1-4324-a90c-108285ef84a3",
+              "retryAfterSeconds": null,
+              "errors": []
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "서버가 생성한 요청 UUID. Problem.requestId와 동일. 외부 입력을 그대로 사용하지 않음.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "Cache-Control": {
+            "description": "모든 /api 성공·오류 응답. 인증 응답의 공유 캐시 방지.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        }
+      },
+      "Error410": {
+        "description": "Source or presentation expired; this command cannot publish it.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            },
+            "example": {
+              "type": "/problems/presentation-expired",
+              "title": "Gone",
+              "status": 410,
+              "detail": "요청을 처리할 수 없습니다.",
+              "instance": "urn:uuid:7e9c7097-a6d1-4324-a90c-108285ef84a3",
+              "code": "PRESENTATION_EXPIRED",
               "requestId": "7e9c7097-a6d1-4324-a90c-108285ef84a3",
               "retryAfterSeconds": null,
               "errors": []

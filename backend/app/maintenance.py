@@ -37,6 +37,7 @@ class RetentionService:
                 conn,
                 """SELECT id,participant_id,business_date FROM submissions
                    WHERE accepted_at <= %s AND expires_at <= %s
+                   AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=submissions.id)
                    ORDER BY accepted_at,id LIMIT %s""",
                 (observed - timedelta(seconds=MENTION_RETENTION_SECONDS), observed, BATCH_SIZE),
             )
@@ -56,6 +57,7 @@ class RetentionService:
                             conn,
                             """DELETE FROM submissions WHERE id=%s AND participant_id=%s
                                AND accepted_at <= %s AND expires_at <= %s
+                               AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=submissions.id)
                                RETURNING id,board_id""",
                             (
                                 candidate["id"],
@@ -157,6 +159,7 @@ class RetentionService:
                 """SELECT id FROM participants p WHERE last_seen_at < %s
                    AND NOT EXISTS (SELECT 1 FROM browser_sessions b WHERE b.participant_id=p.id)
                    AND NOT EXISTS (SELECT 1 FROM submissions s WHERE s.participant_id=p.id)
+                   AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.participant_id=p.id)
                    AND NOT EXISTS (SELECT 1 FROM daily_usage d WHERE d.participant_id=p.id)
                    ORDER BY last_seen_at,id LIMIT %s""",
                 (cutoff, BATCH_SIZE),
@@ -172,6 +175,7 @@ class RetentionService:
                             """DELETE FROM participants p WHERE id=%s AND last_seen_at < %s
                                AND NOT EXISTS (SELECT 1 FROM browser_sessions b WHERE b.participant_id=p.id)
                                AND NOT EXISTS (SELECT 1 FROM submissions s WHERE s.participant_id=p.id)
+                               AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.participant_id=p.id)
                                AND NOT EXISTS (SELECT 1 FROM daily_usage d WHERE d.participant_id=p.id)
                                RETURNING id""",
                             (candidate["id"], now - timedelta(days=30)),

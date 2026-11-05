@@ -218,6 +218,9 @@ class OperatorService:
                        state_version=state_version+1 WHERE id=%s""",
                     (board["mode"], board["display_paused"], board["id"]),
                 )
+                from app.playback import PlaybackService
+
+                await PlaybackService(self.db, self.settings, None).settle_mode_change(conn, board, now)
                 await self._audit(conn, actor, "PAUSE_DISPLAY" if mode == "PAUSED" else "SET_BOARD_MODE", reason_code)
         return await self.display.state(actor)
 
@@ -272,10 +275,10 @@ class OperatorService:
                 if row is not None and (
                     row["business_date"] != today
                     or row["moderation_status"] != "APPROVED"
-                    or row["display_status"] not in {"FLOATING", "EXPIRED", "HIDDEN"}
+                    or row["display_status"] not in {"QUEUED", "FLOATING", "EXPIRED", "HIDDEN"}
                 ):
                     raise Problem(409, "INVALID_STATE", "현재 표시 가능한 글이 아닙니다.")
-                if row is not None and row["display_status"] == "FLOATING":
+                if row is not None and row["display_status"] in {"QUEUED", "FLOATING"}:
                     await conn.execute(
                         "UPDATE submissions SET display_status='HIDDEN',hidden_at=%s WHERE id=%s",
                         (now, row["id"]),
@@ -434,12 +437,25 @@ class OperatorService:
                     cursor=cursor,
                     limit=limit,
                 )
-                clauses = ["board_id=%s", "business_date=%s", "accepted_at<=%s", "accepted_at>%s"]
+                clauses = [
+                    "board_id=%s",
+                    "business_date=%s",
+                    "accepted_at<=%s",
+                    """((NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=submissions.id)
+                         AND accepted_at>%s)
+                        OR EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=submissions.id
+                         AND r.content_status='AVAILABLE' AND r.presentation_status IS DISTINCT FROM 'HIDDEN'
+                         AND ((r.first_start_authorized_at IS NOT NULL AND r.content_delete_at>%s)
+                              OR (r.first_start_authorized_at IS NULL AND r.pre_display_deadline_at>%s
+                                  AND r.quota_status='RESERVED'))))""",
+                ]
                 params: list[Any] = [
                     self.settings.board_id,
                     date.fromisoformat(page["date"]),
                     datetime.fromisoformat(page["snapshotAt"]),
                     now - timedelta(seconds=MENTION_RETENTION_SECONDS),
+                    now,
+                    now,
                 ]
                 if status is not None:
                     clauses.append("moderation_status=%s")

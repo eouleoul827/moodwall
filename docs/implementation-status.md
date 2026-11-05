@@ -1,30 +1,82 @@
 # 현재 구현 상태와 남은 수락
 
-기준일: 2026-11-03. 현재 저장소에는 백엔드 애플리케이션과 실제 학생 모델 v0의 개발용 연결 코드가 있다. 이전 설계 문서의 “구현 전” 문구는 작성 당시의 상태이며, 현재 코드·실행 증거는 이 문서와 실제 소스를 확인한다. **설계 가지 102개 전체의 완료·학생 대상 출시 가능·ASVS 전체 준수를 선언하는 문서가 아니다.**
+## 최신 변경 전광판 오류 비노출과 복구
+
+2026-11-05 공개 `/display`와 직원 `/display/setup` 분리, 조용한 기본 배경, 직원 진단, 완료 ACK 캐시 보관, 일시정지 복구, 접수·신고의 응답 유실 복구를 반영했다. HTTP 계약은 **0.11.0**, DB head는 **0008_display_diagnostics**다. [수정 내용과 최신 검증 범위](display-recovery-implementation.md)를 따른다. 아래의 이전 검사 결과와 최신 변경 검사를 합산하지 않는다.
+
+2026-11-04 v2 구현: [로컬 구현·연결 가이드](playback-local-implementation.md), [15초 재생 설계](playback-design.md), [접수 상태와 오류 계약](submission-status-errors.md)을 반영했다. 새 API·DB migration·독립 학생/전광판 연결 모듈에 **실제 학생·전광판·운영자 React 화면을 연결했다.** 아래 이전 버전의 실행 이력과 이번 검증을 구분한다.
+
+## 이전 변경: 키 입력 후 실제 Gemini 연결 준비
+
+2026-11-05 서버 전용 Gemini HTTP 연결과 [키 설정 실행기](../scripts/setup_gemini.py)를 추가했다. `python scripts/setup_gemini.py --start`로 숨긴 키 입력, 기존 설정 보존, 프론트·이미지 빌드, migration, API·worker 시작까지 연결한다. 최초 운영자 계정은 `--create-operator`로 생성한다. [실행 안내](gemini-moderation-implementation.md)를 따른다. 이 추가 당시 DB head는 `0007_provider_moderation`, OpenAPI는 `0.10.0`이었으며 현재 버전은 위 최신 변경을 따른다.
+
+토큰 사전 확인 후 검수 생성 1회, 전체 시간·응답 크기 제한, 실제 usage와 thought 비용 정산, 자동 단가 구간, startup 준비 확인, 인증·한도 오류별 중단/복구를 구현했다. 운영 화면은 키 설정·worker 준비 상태와 고정 오류 안내를 구분한다. 사전 토큰 여유와 내부 예산은 보수적 제어이며 공급자 청구 상한 보증은 아니다. 실제 키를 사용한 호출·분류 품질 평가·학교 장치 수락·운영 배포는 수행하지 않았다. 실행 결과는 [새 검증 기록](checks/gemini-key-ready-2026-11-05.json)에 남긴다.
+
+최종 Linux 이미지의 Gemini HTTP·DB 연결·사용량 초과 정산·지원·런타임·API 계약 집중 검사는 **101개 통과(61.65초)**다. 프론트 **49개**, 독립 클라이언트 **107개**, 키 실행기 **14개**와 production 빌드·실행 이미지 빌드·Ruff check/format·문서 계약 검사가 통과했다. 전체 회귀는 **679개 통과, 6개 생략, 프로세스 준비/가져오기 시간 초과 4개**였다. Linux 이미지에서 해당 4개만 재실행했을 때 가져오기 검사 1개는 통과했고 helper/supervisor 준비 3개는 시간 초과가 남았다. 같은 환경에서 worker 모듈 가져오기에 10.947초가 걸려 helper의 10초 제한을 넘을 수 있음을 확인했지만 느린 가져오기의 정확한 원인은 확정하지 않았다. 제한 시간을 늘리거나 실패를 생략하지 않았다. 위 집중 검사와 전체 결과는 겹치므로 합산하지 않는다.
+
+감정 색상 전달 경로와 선택적 `emotion_predictor` 확장 지점은 있다. 현재 Gemini 기본 로더에는 실제 감정 분석기를 붙이지 않아 승인 글의 감정은 `NEUTRAL`이다. 감정별 구름 색상 자동화까지 완료한 것으로 해석하지 않는다.
+
+## 이전 변경: API 연결 전 검수 구현
+
+[실행 가이드](gemini-moderation-implementation.md)에 개발·테스트 전용 gemini_mock을 추가했다. 4개 판정·엄격한 출력 검증·개인정보 치환·지원 우선·자동 벌점 비활성화·단일 dispatch·DB 예산/쿼터·회로/복구·학생 지원/신고·운영 큐를 구현했다. DB head `0007_provider_moderation`, OpenAPI `0.9.0`이다. 기본 legacy는 유지한다. 실제 Gemini HTTP 연결·키·결제·실모델 정책 평가·운영 배포는 수행하지 않았다.
+
+격리된 PostgreSQL 16·외부 통신 없는 Linux 환경에서 전체 백엔드 **617개 통과, 6개 생략(67.05초)**를 확인했다. 6개는 실제 학생 모델 artifact를 명시해야 실행되는 선택 시험이다. 프론트 전체 **40개 통과**, 독립 클라이언트 **107개 통과**, production 빌드도 통과했다. 이는 mock과 앱 상태 전이 검증이며 실제 Gemini 분류 성능이나 현장 HDMI 수락을 증명하지 않는다. [설계 기준](gemini-moderation-design.md), [독립 평가 계획](gemini-moderation-evaluation.md), [운영 기준](gemini-moderation-operations.md)을 함께 적용한다.
+
+이후 운영자 검수 중단·재개 감사 HTTP 시험을 추가하고 검수 지원·호출 원장·신고 집중 **31개 통과(43.75초)**를 확인했다. 전체 테스트와 겹치므로 수치를 합산하지 않는다. [실행 기록](checks/gemini-offline-implementation-2026-11-04.json)을 함께 남겼다.
+
+## 최신 변경: React 화면 연결
+
+`frontend/src/`에 학생 작성·접수 완료, 전광판, 운영자 화면을 추가했다. 팀 원본 HTML의 크림색·파란색·글 미리보기·완료 카드 구성을 참고했고 원본 파일은 변경하지 않았다. [프론트 실행 가이드](../frontend/README.md)에서 Vite 개발 서버와 빌드된 화면의 동일 origin 제공 방법을 설명한다.
+
+- 학생은 `/join#ticket=…`에서 입장하고 30 grapheme·서버가 준 최근 1시간 3회 한도를 적용한다. 글만 v2 API에 보내며 배경 이모지 선택은 없다. 접수 확인 후 메시지를 보냈어요! 카드 한 개를 사용한다. 응답 유실은 같은 의도를 조회·재전송하고, 초안·원문·QR ticket·CSRF를 일반 저장소에 보관하지 않는다.
+- 전광판은 `/display`에서 일회용 등록 코드로 연결한다. 실제 참여 QR과 완료된 글을 공급받아 감정 테마·CSS/SVG 효과를 렌더링한다. 준비 완료 순서로 한 글씩 최소 15초 재생하며 도중에 온 글은 대기한다. 최초 시작 승인 +1시간 이후 받은 내용은 투명 말풍선이 되고 KST 자정·명시적 숨김·기기 해지에 정리한다.
+- 운영자는 `/operator`에서 로그인·등록 코드 발급·접수/송출 중단과 재개·글 숨김을 수행한다. 원문 공급이 끝난 투명 말풍선도 전광판 설정에서 골라 운영자 화면으로 이동한 뒤 명시적으로 숨길 수 있다. 이동만으로 숨기지 않고 로그인·숨김 버튼과 권한 검사를 거친다. 세션 조회 장애를 로그아웃으로 단정하지 않으며, 확인된 만료 쿠키 복구와 잘못된 비밀번호를 구분한다.
+- `compose.frontend.yaml`은 빌드한 `frontend/dist`만 API 컨테이너에 읽기 전용으로 연결한다. API는 알려진 UI 경로와 빌드 자산만 제공하고 알 수 없는 `/api/…`를 React 페이지로 바꾸지 않는다. 개발 서버의 `127.0.0.1:5173`과 백엔드 `PUBLIC_ORIGIN`의 일치가 필요하다. CSRF·Origin 검사는 유지한다.
+
+전광판은 새 글에 필요한 로컬 Jua 글꼴을 로드한 뒤 재생을 시작한다. UUID 생성은 HTTPS/localhost의 `randomUUID`뿐 아니라 LAN 개발 환경의 `getRandomValues` 경로도 지원한다. Vite 개발 프록시는 SSE의 15초 keepalive보다 짧은 일반 요청 timeout을 스트림에 적용하지 않도록 구분한다.
+
+새 HTTP 연결 하네스의 **10개 시나리오 통과**를 확인했다. 실제 큐·API·클라이언트 어댑터를 사용해 접수·READY 대기·숨김 전파·동일 키 200과 한도 1회 소비를 확인했고, 실제 경과 15,386ms 뒤 완료 성공과 15초 미만의 409 거절을 검증했다. 분석은 fake 하네스이며 실제 AI·Linux supervisor·브라우저 DOM·HDMI를 포함한 종단 시험은 아니다. Node 독립 연결 검사 최신 실행은 **96개 통과**이며 아래의 92개는 이전 실행 이력이다.
+
+React 최종 묶음은 **30개 통과(64.31초)**이며 학생 13개·전광판 8개·운영자 9개로 구성된다. production 자산 빌드도 성공했다. QR·세션·동일 의도 복구·최소 완료 카드·렌더러 연결·해당 글자의 글꼴 준비·글 숨김·운영 제어를 jsdom/모의 응답에서 확인한 결과다. 실제 브라우저 E2E가 통과했다는 뜻은 아니다. [실제 HTTP 연결 실행 기록](checks/frontend-http-2026-11-04.json)을 함께 남겼다. 추가 정적 제공 시험은 **5개 통과, Windows symlink 권한 1개 생략**이며 빌드된 5개 화면 경로와 165개 자산의 실제 응답 바이트도 확인했다. Ruff 검사·포맷이 통과했다.
+
+컴포넌트·API 모의 응답 검사는 실제 학교 노트북·HDMI 패널·학생 휴대폰 시험과 구분한다. 실제 브라우저·모바일·HDMI 현장 시험은 아직 수행하지 않았다. 개발용 fake AI의 정상 게시 연결은 실제 모델의 허용 정책·품질 검증을 대신하지 않는다. 실제 학생 모델 v0의 `UNCERTAIN` 반환과 production 로딩 차단을 유지한다.
+
+## 최신 검증: v2 접수·READY·15초 재생
+
+- 독립 PostgreSQL 16·Linux test 이미지에서 전체 백엔드 **436개 통과, 6개 생략(205.08초)**. 실제 모델 파일을 명시해야 실행하는 6개만 생략했으며 Linux 작업자 강제 종료·복구 시험은 포함했다. 개발용 fake의 ALLOW로 정상 게시 흐름을 확인했고 실제 v0 모델의 안전성 보호는 유지했다.
+- Node 24에서 기존 34개와 새 전광판 44개·학생 연결 14개를 합쳐 **92개 통과**. 15초 하한·자산 준비·첫 프레임·동일 키 복구·오래된 응답·단일 소유권·숨김·자정·1시간 투명 전환·최소 완료 카드를 검증했다. 이 수치는 독립 모듈의 당시 실행 결과이며 이후 React 연결 검사와 별도다.
+- 빈 합성 DB에 공식 migration과 큐 스키마를 적용했다. `docs/schema.sql`의 0006 포함 참조 스키마도 별도 빈 DB에 실제 적용했다. 새 PostgreSQL 제약 부정 사례 26개는 전체 회귀에 포함한다.
+- OpenAPI 0.8.0의 37개 작업·355개 응답 예시, SQL 문법·문서 링크·AI 계약·가지 매핑과 Ruff를 검증했다. 원격 CI·운영 DB 적용·Git 업로드를 수행했다는 뜻은 아니다.
+
+추가로 최종 검토에서 발견한 빠른 PAUSED/CHATBOT 복귀의 중단 기록을 같은 모드 변경 트랜잭션 안에서 처리하도록 보완했다. 수정 후 Linux에서 현재 재생 통합 16개와 기존 API·보관·표시 정책을 포함한 관련 회귀 **73개 통과(60.71초)**를 확인했다. 위 전체 436개와 겹치는 검사이므로 합산하지 않는다.
+
+기준일: 2026-11-04. 현재 저장소에는 백엔드 애플리케이션과 실제 학생 모델 v0의 개발용 연결 코드가 있다. 이전 설계 문서의 “구현 전” 문구는 작성 당시의 상태이며, 현재 코드·실행 증거는 이 문서와 실제 소스를 확인한다. **설계 가지 102개 전체의 완료·학생 대상 출시 가능·ASVS 전체 준수를 선언하는 문서가 아니다.**
 
 ## 구현한 코드
 
 | 영역 | 현재 소스와 동작 | 별도로 확인할 범위 |
 | --- | --- | --- |
-| HTTP API | [라우터](../backend/app/main.py), [입력 DTO](../backend/app/dto.py), 27개 operationId | 실제 요청/응답 계약·역할·오류·회귀 |
+| HTTP API | [라우터](../backend/app/main.py), [입력 DTO](../backend/app/dto.py), 42개 operationId | 실제 브라우저·원격 CI·운영 환경 |
 | 세션·QR·운영자 로그인 | [인증](../backend/app/auth.py), [암호·QR](../backend/app/security.py) | 만료·해지·동시 교환·키 교체 |
 | 접수·최근 60분 한도 | [제출](../backend/app/submissions.py), [정책](../backend/app/domain.py) | 실제 PostgreSQL 동시성·멱등성·원자적 job 등록 |
 | 규칙 필터·결과 확정 | [필터](../backend/app/profanity.py), [검수](../backend/app/moderation.py) | 운영 사전·근거·모델 판정·제재·기한 경합 |
 | 영속 큐·독립 작업자 | [큐](../backend/app/queue.py), [supervisor](../backend/app/worker.py) | 실제 Linux hang·강제 종료·readiness·다음 작업 복구 |
 | 학생 모델 v0 개발 연결 | [CPU 추론](../backend/inference/student_model.py), [bundle 준비](../backend/tools/prepare_student_model.py), [검증 도구](../backend/tools/check_student_model.py) | 실제 가중치·해시·Linux 큐 소비 확인. 현재 모든 결과는 검토 필요이며, 독립 평가·게시 허용 기준·목표 서버 측정은 남음 |
-| 전광판 상태 | [표시](../backend/app/display.py), SSE 라우터 | 승인 즉시 일반 말풍선·100개 전송 페이지·DB1시간/로컬투명자정·숨김·기기 세대·재접속·실제화면 |
+| v2 접수·재생 | [재생 서비스](../backend/app/playback.py), [독립 연결 모듈](../clients/display/playback-browser.mjs), [React 전광판](../frontend/src/display/DisplayApp.jsx) | READY 완료 순서·15초·ACK·중단 1회 복구·원문 최초 시작 +1시간·자정 캐시. 실제 노트북·HDMI 시험은 별도 |
+| React 학생·전광판·운영자 | [학생](../frontend/src/student/StudentApp.jsx), [전광판](../frontend/src/display/DisplayApp.jsx), [운영자](../frontend/src/operator/OperatorApp.jsx) | 동일 origin·QR 재스캔·쿠키·모바일 브라우저·실제 패널의 지속 시험 |
+| 전광판 호환 상태 | [v1 표시](../backend/app/display.py), SSE 라우터 | 기존 즉시 일반 말풍선은 v1 경로에만 유지. v2 전환은 당일 종료 후 권장 |
 | 운영 제어 | [운영자](../backend/app/operator.py) | 권한·숨김·서명 커서·제재 복구 재전송·감사 |
 | 최초 실행·DB 변경 | [CLI](../backend/app/cli.py), [migration](../backend/app/migrate.py), [Alembic](../backend/app/migrations) | 빈 DB·재실행·upgrade·DB 역할·초기 중단 |
-| 보관 정리 | [정리 서비스](../backend/app/maintenance.py), API의 제출 삭제·일반 정리 루프 | 접수 1시간에 제출 행·원문 삭제, 감사90일·제재 집계30일·만료 세션·참조 없는 참여자, 작은 배치·잠금과 경계 시험 |
-| 로컬 실행 환경 | [Compose](../compose.yaml), [Dockerfile](../backend/Dockerfile), [설정 생성](../scripts/dev_setup.py) | 실제 이미지 build·컨테이너·파이프라인·종료 |
+| 보관 정리 | [v2 정리](../backend/app/playback.py), [v1/메타데이터 정리](../backend/app/maintenance.py) | v2 최초 시작 +1시간 원문·접수 +24시간 본문 없는 영수증, v1 접수 +1시간, 감사90일·제재30일 |
+| 로컬 실행 환경 | [Compose](../compose.yaml), [React 정적 연결](../compose.frontend.yaml), [Dockerfile](../backend/Dockerfile), [설정 생성](../scripts/dev_setup.py) | 실제 이미지 build·컨테이너·파이프라인·종료 |
 
 위 표의 “구현”은 해당 소스가 존재하고 기능을 연결했다는 뜻이다. 실제 통합 시험·배포·현장 운영 증거와 구분한다. 실행 방법은 [백엔드 가이드](../backend/README.md), 세부 수락 목록은 [전체 가지](backend-completeness-tree.md)와 [검증 기준](verification.md)에 있다.
 
 ## 아직 연결·구현·운영 검증이 필요한 것
 
-- 학생 작성·QR 스캔 처리·전광판·운영자 React 화면과 애니메이션. 현재 API 실행은 전광판 웹 화면이 자동으로 생긴다는 뜻이 아니다.
+- 연결한 학생·전광판·운영자 React 화면의 실제 브라우저·휴대폰·전광판 노트북 현장 수락. HTTPS·학교망·HDMI·장시간 실행·자동 시작과 재부팅 복구는 별도 확인한다.
 - 실제 AI의 독립 평가·게시 허용 기준·목표 서버의 CPU/RSS 측정. 기본 어댑터는 개발용 fake이며, 로컬 학생 모델 v0의 실제 추론·해시 manifest·검토 필요 결과 연결은 추가했다. [모델 연결 현황](student-model-integration.md)
-- 검토·확장한 운영용 금칙 사전과 양성/음성 평가. 시작 사전은 production에서 차단한다.
+- 검토·확장한 운영용 금칙 사전과 양성/음성 평가. legacy의 시작 사전은 production에서 차단한다. Gemini에서는 보조 규칙으로 사용하며 자동 벌점을 적용하지 않는다.
 - 클라우드 공급자·자원·공개 도메인·DNS·HTTPS·학교망·실제 노트북/패널 지속 시험. 로컬 Compose는 localhost용이다.
 - 운영 로그의 14일 보관·외부 백업·격리 복원 sanitize·복원 훈련. DB 보관 정리와 큐 종료 작업 정리는 구현했지만 실제 운영 스케줄·모니터링·백업은 별도 설정이 필요하다.
 - 운영자 담당·학교의 공개/보관 안내·허용 유실 폭·이의 처리·실제 모델과 시스템의 출시 수락.
@@ -43,7 +95,7 @@ CI는 문서·AI 경로 변경도 포함하며 OpenAPI·SQL 문법·문서 링�
 
 2026-11-03 실제 로컬 가중치를 CPU 추론 어댑터에 연결했다. Linux 모델 이미지·PostgreSQL 16 격리 DB의 백엔드 전체 **348개 통과(225.01초)**를 확인했다. 실제 작업자가 모델을 로드하고 READY를 등록한 뒤 큐의 글을 소비해 `NEEDS_REWRITE`로 저장하고 정상 종료하는 검사도 포함한다. torch가 없는 기본 CI 이미지에서는 새 어댑터·bundle·계약 검사 **99개 통과**를 확인했다. Windows 실모델 포함 검사는 99개 통과·symlink 권한 검사 3개 생략이다. 실행 방법·고정 버전·관찰한 오탐·측정 범위는 [모델 연결 기록](student-model-integration.md)에 있다. 이 수치는 로컬 검증이며 원격 PR의 새 CI 실행 결과가 아니다.
 
-v0는 평가된 허용 경계가 없어 항상 `UNCERTAIN`을 반환하며, production 로딩을 거절한다. React 화면 연결·공개 운영 수락과 구분한다. 아래 10월 29일 수치는 이전 변경의 이력이다.
+v0는 평가된 허용 경계가 없어 항상 `UNCERTAIN`을 반환하며, production 로딩을 거절한다. 당시 모델 연결 시험은 이후 React 연결·공개 운영 수락과 구분한다. 아래 10월 29일 수치는 이전 변경의 이력이다.
 
 ## 이전 변경: 강조·4개 제한 없이 일반 말풍선
 

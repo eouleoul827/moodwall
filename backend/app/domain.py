@@ -98,7 +98,9 @@ def serialize_submission(row: dict) -> dict:
         "emotion": row["emotion"],
         "animationId": ANIMATIONS.get(row["emotion"]),
         "createdAt": row["accepted_at"],
-        "expiresAt": row["accepted_at"] + timedelta(seconds=MENTION_RETENTION_SECONDS),
+        "expiresAt": row.get("content_delete_at")
+        or row.get("pre_display_deadline_at")
+        or row["accepted_at"] + timedelta(seconds=MENTION_RETENTION_SECONDS),
         "deadlineAt": row["expires_at"],
         "finalizedAt": row["finalized_at"],
         "message": messages[row["moderation_status"]],

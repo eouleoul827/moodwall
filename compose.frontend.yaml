@@ -1,0 +1,13 @@
+# Build first: npm --prefix frontend ci && npm --prefix frontend run build
+# Then: docker compose -f compose.yaml -f compose.frontend.yaml up -d api worker
+services:
+  api:
+    environment:
+      MOODWALL_FRONTEND_DIST: /srv/frontend
+    volumes:
+      - type: bind
+        source: ./frontend/dist
+        target: /srv/frontend
+        read_only: true
+        bind:
+          create_host_path: false

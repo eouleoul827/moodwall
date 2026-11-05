@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -22,14 +21,20 @@ from app import dto
 from app.auth import AuthService
 from app.config import get_settings
 from app.db import Database, db_time, one, schema_ready
+from app.diagnostics import DisplayDiagnosticsService
 from app.display import DisplayService
 from app.domain import EMOJI, business_day
 from app.errors import Problem, problem_response
+from app.frontend import install_frontend
 from app.http import body, decode_json, get_origin_check, origin_check
 from app.maintenance import RetentionService
 from app.moderation import ModerationService
 from app.operator import OperatorService
+from app.playback import PlaybackService
+from app.provider_control import ProviderControlService
 from app.queue import cleanup_finished, create_queue, enqueue
+from app.reports import ReportService
+from app.request_limits import bootstrap_limit, limit, read_limit
 from app.security import normalize_username
 from app.security_events import SecurityEvents
 from app.submissions import SubmissionService
@@ -143,36 +148,25 @@ class GuardMiddleware:
                 await problem_response(request, Problem(500, "INTERNAL_ERROR"))(scope, receive, guarded_send)
 
 
-async def limit(request, scope, subject, maximum, seconds=60):
-    settings, db = request.app.state.settings, request.app.state.db
-    digest = hmac.digest(settings.secret_key.encode(), ("rate:v1:" + scope + ":" + subject).encode(), "sha256")
-    async with db.connection() as conn:
-        now = await db_time(conn)
-        window = datetime.fromtimestamp(int(now.timestamp()) // seconds * seconds, timezone.utc)
-        row = await one(
-            conn,
-            """INSERT INTO rate_limit_buckets(scope,subject_hash,window_start,hits,expires_at)
-            VALUES(%s,%s,%s,1,%s) ON CONFLICT(scope,subject_hash,window_start)
-            DO UPDATE SET hits=rate_limit_buckets.hits+1 RETURNING hits""",
-            (scope, digest, window, window + timedelta(seconds=seconds * 2)),
-        )
-        if row["hits"] > maximum:
-            raise Problem(429, "RATE_LIMITED", retry_after=max(1, seconds - int((now - window).total_seconds())))
-
-
 async def actor(request, role, write=False):
     auth, settings = request.app.state.auth, request.app.state.settings
     current = await auth.authenticate(role, request.cookies.get(settings.cookie_name(role)))
     if write:
         auth.check_csrf(current, request.headers.get("x-csrf-token"))
-        await limit(request, "write:" + role, str(current.id), 120)
+        await limit(request, "write:" + role, str(current.id), settings.write_per_minute)
     else:
         get_origin_check(request)
+        await limit(request, "read:" + role, str(current.id), read_limit(settings, role))
     return current
 
 
 async def bootstrap(request, role):
-    await limit(request, "bootstrap:" + role, request.client.host if request.client else "unknown", 120)
+    await limit(
+        request,
+        "bootstrap:" + role,
+        request.client.host if request.client else "unknown",
+        bootstrap_limit(request.app.state.settings, role),
+    )
     return await request.app.state.auth.bootstrap_guard(
         role, request.cookies.get(request.app.state.settings.cookie_name(role)), request.headers.get("x-csrf-token")
     )
@@ -222,11 +216,22 @@ def create_app(settings=None):
             def intake_ready():
                 return not settings.maintenance_enabled or all(
                     time.monotonic() - app.state.loops.get(name, 0) <= budget
-                    for name, budget in (("display", 10), ("expiry", 15), ("stalled", 30), ("content_retention", 15))
+                    for name, budget in (
+                        ("display", 10),
+                        ("playback", 10),
+                        ("playback_retention", 10),
+                        ("expiry", 15),
+                        ("stalled", 30),
+                        ("content_retention", 15),
+                    )
                 )
 
             app.state.submissions = SubmissionService(db, settings, auth, enqueue, intake_ready)
+            app.state.playback = PlaybackService(db, settings, auth, enqueue, intake_ready)
             app.state.operator = OperatorService(db, settings, auth, display)
+            app.state.reports = ReportService(db, settings, auth)
+            app.state.provider = ProviderControlService(db, settings)
+            app.state.diagnostics = DisplayDiagnosticsService(db, settings, auth)
             app.state.loops = {}
 
             async def loop(name, interval, function):
@@ -244,10 +249,15 @@ def create_app(settings=None):
 
                 async def cleanup():
                     await retention.cleanup()
+                    await app.state.reports.cleanup()
+                    await app.state.provider.recover_stale()
+                    await app.state.diagnostics.cleanup()
                     await cleanup_finished(settings)
 
                 for name, interval, function in (
                     ("display", 2, display.reconcile),
+                    ("playback", 1, app.state.playback.reconcile),
+                    ("playback_retention", 1, app.state.playback.cleanup),
                     ("expiry", 5, moderation.expire_due),
                     ("stalled", 10, moderation.recover_stalled),
                     ("content_retention", 5, retention.cleanup_submissions),
@@ -269,7 +279,7 @@ def create_app(settings=None):
 
     app = FastAPI(
         title="Moodwall API",
-        version="0.7.0",
+        version="0.11.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.environment != "production" else None,
         redoc_url=None,
@@ -308,7 +318,14 @@ def create_app(settings=None):
                 raise Problem(503, "SERVICE_UNAVAILABLE")
         if settings.maintenance_enabled and any(
             time.monotonic() - request.app.state.loops.get(name, 0) > budget
-            for name, budget in (("display", 10), ("expiry", 15), ("stalled", 30), ("content_retention", 15))
+            for name, budget in (
+                ("display", 10),
+                ("playback", 10),
+                ("playback_retention", 10),
+                ("expiry", 15),
+                ("stalled", 30),
+                ("content_retention", 15),
+            )
         ):
             raise Problem(503, "SERVICE_UNAVAILABLE")
         return {"status": "ok"}
@@ -349,6 +366,46 @@ def create_app(settings=None):
     async def own(request: Request, submission_id: UUID):
         return respond(await request.app.state.submissions.get(await actor(request, "student"), submission_id))
 
+    @app.post("/api/v2/submissions", operation_id="submitMentionV2")
+    async def submit_v2(request: Request):
+        current = await actor(request, "student", True)
+        data = await body(request, dto.MentionV2)
+        value, new = await request.app.state.playback.submit(
+            current, key_header(request), data.content, request.headers.get("X-Moodwall-Client-Features", "")
+        )
+        return respond(
+            value,
+            202 if new else 200,
+            {"Location": "/api/v2/submissions/" + value["submissionId"], "Retry-After": "2"} if new else None,
+        )
+
+    @app.get("/api/v2/submissions/{submission_id}", operation_id="getOwnSubmissionV2")
+    async def own_v2(request: Request, submission_id: UUID):
+        return respond(
+            await request.app.state.playback.get_receipt(
+                await actor(request, "student"), submission_id, request.headers.get("X-Moodwall-Client-Features", "")
+            )
+        )
+
+    @app.post("/api/v2/submission-receipts/lookup", operation_id="lookupSubmissionReceipt")
+    async def lookup_receipt(request: Request):
+        current = await actor(request, "student", True)
+        data = await body(request, dto.ReceiptLookup)
+        return respond(
+            await request.app.state.playback.lookup_receipt(
+                current, data.idempotencyKey, request.headers.get("X-Moodwall-Client-Features", "")
+            )
+        )
+
+    @app.post("/api/v2/reports", operation_id="submitContentReport")
+    async def submit_report(request: Request):
+        current = await actor(request, "student", True)
+        data = await body(request, dto.ContentReport)
+        value, new = await request.app.state.reports.submit(
+            current, key_header(request), data.category, data.submissionId
+        )
+        return respond(value, 202 if new else 200)
+
     @app.post("/api/display/pair", operation_id="pairDisplay")
     async def pair(request: Request):
         existing = await bootstrap(request, "display")
@@ -359,6 +416,25 @@ def create_app(settings=None):
     @app.get("/api/display/session", operation_id="getDisplaySession")
     async def display_session(request: Request):
         return respond(await request.app.state.auth.session(await actor(request, "display")))
+
+    @app.post("/api/display/diagnostics", operation_id="recordDisplayDiagnostic")
+    async def display_diagnostic(request: Request):
+        # Diagnostics have an independent budget and never consume playback's
+        # write budget or refresh a heartbeat/ownership lease.
+        current = await request.app.state.auth.authenticate(
+            "display", request.cookies.get(settings.cookie_name("display"))
+        )
+        request.app.state.auth.check_csrf(current, request.headers.get("x-csrf-token"))
+        await limit(
+            request, "diagnostics:display", str(current.id) + ":" + str(current.extra["device_token_version"]), 10
+        )
+        report = await body(request, dto.DisplayDiagnostic)
+        return respond(await request.app.state.diagnostics.record(current, report))
+
+    @app.get("/api/operator/display/diagnostics", operation_id="getDisplayDiagnostics")
+    async def operator_display_diagnostics(request: Request):
+        current = await actor(request, "operator")
+        return respond(await request.app.state.diagnostics.latest(current))
 
     @app.get("/api/display/qr", operation_id="getCurrentQr")
     async def qr(request: Request):
@@ -375,7 +451,57 @@ def create_app(settings=None):
     async def heartbeat(request: Request):
         current = await actor(request, "display", True)
         data = await body(request, dto.Heartbeat)
+        if data.displayProtocolVersion == "2":
+            return respond(await request.app.state.playback.heartbeat(current, data.clientInstanceId))
         return respond(await request.app.state.display.heartbeat(current, data.clientInstanceId))
+
+    @app.get("/api/display/playback", operation_id="getDisplayPlayback")
+    async def playback_state(request: Request, clientInstanceId: UUID):
+        return respond(await request.app.state.playback.state(await actor(request, "display"), clientInstanceId))
+
+    @app.get("/api/v2/display/state", operation_id="getDisplayStateV2")
+    async def playback_bubbles(request: Request, cursor: str | None = None):
+        if cursor is not None and not 1 <= len(cursor) <= 2048:
+            raise Problem(422, "INVALID_CURSOR")
+        return respond(await request.app.state.playback.v2snapshot(await actor(request, "display"), cursor=cursor))
+
+    @app.post("/api/display/playback/claim", operation_id="claimDisplayPlayback")
+    async def playback_claim(request: Request):
+        current = await actor(request, "display", True)
+        data = await body(request, dto.PlaybackClaim)
+        value = await request.app.state.playback.claim(
+            current, key_header(request), data.model_dump(mode="json", exclude_none=True)
+        )
+        if value is None:
+            from starlette.responses import Response
+
+            return Response(status_code=204)
+        return respond(value)
+
+    async def playback_command(request, attempt_id, action, model=dto.PlaybackCommand):
+        current = await actor(request, "display", True)
+        data = await body(request, model)
+        return respond(
+            await request.app.state.playback.command(
+                current, attempt_id, action, key_header(request), data.model_dump(mode="json")
+            )
+        )
+
+    @app.post("/api/display/playback/{attempt_id}/start", operation_id="startDisplayPlayback")
+    async def playback_start(request: Request, attempt_id: UUID):
+        return await playback_command(request, attempt_id, "start")
+
+    @app.post("/api/display/playback/{attempt_id}/frame", operation_id="frameDisplayPlayback")
+    async def playback_frame(request: Request, attempt_id: UUID):
+        return await playback_command(request, attempt_id, "frame")
+
+    @app.post("/api/display/playback/{attempt_id}/complete", operation_id="completeDisplayPlayback")
+    async def playback_complete(request: Request, attempt_id: UUID):
+        return await playback_command(request, attempt_id, "complete")
+
+    @app.post("/api/display/playback/{attempt_id}/interrupt", operation_id="interruptDisplayPlayback")
+    async def playback_interrupt(request: Request, attempt_id: UUID):
+        return await playback_command(request, attempt_id, "interrupt", dto.PlaybackInterrupt)
 
     @app.post("/api/display/mode", operation_id="setDeviceMode")
     async def device_mode(request: Request):
@@ -482,11 +608,40 @@ def create_app(settings=None):
             )
         )
 
+    @app.get("/api/operator/reports", operation_id="listContentReports")
+    async def list_reports(request: Request, cursor: str | None = None):
+        return respond(await request.app.state.reports.list(await actor(request, "operator"), cursor))
+
+    @app.post("/api/operator/reports/{report_id}/resolve", operation_id="resolveContentReport")
+    async def resolve_report(request: Request, report_id: UUID):
+        current = await actor(request, "operator", True)
+        data = await body(request, dto.ResolveReport)
+        return respond(
+            await request.app.state.reports.resolve(current, report_id, key_header(request), data.resolution)
+        )
+
+    @app.get("/api/operator/moderation/provider", operation_id="getModerationProvider")
+    async def get_provider(request: Request):
+        current = await actor(request, "operator")
+        await request.app.state.auth.require_operator(current, ("ADMIN", "MODERATOR"))
+        return respond(await request.app.state.provider.summary())
+
+    @app.post("/api/operator/moderation/provider", operation_id="setModerationProviderPause")
+    async def pause_provider(request: Request):
+        current = await actor(request, "operator", True)
+        data = await body(request, dto.ProviderPause)
+        await request.app.state.auth.require_operator(current, ("ADMIN",))
+        return respond(
+            await request.app.state.provider.set_paused(data.paused, actor=current, auth=request.app.state.auth)
+        )
+
     @app.post("/api/operator/submissions/{submission_id}/hide", operation_id="hideSubmission")
     async def hide(request: Request, submission_id: UUID):
         current = await actor(request, "operator", True)
         data = await body(request, dto.Reason)
-        return respond(await request.app.state.operator.hide(current, submission_id, data.reasonCode))
+        result = await request.app.state.operator.hide(current, submission_id, data.reasonCode)
+        await request.app.state.playback.sync_submission(submission_id)
+        return respond(result)
 
     @app.get("/api/operator/participants/{participant_id}/usage", operation_id="getOperatorParticipantUsage")
     async def operator_usage(request: Request, participant_id: UUID):
@@ -512,6 +667,7 @@ def create_app(settings=None):
             )
         )
 
+    install_frontend(app, settings.frontend_dist)
     return app
 
 

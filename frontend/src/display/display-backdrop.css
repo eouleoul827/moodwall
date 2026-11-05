@@ -1,0 +1,7 @@
+.mw-backdrop { position:fixed; inset:0; overflow:hidden; background:#f2efe8; color:#353a32; display:grid; place-content:center; text-align:center; font-family:system-ui,sans-serif; }
+.mw-backdrop-brand { position:relative; font-size:clamp(26px,4vw,62px); font-weight:700; letter-spacing:.08em; z-index:1; }
+.mw-backdrop-brand span { display:block; margin-top:16px; font-size:clamp(14px,1.5vw,24px); font-weight:400; letter-spacing:.12em; color:#85877c; }
+.mw-backdrop-mark { position:relative; width:clamp(50px,8vw,120px); margin:36px auto 0; color:#c9d6bf; }
+.mw-backdrop-orb { position:absolute; width:40vw; height:40vw; border-radius:50%; background:#e8ecde; opacity:.65; }
+.mw-backdrop-orb-one { left:-15vw; top:-12vw; }
+.mw-backdrop-orb-two { right:-12vw; bottom:-18vw; background:#eaddd0; }

@@ -1,6 +1,8 @@
 # 백엔드 실행과 팀 연결 가이드
 
-이 프로젝트의 일반 백엔드는 FastAPI·PostgreSQL·Procrastinate와 독립 Python 검수 작업자다. 전광판 노트북은 최종적으로 브라우저를 실행하고, API·DB·AI는 서버에서 실행한다. **현재 구현은 백엔드 API이며 학생 작성·전광판 React 화면은 아직 없다.** 기본 모델과 금칙 사전은 개발 연결용이다. 실제 검증 결과와 출시 전 남은 작업은 [구현 상태](../docs/implementation-status.md)에서 확인한다.
+이 프로젝트의 일반 백엔드는 FastAPI·PostgreSQL·Procrastinate와 독립 Python 검수 작업자다. 전광판 노트북은 브라우저를 실행하고, API·DB·AI는 서버에서 실행한다. **학생 작성·전광판·운영자 React 화면을 v2 API에 연결했다.** 화면 실행은 [프론트 가이드](../frontend/README.md)를 따른다. 기본 모델과 금칙 사전은 개발 연결용이다. 실제 검증 결과와 출시 전 남은 작업은 [구현 상태](../docs/implementation-status.md)에서 확인한다.
+
+**v2 추가:** [15초 재생·영수증·표시 시작 기준 보관](../docs/playback-local-implementation.md)을 구현했다. 새 화면은 v2 작성 API와 전광판 모듈을 함께 사용한다. 현재 DB head는 `0007_provider_moderation`, OpenAPI는 0.10.0이다. [Gemini 연결·실행](../docs/gemini-moderation-implementation.md)은 실제 HTTP transport·키 설정과 개발 전용 모의 검수·지원/신고·회로/예산 원장을 설명한다. 아래 기존 API의 즉시 FLOATING·접수 기준 1시간 설명은 v1 호환 경로에 적용한다. 마이그레이션·운영자 생성·초기 중단 해제 절차는 동일하다.
 
 ## 1. 먼저 준비할 것
 
@@ -30,6 +32,10 @@ moodwall/
 
 ## 2. 로컬에서 처음 실행하기
 
+Gemini를 사용할 경우 아래 수동 명령 대신 저장소 루트에서 `python scripts/setup_gemini.py --start`를 실행할 수 있다. 키가 없으면 숨겨 입력받고 기존 `.env`를 보존한 채 프론트 설치·빌드, 이미지 빌드, migration, 전광판 초기화, API·worker 시작을 순서대로 실행한다. 운영자 계정이 없는 최초 설치라면 `--create-operator --operator-name admin`을 추가한다. API 키를 브라우저·프론트 빌드·명령 인수에 전달하지 않는다. worker 시작 때 합성 연결 확인 사용료가 발생할 수 있다. 접수·송출 재개는 여전히 운영자가 명시적으로 실행한다. [전체 절차와 한계](../docs/gemini-moderation-implementation.md)를 따른다.
+
+다음은 Gemini 없이 기본 fake로 연결을 확인하는 기존 수동 순서다.
+
 ```powershell
 python scripts/dev_setup.py
 docker compose build
@@ -56,7 +62,7 @@ ready 성공은 DB·schema·API 제어 루프가 준비됐다는 뜻이며, 모�
 
 ## 3. 운영자·전광판·학생 API를 연결하는 순서
 
-현재는 별도 운영자 웹 화면도 없으므로 API 도구로 기능을 확인한다. 요청 필드·응답은 [HTTP 계약](../docs/openapi.json)을 따른다. API 설명 화면의 표시는 실제 계약과 함께 확인하고, 쿠키를 지원하는 도구를 사용한다. 같은 PC에서는 역할별 별도 브라우저 프로필로 구분해 시험할 수 있다.
+React를 빌드해 함께 제공하면 `/operator`에서 로그인·전광판 등록·접수/송출 제어를 실행할 수 있다. [처음 화면 연결 순서](../frontend/README.md)를 먼저 따른다. 아래는 API 도구로 같은 기능을 확인하는 방법이다. 요청 필드·응답은 [HTTP 계약](../docs/openapi.json)을 따른다. 쿠키를 지원하는 도구를 사용하며 같은 PC에서는 역할별 별도 브라우저 프로필로 구분해 시험할 수 있다.
 
 | 순서 | 호출 | 본문·필요한 값 |
 | --- | --- | --- |

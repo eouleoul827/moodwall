@@ -28,11 +28,16 @@ async def usage_for(conn, participant_id: UUID, now=None):
     rows = await all_rows(
         conn,
         """
-        SELECT id, accepted_at, moderation_status FROM submissions
+        SELECT id, accepted_at, moderation_status FROM submissions s
         WHERE participant_id=%s AND accepted_at>%s-interval '60 minutes' AND accepted_at<=%s
-          AND moderation_status IN ('PENDING','PROCESSING','APPROVED') ORDER BY accepted_at,id
+          AND moderation_status IN ('PENDING','PROCESSING','APPROVED')
+          AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=s.id)
+        UNION ALL
+        SELECT id,accepted_at,processing_status AS moderation_status FROM submission_receipts
+        WHERE participant_id=%s AND accepted_at>%s-interval '60 minutes' AND accepted_at<=%s
+          AND quota_status IN ('RESERVED','CONSUMED') ORDER BY accepted_at,id
         """,
-        (participant_id, now, now),
+        (participant_id, now, now, participant_id, now, now),
     )
     active = await one(
         conn,
@@ -80,7 +85,8 @@ class SubmissionService:
             cutoff = await db_time(conn) - timedelta(seconds=MENTION_RETENTION_SECONDS)
             row = await one(
                 conn,
-                "SELECT * FROM submissions WHERE id=%s AND participant_id=%s AND accepted_at>%s",
+                """SELECT * FROM submissions s WHERE id=%s AND participant_id=%s AND accepted_at>%s
+                AND NOT EXISTS (SELECT 1 FROM submission_receipts r WHERE r.id=s.id)""",
                 (submission_id, actor.id, cutoff),
             )
             if row is None:
@@ -114,6 +120,13 @@ class SubmissionService:
             if participant is None:
                 raise Problem(401, "SESSION_EXPIRED", cookie_role="student")
             fresh = await self.auth.recheck(actor, conn)
+            receipt = await one(
+                conn,
+                "SELECT id FROM submission_receipts WHERE participant_id=%s AND idempotency_key=%s",
+                (actor.id, key),
+            )
+            if receipt:
+                raise Problem(409, "IDEMPOTENCY_CONFLICT")
             existing = await one(
                 conn, "SELECT * FROM submissions WHERE participant_id=%s AND idempotency_key=%s", (actor.id, key)
             )
@@ -132,6 +145,20 @@ class SubmissionService:
                 if bytes(existing["request_hash"]) != fingerprint:
                     raise Problem(409, "IDEMPOTENCY_CONFLICT")
                 return serialize_submission(existing), False
+            playback_device = await one(
+                conn,
+                """SELECT playback_owner_instance_id IS NOT NULL
+                AND playback_owner_generation=device_token_version AS v2
+                FROM board_runtime WHERE id=%s""",
+                (self.settings.board_id,),
+            )
+            # Once this registered device has used v2, a closed/offline player
+            # must not reopen the incompatible v1 path. Existing-key recovery
+            # above stays available; an unexpired ownership lease is not needed.
+            if getattr(self.settings, "moderation_profile", "legacy") != "legacy" or (
+                playback_device and playback_device["v2"]
+            ):
+                raise Problem(409, "CLIENT_UPDATE_REQUIRED", "화면을 새로고침한 뒤 다시 작성해 주세요.")
             if not self.intake_ready() or not await schema_ready(conn, self.settings.board_id):
                 raise Problem(503, "SERVICE_UNAVAILABLE")
             if emoji_id not in EMOJI:

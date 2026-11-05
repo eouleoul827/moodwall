@@ -1,5 +1,54 @@
 # 추가 설계·코드 검수 결과
 
+## 2026-11-04 로컬 구현 후 확인
+
+아래 구현 전 검토의 주요 4개 항목을 보완했다. [v2 재생·영수증·수용량 예약](../backend/app/playback.py), [역할별 GET 제한과 공유 IP 설정](../backend/app/request_limits.py), [새 migration](../backend/app/migrations/versions/0006_playback_receipts.sql), [학생/전광판 연결 모듈](playback-local-implementation.md)을 추가했다. Linux·PostgreSQL 전체 회귀 436개와 Node 92개 통과를 확인했으며 실행 조건·생략 범위는 [구현 상태](implementation-status.md)에 기록한다.
+
+이는 실제 React·학교망·공개 서버 배포 수락과 구분한다. 아래의 “미구현”과 고정 IP 120회 등은 이 보완 **이전 코드 검토 기록**이다. 새 재생에는 준비 완료 순번 직렬화·한 개 활성 항목의 DB 제약·성공 명령 멱등성·장치/탭 세대·45초 watchdog을 사용한다. 제품 시간값과 수용량은 표준이 정한 숫자가 아니라 초기 운영 정책이다.
+
+## 구현 전 검토: 2026-11-04 백엔드 전반 — 필터링 제외
+
+현재 체크아웃의 인증·QR·작성 제한·DB·작업 큐·전광판 동기화·배포 파일을 세 영역으로 나눠 교차 검토했다. 아래는 코드와 공식 문서를 대조한 결과다. 이 날짜에 전체 회귀 시험·학교망 부하 시험·실제 패널 재생 시험을 새로 실행한 것은 아니다. 원격 저장소의 최신 병합 상태, GitHub 보호 규칙, 실제 서버의 프록시·Docker 설정도 이번 검토 범위에 포함하지 않았다. 보안 인증이나 침투 시험 통과를 의미하지 않는다.
+
+현재 FastAPI·PostgreSQL·Procrastinate 구성은 유지할 수 있다. 가장 큰 구현 격차는 최신 재생 요구와 실행 코드의 차이다. 15초·최근 60분 3회·큐 수용량 등의 숫자는 제품 정책이며 업계 공통 규격이 아니다.
+
+### 먼저 구현하거나 보강할 것
+
+| 우선순위·성격 | 확인한 사항과 영향 | 코드 근거 | 권장 작업 |
+| --- | --- | --- | --- |
+| 높음 · 기능 미구현 | 현재는 승인 즉시 일반 말풍선이며 원문 공급·삭제 기준도 접수 후 1시간이다. 준비 완료 순서·전체 화면 15초·최초 표시 시작 후 1시간은 설계만 있다. | [검수 확정](../backend/app/moderation.py), [전광판 응답](../backend/app/display.py), [원문 정리](../backend/app/maintenance.py), [현재 캐시](../clients/display/bubble-cache.mjs) | [재생 설계](playback-design.md)에 따라 presentation 상태·새 migration·시작/완료 API·캐시를 함께 구현한다. 프론트 타이머만 바꾸지 않는다. |
+| 중간 · 구현/문서 차이 | `actor()`의 쓰기 요청에는 제한이 있지만 학생 상태·사용량 GET에는 같은 읽기 제한이 없다. 인증과 조회가 매번 DB를 사용하므로 반복 polling이 부하를 만들 수 있다. | [요청 인증과 제한](../backend/app/main.py), [본인 제출 조회](../backend/app/submissions.py) | 학생별 상태 조회 한도, 프론트 backoff·jitter, 앞단 전체 요청·연결 예산을 정한다. 학생의 시간당 작성 한도와 별개로 관리한다. |
+| 중간 · 공유망 운영값 | 입장 bootstrap은 동일 IP당 분당 120회로 고정되어 있다. 같은 공인 IP의 학생이 해당 시간 구간에 몰리면 서로 다른 세션도 같은 한도를 사용한다. | [bootstrap IP 제한](../backend/app/main.py) | 운영 설정값으로 분리하고 교내 Wi-Fi의 공유 IP·LTE 접속·재시도를 함께 시험한다. IP를 학생 본인 식별이나 개인 제재 기준으로 사용하지 않는다. |
+| 중간 · 수용량 보장의 한계 | 현재 검수 backlog는 학생별 잠금 안에서 전체 COUNT 후 INSERT한다. 서로 다른 학생이 같은 잔여량을 읽어 동시에 접수하면 관측 상한을 넘을 수 있다. 기존 문서의 soft gate에는 부합하지만 엄격한 상한은 아니다. | [접수의 backlog 검사](../backend/app/submissions.py) | 새 재생 설계의 원자적 수용량 예약을 구현한다. 서로 다른 학생의 동시 접수 시험으로 한도를 확인한다. 32개는 새 설계의 초기 제안값이며 확정된 표시 개수 제한이 아니다. |
+| 높음 · 공개 배포 구성 미완료 | 현재 Compose는 localhost HTTP용이다. 저장소에는 운영 HTTPS 프록시와 신뢰할 전달 헤더 구성이 없다. 배포 구조에 따라 모든 요청이 프록시 IP로 집계될 수 있다. | [실행 진입점](../backend/app/__main__.py), [Compose](../compose.yaml) | 도메인·HTTPS·신뢰 프록시·SSE buffering/timeout을 실제 배포망에서 설정한다. 전달 헤더를 무조건 신뢰하지 않는다. 실제 서버 설정을 보지 않았으므로 현재 IP 위조 취약점으로 단정하지 않는다. |
+| 중간 · 컨테이너 운영 설정 | 저장소의 Compose에는 서비스별 CPU/RAM 한도와 로그 순환 설정이 없다. DB 서비스에는 명시적인 restart 정책도 없다. 호스트 기본 설정과 부팅 시 기동 절차는 미확인이다. | [Compose](../compose.yaml), [이미지](../backend/Dockerfile) | 운영 overlay에서 프로세스 재시작·로그 순환·자원 예산을 설정하고 서버 재부팅으로 확인한다. 모델의 cold/warm RSS를 측정한 뒤 메모리 한도를 정한다. |
+| 중간 · 복원과 감시 실행 증거 부족 | 원문 정리·readiness·보안 로그 코드는 있으나 외부 백업·격리 복원·경보의 실제 운영 설정과 실행 증거는 남아 있다. | [정리 서비스](../backend/app/maintenance.py), [보안 로그](../backend/app/security_events.py), [운영 계획](delivery-and-operations.md) | 백업이 필요하면 적용할 데이터 범위·보관 기간을 정하고 복원 시험을 한다. 복원 직후 만료 원문·임시 인증·입장/장치 허가를 정리하고 접수를 재개한다. queue age·worker 준비 상태·DB 오류·장치 단절을 확인할 담당과 경보를 정한다. |
+| 높음 · 실제 화면 수락 미완료 | 캐시 모듈과 API의 시험은 실제 React 화면·브라우저·HDMI 패널의 재생 완료를 검증하지 않는다. 현행 CI에도 새 15초 기능의 실행 증거는 없다. | [프론트 연결 범위](../clients/display/README.md), [CI](../.github/workflows/backend.yml), [구현 상태](implementation-status.md) | 실제 노트북에서 접수→준비→15초→다음 글, 새로고침·통신 단절·숨김·자정·재부팅을 확인한다. 새 API/DB 변경에는 관련 PostgreSQL 경합 시험을 추가한다. |
+
+조회 제한과 자원 예산은 [OWASP API4의 자원 소비 제한 권고](https://api-security.owasp.org/editions/2023/en/0xa4-unrestricted-resource-consumption/)에 대조했다. 프록시 전달 정보는 [FastAPI의 신뢰 프록시 설정](https://fastapi.tiangolo.com/advanced/behind-a-proxy/)을 따른다. 수용량 COUNT와 예약 사이의 경합은 [PostgreSQL의 명시적 잠금](https://www.postgresql.org/docs/16/explicit-locking.html)을 이용해 조정할 수 있지만, 사용하는 행과 잠금 순서는 애플리케이션이 정해야 한다.
+
+운영 overlay는 [Docker의 단일 서버 운영 구성](https://docs.docker.com/compose/how-tos/production/)에 맞춰 별도 관리한다. [Docker 로그 지침](https://docs.docker.com/engine/logging/configure/)은 기본 json-file에 로그 순환이 없음을 명시하므로 호스트 설정까지 확인한다. 백업 수단은 [PostgreSQL 백업·복원 문서](https://www.postgresql.org/docs/16/backup.html)를 참고하며, 이 문서를 작성한 사실이 실제 백업이나 복원을 수행했다는 뜻은 아니다.
+
+### 유지할 구현과 명시할 절충
+
+- **접수와 큐 등록의 원자성:** 같은 PostgreSQL 연결·트랜잭션에서 제출과 job을 함께 등록한다. [접수](../backend/app/submissions.py)·[큐](../backend/app/queue.py)의 방식은 [Procrastinate의 외부 연결 지원](https://procrastinate.readthedocs.io/en/stable/howto/production/external_connection.html)에 부합한다. 큐 교체를 위해 Redis/BullMQ를 추가할 근거는 이번 검토에서 찾지 못했다.
+- **중복·동시 접수 방지:** 참여자 잠금, 멱등 키 UNIQUE와 본문 해시 비교, 진행 중 제출의 부분 UNIQUE, 최근 60분 인덱스를 유지한다. 인덱스 존재만으로 목표 서버의 성능이 검증되는 것은 아니다.
+- **인증·권한:** 학생/운영자/전광판 자격 분리, 본인 글 조회 조건, 운영 쿠키의 Secure·HttpOnly·SameSite, POST의 Origin·CSRF 검사가 구현되어 있다. 현재·직전 QR은 발급 기준 만료를 유지하며 재스캔 시 현재 시각부터 새 10분을 부여하지 않는다.
+- **작업자 격리:** API와 모델 작업자를 분리하고 run token·lease로 오래된 결과를 배제한다. 현재 production supervisor의 프로세스 종료 보장은 Linux를 요구한다. 전광판 노트북은 브라우저를 실행하고 backend는 Linux/Docker에서 운영하는 구성이 현재 코드와 맞는다. 모델 작업자 수를 늘리기 전에 [프로세스별 모델 메모리](https://fastapi.tiangolo.com/deployment/concepts/#memory-per-process)를 측정한다.
+- **재접속:** SSE는 상태 변경 힌트로 사용하고 최신 GET snapshot을 다시 읽는다. 당일 캐시의 숨김·자정·인증 세대·늦은 응답 처리를 유지한다. 새 노트북이나 캐시가 사라진 브라우저에서는 DB에서 이미 삭제된 투명 말풍선의 원문을 복구할 수 없다.
+- **실패 의미:** 작업자 실행 후 장애는 중복 추론을 피하기 위해 실패로 확정할 수 있다. 모든 접수의 성공을 보장하는 구조로 설명하지 않는다. 학생 화면에는 [최소 UI](student-ux.md)에 따라 접수 확인과 필요한 수정/실패 안내를 연결한다.
+- **보관 범위:** 온라인 DB 원문 삭제와 당일 노트북 캐시·백업 사본의 수명은 다르다. 백업에서 오래된 원문을 되살리거나 일일 제재를 초기화하지 않도록 복원 절차를 검증한다.
+
+### 구현 순서와 완료 확인
+
+1. 새 재생 migration·영수증·수용량 예약·준비 완료 순번·시작/완료 API를 구현한다. 성공·중복·만료·동시 접수·재생 중단을 함께 확인한다.
+2. 학생 GET 제한·공유 IP 한도 설정·프론트 재조회 간격을 맞춘다. 같은 IP의 여러 학생을 실제 요청으로 시험한다.
+3. 운영 overlay·HTTPS·프록시·로그 순환·재기동과 필요한 백업/복원·경보를 구성한다. 노트북을 포함한 화면 수락을 완료한다.
+
+기존 자동 시험의 통과 기록은 [구현 상태](implementation-status.md)에 보존한다. 이번 재검토로 새 재생 기능·운영 서버·실제 AI 실행의 수락 상태를 통과로 바꾸지 않는다. 아래 2026-10-29 기록의 예전 슬롯·강조·보관 수치와 벤치마크는 당시 구현의 이력이다.
+
+## 2026-10-29 검토 이력
+
 검토일: 2026-10-29. 앞선 설계 검토에 실제 백엔드 코드 검수와 DB 최적화 결과를 추가했다. QR·작성·검수·표시 흐름과 FastAPI·Python 작업자·PostgreSQL 선택은 유지했다. 현재 실행 증거는 아래 추가 검수와 [구현 상태](implementation-status.md)를 따른다. 실제 모델 평가·React 연동·운영 배포는 별도 남은 작업이다.
 
 **이 기록 이후 정책 변경:** 원문·제출 행과 멱등 응답은접수 1시간이다. 현재는 강조·4개 자리·표시 대기 없이승인 즉시일반 말풍선을공개한다. 받은 글은1시간 뒤내용담긴투명 말풍선으로다음 KST 자정까지로컬 유지한다. 아래10분강조·30일보관·OpenAPI0.4.0·193개시험은당시기록이다. 실행계획·벤치마크는과거쿼리의증거로보존하며현재 검증을대신하지않는다. [전체 흐름](service-flow.md)·[구현 상태](implementation-status.md)·OpenAPI 0.7.0을따른다.

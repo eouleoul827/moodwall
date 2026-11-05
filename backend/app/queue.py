@@ -6,6 +6,7 @@ from importlib.metadata import version
 from uuid import UUID
 
 import procrastinate
+import psycopg
 from procrastinate.schema import SchemaManager
 
 _app = None
@@ -49,9 +50,21 @@ async def enqueue(conn, submission_id: UUID) -> int:
     if _app is None:
         raise RuntimeError("create_queue must run during application startup")
     # No commit, no second application connection, no task argument containing text.
-    return (
-        await _app.tasks["moodwall.moderate"].configure(connection=conn).defer_async(submission_id=str(submission_id))
-    )
+    try:
+        return (
+            await _app.tasks["moodwall.moderate"]
+            .configure(connection=conn)
+            .defer_async(submission_id=str(submission_id))
+        )
+    except procrastinate.exceptions.ConnectorException as error:
+        # The library wraps PostgreSQL timeouts/disconnects. Preserve a retryable
+        # HTTP contract while the caller's transaction rolls back all admission
+        # writes. Integrity/programming errors remain unexpected server errors.
+        if isinstance(error.__cause__, (psycopg.OperationalError, psycopg.InterfaceError)):
+            from app.errors import Problem
+
+            raise Problem(503, "SERVICE_UNAVAILABLE", retry_after=1) from None
+        raise
 
 
 async def cleanup_finished(settings, days: int = 7) -> None:
