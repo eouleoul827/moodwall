@@ -90,8 +90,10 @@ def _validate_labels(config: dict) -> None:
         raise ValueError("student model must contain eight classification outputs")
 
 
-def _validate_bundle(context: AnalyzerContext) -> Path:
-    if context.environment not in {"development", "test"}:
+def _validate_bundle(context: AnalyzerContext, *, emotion_only: bool = False) -> Path:
+    # Only the separate Gemini-approved-text presentation adapter opts in.
+    # The standalone v0 safety analyzer still cannot run in production.
+    if not emotion_only and context.environment not in {"development", "test"}:
         raise ValueError("student model v0 is forbidden outside development/test")
     manifest = context.manifest
     spec = manifest.get("student_model")

@@ -28,7 +28,7 @@
 | provider 전체 workflow | 최대 8초 | countTokens와 생성 두 요청의 연결·송신·응답 수신·대기를 포함한 단일 monotonic deadline. 개별 socket timeout 합으로 대체하지 않는다. |
 | 연결 timeout | 최대 2초 | DNS·TLS 등 호출에 실제 사용하는 경로의 연결 예산을 포함한다. |
 | 전처리·요청 구성·응답 검증 | 합계 최대 1초 | 로컬 정규화·PII 표시 치환·JSON 검증 포함. 무제한 정규식·JSON 수리는 허용하지 않는다. |
-| 로컬 감정 분류 | 최대 1초 | 안전성 ALLOW 확인 뒤에만 실행. 감정만 실패하면 NEUTRAL fallback 허용, 안전성 실패에는 fallback 금지. |
+| 로컬 감정 분류 | 전체 12초 wrapper의 남은 시간 | ALLOW 뒤에만 실행. 일반 오류는 NEUTRAL. 별도 1초 강제 종료는 없으며 멈추면 전체 기술 실패·worker 회수. 안전성 실패에는 fallback 금지. |
 | 최종 DB 확정 여유 | 최소 2초 | 최종화 재시도와 원장 정리를 위한 여유. 실제 잔여 lease가 부족하면 호출을 시작하지 않는다. |
 | 분석 wrapper | 최대 12초 | supervisor의 15초 hard fence보다 먼저 종료한다. |
 | SDK/HTTP 자동 재시도 | 0회 | 라이브러리의 기본 retry·redirect 재전송·프록시 retry도 비활성화한다. |

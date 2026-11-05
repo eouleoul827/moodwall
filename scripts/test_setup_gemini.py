@@ -122,7 +122,7 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual(setup.main(["--env-file", str(destination)]), 0)
                 start.assert_not_called()
                 self.assertEqual(setup.main(["--env-file", str(destination), "--start"]), 0)
-                start.assert_called_once_with(destination.absolute(), FAKE_KEY, create_operator=False, operator_name="admin")
+                start.assert_called_once_with(destination.absolute(), FAKE_KEY, create_operator=False, operator_name="admin", emotion_bundle=None)
 
     def test_frontend_build_never_receives_provider_credentials(self):
         with patch.dict(os.environ, {"GEMINI_API_KEY": FAKE_KEY, "OTHER_COPY": FAKE_KEY, "GOOGLE_API_KEY": "another-key"}, clear=True), patch.object(setup.shutil, "which", side_effect=lambda name: name), patch.object(setup, "run_command") as command:
@@ -144,6 +144,43 @@ class SetupTests(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(setup.main(["--env-file", str(destination)]), 1)
             self.assertFalse(destination.exists())
+
+    def test_emotion_bundle_is_explicit_persisted_and_reused(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {setup.KEY_NAME: FAKE_KEY}, clear=True):
+            bundle = Path(folder) / "emotion bundle"
+            bundle.mkdir()
+            (bundle / "manifest.json").write_text("{}", encoding="utf-8")
+            destination = Path(folder) / "synthetic.env"
+            with contextlib.redirect_stdout(io.StringIO()), patch.object(setup, "start_stack") as start:
+                self.assertEqual(setup.main(["--env-file", str(destination), "--emotion-model", str(bundle)]), 0)
+                start.assert_not_called()
+                self.assertEqual(setup.main(["--env-file", str(destination), "--start"]), 0)
+            start.assert_called_once_with(destination.absolute(), FAKE_KEY, create_operator=False, operator_name="admin", emotion_bundle=bundle.resolve())
+            found = setup.entries(destination.read_text(encoding="utf-8"))
+            self.assertEqual(setup._literal_value(found[setup.EMOTION_DIR_NAME][3]), bundle.resolve().as_posix())
+
+    def test_invalid_emotion_bundle_cannot_write_or_start(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {setup.KEY_NAME: FAKE_KEY}, clear=True):
+            destination = Path(folder) / "synthetic.env"
+            destination.write_bytes(EXISTING.encode("utf-8"))
+            with contextlib.redirect_stderr(io.StringIO()), patch.object(setup, "start_stack") as start:
+                self.assertEqual(setup.main(["--env-file", str(destination), "--emotion-model", str(Path(folder) / "missing"), "--start"]), 1)
+                start.assert_not_called()
+            self.assertEqual(destination.read_bytes(), EXISTING.encode("utf-8"))
+            for value in ("$HOME/model", "model\nother", "model'quoted"):
+                with self.assertRaises(setup.SetupError):
+                    setup.emotion_bundle_path(value)
+
+    def test_emotion_override_only_reaches_selected_stack(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(setup.shutil, "which", side_effect=lambda name: name), patch.object(setup, "run_command") as command:
+            with contextlib.redirect_stdout(io.StringIO()):
+                setup.start_stack(Path("synthetic.env"), FAKE_KEY, create_operator=False, operator_name="admin", emotion_bundle=Path("local-model"))
+            for call in command.call_args_list:
+                argv = call.args[0]
+                if "compose" in argv:
+                    self.assertIn("compose.gemini-emotion.yaml", argv)
+                    self.assertEqual(call.kwargs["env"][setup.EMOTION_DIR_NAME], "local-model")
+                    self.assertNotIn(FAKE_KEY, argv)
 
     def test_production_file_or_environment_is_never_modified(self):
         for original, environment in (

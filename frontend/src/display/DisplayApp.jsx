@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import QRCode from 'qrcode';
 import { createMoodwallDisplayRuntime } from '@clients/display/playback-browser.mjs';
-import { particleStyles, seedFor, themeFor, THEMES } from './themes.js';
+import { DISPLAY_PALETTES, particleStyles, periodFor, seedFor, themeFor, THEMES } from './themes.js';
 import './display.css';
+import './display-scene.css';
 import DisplayBackdrop from './DisplayBackdrop.jsx';
+import CloudMessage from './CloudMessage.jsx';
 import { AUTH_ERRORS, displayRequest, useDisplaySession } from './display-session.js';
 import { createDisplayDiagnostics } from './display-diagnostics.js';
 
@@ -38,15 +40,14 @@ function SceneParticles({ item }) {
   </div>;
 }
 
-const BubbleField = function BubbleField({ view }) {
-  return <div className="mw-bubble-field" aria-label="오늘 모인 메시지">
+const BubbleField = function BubbleField({ view, period }) {
+  return <div className="mw-bubble-field" aria-label="이 화면에 남은 메시지">
     {view.visible && view.bubbles.map((bubble, index) => {
       const seed = seedFor(bubble.id);
-      const theme = themeFor(bubble);
       return <div key={bubble.id} className={`mw-bubble-track ${bubble.phase === 'AMBIENT' ? 'is-ambient' : ''}`}
-        style={{ '--row': `${10 + ((index * 137 + seed % 47) % 76)}%`, '--drift-duration': `${65 + seed % 65}s`,
-          '--drift-delay': `${-(seed % 105)}s`, '--bob-duration': `${4 + seed % 4}s`, '--bubble-color': theme.color }}>
-        <div className="mw-bubble"><i aria-hidden="true" />{bubble.content}</div>
+        style={{ '--row': `${6 + ((index * 113 + seed % 47) % 72)}%`, '--rest-x': `${23 + seed % 46}%`,
+          '--drift-duration': `${80 + seed % 60}s`, '--drift-delay': `${-(seed % 140)}s` }}>
+        <CloudMessage item={bubble} period={period} />
       </div>;
     })}
   </div>;
@@ -63,10 +64,10 @@ function MoodForecast({ bubbles }) {
   }, [bubbles]);
   const total = bubbles.length;
   const top = counts.reduce((a, b) => a.count >= b.count ? a : b);
-  return <aside className="mw-forecast">
-    <div className="mw-eyebrow">오늘의 무드 예보</div>
-    <WeatherIcon className="mw-weather-icon" />
-    <h2>{total ? top.weather : '어떤 기분이든\n들려주세요'}</h2>
+  return <aside className="mw-forecast" aria-label="이 화면의 기분 분포">
+    <div className="mw-eyebrow">지금의 무드 예보</div>
+    <div className="mw-forecast-heading"><WeatherIcon className="mw-weather-icon" />
+      <h2>{total ? top.forecast : '어떤 기분이든\n들려주세요'}</h2></div>
     <div className="mw-mood-bars">{counts.filter(entry => entry.id !== 'neutral' || entry.count).map(entry =>
       <div className="mw-mood-row" key={entry.id}>
         <span>{entry.label}</span><div className="mw-mood-track"><i style={{ width: `${total ? entry.count / total * 100 : 0}%`, background: entry.color }} /></div>
@@ -74,6 +75,15 @@ function MoodForecast({ bubbles }) {
       </div>)}</div>
     <p className="mw-local-note">이 화면에 남은 기분 기준</p>
   </aside>;
+}
+
+function Sky({ period }) {
+  return <div className={`mw-sky mw-sky-${period}`} aria-hidden="true">
+    <div className="mw-day-glow" />
+    <div className="mw-night-stars">{Array.from({ length: 36 }, (_, index) =>
+      <i key={index} style={{ left: `${(index * 137 + 17) % 100}%`, top: `${(index * 29 + 7) % 72}%`,
+        '--star-delay': `${-(index % 7)}s`, '--star-duration': `${3 + index % 4}s` }} />)}</div>
+  </div>;
 }
 
 export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch }) {
@@ -121,6 +131,8 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         }
         try {
           await document.fonts?.load('400 96px "Jua"', item.content);
+          if (signal.aborted) throw signal.reason;
+          await document.fonts?.load('700 96px "Noto Sans KR"', item.content);
           if (signal.aborted) throw signal.reason;
           await document.fonts?.ready;
           if (signal.aborted) throw signal.reason;
@@ -241,24 +253,28 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
   }, [wallAvailable]);
   const date = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'long' }).format(now);
   const time = new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
-  const theme = themeFor(spotlight);
+  const period = periodFor(now), palette = DISPLAY_PALETTES[period], theme = themeFor(spotlight, period);
   if (!session || fatal) return <DisplayBackdrop />;
 
-  return <main className="mw-display" style={{ '--scene-color': theme.color, '--scene-tint': theme.tint }}>
+  return <main className={`mw-display mw-display-${period}`} style={{ '--scene-color': theme.color, '--scene-tint': theme.tint,
+    '--mw-bg': palette.bg, '--mw-panel': palette.panel, '--mw-ink': palette.ink, '--mw-sub': palette.sub,
+    '--mw-line': palette.line, '--mw-track': palette.track, '--mw-sky-top': palette.skyTop,
+    '--mw-sky-bottom': palette.skyBottom, '--mw-cloud-ink': palette.cloudInk, '--mw-shadow': palette.shadow }}>
     {!wallAvailable && <DisplayBackdrop />}
+    <div className="mw-display-frame">
     <div className="mw-wall-content" hidden={!wallAvailable}>
-      <BubbleField view={bubbles} />
+      <Sky period={period} />
+      <BubbleField view={bubbles} period={period} />
       <div className="mw-wall-layout">
         <aside className="mw-join-panel">
-          <div className="mw-wordmark">MOOD WALL<span>마음이 머무는 작은 벽</span></div>
-          <h1>오늘 기분,<br />한 줄로 남겨요<span className="mw-title-dot">.</span></h1>
+          <div className="mw-wordmark">MOOD WALL</div>
+          <h1>오늘 기분,<br />한 줄로 남겨요</h1>
           <div className="mw-qr-box">{validQr ? <img src={qr.image} alt="기분을 남기는 참여 QR 코드" /> : <WeatherIcon />}</div>
           {validQr && <p>폰 카메라로 찍어주세요<br /><strong>30자 · 1시간에 3번</strong></p>}
-          <span className="mw-open-badge"><i />지금, 여기의 우리</span>
         </aside>
         <section className="mw-wall-center">
-          <header className="mw-wall-heading"><div><p>{date}</p><h2>오늘 <em>{bubbles.totalCount}</em>개의 기분이<br />모였어요</h2></div><time>{time}</time></header>
-          {!bubbles.totalCount && <div className="mw-empty"><WeatherIcon /><p>이 벽의 첫 번째 기분을<br />남겨볼까요?</p></div>}
+          <header className="mw-wall-heading"><div><p>{date}</p><h2>지금 <em>{bubbles.bubbles.length}</em>개의 구름이<br />머물고 있어요</h2><span className="mw-count-scope">이 화면에 남은 기분 기준</span></div><time>{time}</time></header>
+          {!bubbles.bubbles.length && <div className="mw-empty"><WeatherIcon /><p>이 벽의 첫 번째 기분을<br />남겨볼까요?</p></div>}
           {validQr && <div className="mw-wall-caption"><span aria-hidden="true">↗</span> QR을 찍으면 내 한 줄이 화면 가득 떠요</div>}
         </section>
         <MoodForecast bubbles={bubbles.bubbles} />
@@ -267,11 +283,12 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
     <section ref={sceneElement} className="mw-spotlight" hidden={!spotlight} aria-live="polite" aria-label="새로운 메시지">
       {spotlight && <div className="mw-spotlight-inner" key={spotlight.id}>
         <SceneParticles item={spotlight} /><EmotionMark className="mw-scene-mark" sceneId={spotlight.sceneId} />
-        <header><span className="mw-emotion-pill">{theme.label}</span><p>새로운 기분이 도착했어요</p></header>
-        <p className="mw-full-message">{spotlight.content}</p>
+        <header><span className="mw-emotion-pill">{theme.label}</span><p>새 구름이 도착했어요</p></header>
+        <p className="mw-full-message" style={{ '--message-font': [...spotlight.content].length > 24 ? 4.5 : 5.1667 }}>{spotlight.content}</p>
         <footer><span>익명 · 방금 전</span>{validQr && <div className="mw-spotlight-qr"><p>나도 남기기<br /><small>QR을 찍어주세요</small></p><img src={qr.image} alt="기분을 남기는 참여 QR 코드" /></div>}</footer>
-        <div className="mw-duration-track" aria-hidden="true"><i /></div>
+        <div className="mw-duration-track" data-duration-seconds="15" aria-hidden="true"><i /></div>
       </div>}
     </section>
+    </div>
   </main>;
 }

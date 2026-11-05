@@ -21,6 +21,7 @@ import warnings
 
 ROOT = Path(__file__).resolve().parents[1]
 KEY_NAME = "MOODWALL_GEMINI_API_KEY"
+EMOTION_DIR_NAME = "MOODWALL_EMOTION_BUNDLE_DIR"
 ASSIGNMENT = re.compile(r"^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 
 
@@ -130,7 +131,21 @@ def base_defaults(found: dict[str, tuple[int, int, str, str]]) -> dict[str, str]
     }
 
 
-def update_env(text: str, api_key: str) -> tuple[str, list[str]]:
+def emotion_bundle_path(value: str | Path) -> Path:
+    """Resolve an explicitly selected local bundle; the backend verifies hashes."""
+    value = str(value)
+    if not value or any(char in value for char in "\r\n\x00$'\"`"):
+        raise SetupError("Use a literal local emotion bundle directory without quotes or variable expressions.")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = ROOT / path
+    path = path.resolve()
+    if not path.is_dir() or not (path / "manifest.json").is_file():
+        raise SetupError("The emotion bundle directory must already contain manifest.json. No model is downloaded by setup.")
+    return path
+
+
+def update_env(text: str, api_key: str, *, emotion_bundle: Path | None = None) -> tuple[str, list[str]]:
     """Return new contents and changed names; preserve unrelated bytes and comments."""
     validate_key(api_key)
     found = entries(text)
@@ -148,6 +163,8 @@ def update_env(text: str, api_key: str) -> tuple[str, list[str]]:
         "MOODWALL_MODERATION_PROFILE": "gemini",
         "MOODWALL_ANALYZER": "gemini",
     })
+    if emotion_bundle is not None:
+        values[EMOTION_DIR_NAME] = emotion_bundle.as_posix()
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
     replacements: dict[int, tuple[int, str]] = {}
@@ -155,7 +172,7 @@ def update_env(text: str, api_key: str) -> tuple[str, list[str]]:
     changed: list[str] = []
     for name, value in values.items():
         # Quote the token explicitly; the validator also matches runtime rules.
-        literal = f"'{value}'" if name == KEY_NAME else value
+        literal = f"'{value}'" if name in {KEY_NAME, EMOTION_DIR_NAME} else value
         if name in found:
             start, end, prefix, old = found[name]
             if _literal_value(old) == value:
@@ -215,18 +232,24 @@ def run_command(command: list[str], *, env: dict[str, str], key: str, interactiv
         raise SetupError("A local setup command failed. Fix the preceding error and rerun; existing data was preserved.")
 
 
-def start_stack(path: Path, key: str, *, create_operator: bool, operator_name: str) -> None:
+def start_stack(
+    path: Path, key: str, *, create_operator: bool, operator_name: str, emotion_bundle: Path | None = None
+) -> None:
     docker = shutil.which("docker")
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if not docker or not npm:
         raise SetupError("--start requires Docker Compose and Node.js/npm on PATH.")
     env = dict(os.environ)
     env[KEY_NAME] = key
+    if emotion_bundle is not None:
+        env[EMOTION_DIR_NAME] = emotion_bundle.as_posix()
     frontend_env = {
         name: value for name, value in env.items()
         if name not in {KEY_NAME, "GEMINI_API_KEY", "GOOGLE_API_KEY"} and value != key
     }
     compose = [docker, "compose", "--env-file", str(path), "-f", "compose.yaml", "-f", "compose.frontend.yaml", "-f", "compose.gemini.yaml"]
+    if emotion_bundle is not None:
+        compose += ["-f", "compose.gemini-emotion.yaml"]
     for command in (
         [docker, "info", "--format", "{{.ServerVersion}}"],
         [npm, "--prefix", "frontend", "ci"],
@@ -254,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", action="store_true", help="Also build the UI/containers, migrate the local DB and start the stack.")
     parser.add_argument("--create-operator", action="store_true", help="With --start, interactively create an ADMIN (existing users are never overwritten).")
     parser.add_argument("--operator-name", default="admin", help="Login name for --create-operator (not a password).")
+    parser.add_argument("--emotion-model", type=Path, help="Optional existing local emotion bundle directory; Gemini still owns moderation. Saved for later starts.")
     args = parser.parse_args(argv)
     if args.create_operator and not args.start:
         parser.error("--create-operator requires --start")
@@ -269,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
         file_environment = _literal_value(found["MOODWALL_ENVIRONMENT"][3]) if "MOODWALL_ENVIRONMENT" in found else None
         if os.environ.get("MOODWALL_ENVIRONMENT") == "production" or file_environment == "production":
             raise SetupError("This helper is local-only and cannot modify production configuration. Use the production deployment procedure.")
+        selected_bundle = args.emotion_model or os.environ.get(EMOTION_DIR_NAME)
+        if not selected_bundle and EMOTION_DIR_NAME in found:
+            selected_bundle = _literal_value(found[EMOTION_DIR_NAME][3])
+        emotion_bundle = emotion_bundle_path(selected_bundle) if selected_bundle else None
         key = os.environ.get(KEY_NAME) or os.environ.get("GEMINI_API_KEY")
         if not key and KEY_NAME in found:
             key = _literal_value(found[KEY_NAME][3])
@@ -282,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
                         key = getpass.getpass("Gemini API key (hidden): ")
                 except getpass.GetPassWarning:
                     raise SetupError("A private terminal is required for hidden input; use a terminal or a protected process environment.") from None
-        updated, changed = update_env(text, key)
+        updated, changed = update_env(text, key, emotion_bundle=emotion_bundle)
         if args.dry_run:
             print("Dry run: no file writes, provider requests or startup.")
             for name in changed:
@@ -294,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Windows: keep the ignored .env in your private user/workspace folder; chmod does not manage Windows ACLs.")
         if args.start:
             print("Worker startup runs a synthetic Gemini connection check; API usage may be billed.")
-            start_stack(path, key, create_operator=args.create_operator, operator_name=args.operator_name)
+            start_stack(path, key, create_operator=args.create_operator, operator_name=args.operator_name, emotion_bundle=emotion_bundle)
         else:
             print("Start locally with: python scripts/setup_gemini.py --start")
         return 0

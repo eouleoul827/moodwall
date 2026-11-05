@@ -1,6 +1,8 @@
 # moodwall
 학생들의 기분과 응원 메시지를 공유하는 전광판 서비스
 
+새 시안을 실제 학생·전광판 화면에 적용했습니다. **Gemini 검수 정책 우선·15초 재생**이며 구름 16종과 낮/밤 색을 사용합니다. [디자인 연결 기준](docs/design-integration.md)을 참고하세요. 기존 감정 bundle이 준비된 PC에서는 `python scripts/setup_gemini.py --start --emotion-model models/student-v0`로 승인 후 구름 색을 자동 선택합니다. [감정 모델 연결](docs/gemini-emotion-integration.md)
+
 ## 팀 개발 시작
 
 일반 백엔드 1명, AI 담당 1명, 프론트엔드 2명이 공동 저장소에서 개발합니다. **백엔드 API·DB migration·검수 작업자에 학생 작성·전광판·운영자 React 화면을 연결했습니다.** 기본 AI는 개발용 더미이며, 실제 학생 모델 v0의 CPU 추론을 선택해서 연결할 수 있습니다. v0는 평가된 게시 허용 기준이 없어 검토 필요 결과만 반환합니다. [프론트 실행 가이드](frontend/README.md), [실제 모델 연결·검증 가이드](docs/student-model-integration.md)
@@ -11,7 +13,7 @@
 
 팀에서 전달받은 [전광판·모바일 HTML 시안](prototypes/README.md)도 포함합니다. 실제 모델 bundle은 [학생 모델 v0 사전 릴리스](https://github.com/eouleoul827/moodwall/releases/tag/student-model-v0-0c45710941f2)의 첨부 파일로 제공합니다. 코드는 기능 브랜치와 PR에서 검토하며, AI 팀의 학습 코드·시드 데이터는 [AI PR #2](https://github.com/eouleoul827/moodwall/pull/2)에 있습니다.
 
-**새 v2 백엔드와 실제 React 화면을 연결했습니다.** 검수·감정 테마 준비를 마친 순서로 한 글씩 전체 화면에 최소 15초 재생하고, 최초 시작 승인부터 1시간 후 원문 공급을 끝내며 같은 내용의 투명 말풍선은 자정까지 유지합니다. 새 글은 현재 재생이 끝날 때까지 기다립니다. [로컬 구현·연결 가이드](docs/playback-local-implementation.md), [세부 재생 설계](docs/playback-design.md), [접수·오류 계약](docs/submission-status-errors.md)을 참고하세요. OpenAPI는 0.10.0, DB head는 `0007_provider_moderation`입니다. 감정 배경은 준비된 테마와 CSS/SVG 효과이며 AI 이미지 생성 기능은 포함하지 않습니다.
+**새 v2 백엔드와 실제 React 화면을 연결했습니다.** 검수·감정 테마 준비를 마친 순서로 한 글씩 전체 화면에 최소 15초 재생하고, 최초 시작 승인부터 1시간 후 원문 공급을 끝내며 같은 내용의 투명 말풍선은 자정까지 유지합니다. 새 글은 현재 재생이 끝날 때까지 기다립니다. [로컬 구현·연결 가이드](docs/playback-local-implementation.md), [세부 재생 설계](docs/playback-design.md), [접수·오류 계약](docs/submission-status-errors.md)을 참고하세요. OpenAPI는 0.11.0, DB head는 `0008_display_diagnostics`입니다. 감정 배경은 준비된 테마와 CSS/SVG 효과이며 AI 이미지 생성 기능은 포함하지 않습니다.
 
 학생에게는 [기존 시안의 완료 카드](docs/student-ux.md)를 유지합니다. 접수를 확인하면 메시지를 보냈어요!를 보여주고 상세 처리 단계는 노출하지 않으며, 문제가 확정된 경우에만 짧게 안내합니다.
 

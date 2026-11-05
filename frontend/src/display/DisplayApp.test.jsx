@@ -82,6 +82,17 @@ describe('public display', () => {
     act(() => app.wiring.renderBubbles({ visible: false, bubbles: [], totalCount: 0 }));
     expect(screen.queryByText(bubble.content)).toBeNull(); expectQuiet();
   });
+  it('renders the new cloud artwork and labels statistics with the visible cache scope', async () => {
+    const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    act(() => app.wiring.renderBubbles({ visible: true, bubbles: [{ ...item, content: '오늘도 수고했어' }], totalCount: 450 }));
+    expect(screen.getByRole('heading', { name: /지금 1개의 구름이\s*머물고 있어요/ })).toBeTruthy();
+    expect(screen.getAllByText('이 화면에 남은 기분 기준')).toHaveLength(2);
+    expect(screen.queryByText(/450|°C|약 1분|3회 경고|5회 정지/)).toBeNull();
+    expect(screen.getByText('오늘도 수고했어').closest('.mw-bubble').dataset.cloudShape).toMatch(/^cloud-\d{2}\.svg$/);
+    act(() => app.wiring.renderer.show(item));
+    expect(screen.getByRole('region', { name: '새로운 메시지' }).querySelector('.mw-duration-track').dataset.durationSeconds).toBe('15');
+    expectQuiet();
+  });
   it('uses SSE hints and silently stops on authentication failure without a registration form', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     act(() => events[0].listeners.get('state.changed')({ data: '{}' })); expect(app.runtime.refresh).toHaveBeenCalledTimes(1);
@@ -107,6 +118,7 @@ describe('public display', () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     await app.wiring.renderer.prepare(item, { signal: new AbortController().signal });
     expect(load).toHaveBeenCalledWith('400 96px "Jua"', item.content);
+    expect(load).toHaveBeenCalledWith('700 96px "Noto Sans KR"', item.content);
     load.mockRejectedValueOnce(new Error('FONT_UNAVAILABLE'));
     await expect(app.wiring.renderer.prepare(item, { signal: new AbortController().signal })).rejects.toThrow('FONT_UNAVAILABLE');
     const cancelled = new AbortController(); cancelled.abort(new Error('NO_LONGER_VISIBLE'));

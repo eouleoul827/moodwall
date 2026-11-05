@@ -1,5 +1,7 @@
 # 무드월 React 화면
 
+2026-11-05 [새 시안](../moodwall-design/README.md)의 학생·전광판 디자인을 적용했다. 로컬 구름 16종·낮/밤 색·모바일 다크 모드를 사용하며 Gemini 검수 정책과 15초 재생을 우선한다. [디자인 연결 기준](../docs/design-integration.md)과 [선택적 감정 모델 연결](../docs/gemini-emotion-integration.md)을 따른다.
+
 팀의 [원본 HTML 시안](../prototypes/README.md)을 참고해 학생·전광판·운영자 화면을 React로 만들고 실제 v2 백엔드 API에 연결했다. 원본 HTML은 보존한다. 감정 배경은 준비된 CSS/SVG 테마를 선택하는 방식이며 이미지 생성 모델을 실행하지 않는다.
 
 | 주소 | 용도 |

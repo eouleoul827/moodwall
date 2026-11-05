@@ -192,7 +192,7 @@ v1 새 접수는 Gemini 활성 전광판에서 같은 업데이트 오류로 닫
 
 동일 제출의 외부 검수 workflow는 최대 1회이며 countTokens 1회와 생성 최대 1회로 구성한다. durable 원장의 `UNIQUE(submission_id)`와 `RESERVED→STARTED` 조건부 전이를 첫 HTTP **전에 커밋**한다. crash·timeout·응답 유실 뒤 STARTED를 새 호출 권한으로 되돌리지 않는다. 송신 전후를 알 수 없는 경우 비용은 UNKNOWN, 글은 비공개 실패다. 제공자 멱등 실행을 가정하지 않는다. 같은 결과의 DB 최종화 재시도만 token·lease 안에서 허용한다.
 
-claim 15초, provider 두 요청 전체 8초, 연결 2초, wrapper 12초, 감정 최대 1초, 최종화 여유 2초를 초기값으로 잡는다. 전체 접수 기한은 기존 120초 또는 KST 자정 중 빠른 시점이다. 실제 프로필의 RPM 6·입력 TPM 200,000·RPD 1,000·USD 3/KST일·동시 workflow 1은 초기 내부 상한이다. 자체 쿼터가 두 HTTP를 세므로 RPM 6은 분당 약 3개 workflow다. startup·복구의 합성 probe도 같은 원장과 비용을 사용한다. 상세 예약·공식 단가 구간·회로·정산·복구는 [운영 설계](gemini-moderation-operations.md)를 따른다.
+claim 15초, provider 두 요청 전체 8초, 연결 2초, 감정을 포함한 wrapper 12초, 최종화 여유 2초를 사용한다. 선택적 로컬 감정은 wrapper의 남은 시간 안에서 실행하며 독립적인 1초 강제 종료는 보장하지 않는다. 전체 접수 기한은 기존 120초 또는 KST 자정 중 빠른 시점이다. 실제 프로필의 RPM 6·입력 TPM 200,000·RPD 1,000·USD 3/KST일·동시 workflow 1은 초기 내부 상한이다. 자체 쿼터가 두 HTTP를 세므로 RPM 6은 분당 약 3개 workflow다. startup·복구의 합성 probe도 같은 원장과 비용을 사용한다. 상세 예약·공식 단가 구간·회로·정산·복구는 [운영 설계](gemini-moderation-operations.md)를 따른다.
 
 ## 8. 단문 분류가 놓치는 공격과 사고 대응
 

@@ -31,6 +31,7 @@ python scripts/setup_gemini.py --start --create-operator --operator-name admin
 | `--create-operator` | `--start`와 함께 사용. 비밀번호를 대화식으로 받아 최초 ADMIN 생성 |
 | `--dry-run` | 바꿀 변수 이름과 `[REDACTED]`만 표시. 쓰기·시작·통신 없음 |
 | `--env-file 경로` | 다른 로컬 dotenv 파일 선택. 기본값은 저장소 `.env` |
+| `--emotion-model 경로` | 준비된 로컬 감정 bundle 선택·경로 보존. Gemini ALLOW 뒤 색 선택에만 사용 |
 
 실행기는 UTF-8/BOM·줄바꿈·관련 없는 설정·주석을 보존하고 임시 파일에서 원자적으로 교체한다. 중복 변수·닫히지 않은 따옴표·불완전한 기존 DB 비밀은 임의 수정하지 않고 오류를 반환한다. POSIX 권한은 `0600`으로 설정한다. Windows에서는 이 권한값이 ACL을 관리하지 않으므로 `.env`가 있는 작업 폴더를 개인 계정의 비공개 폴더로 관리한다.
 
@@ -62,9 +63,9 @@ mock은 77개 정답만 재현하며 예문 밖의 일반 문장은 분류하지
 
 ## 감정과 구름 색상 연결
 
-검수와 감정 표현은 별도 결과다. 승인된 글의 `emotion`을 서버가 `sceneId`로 바꾸고, 전광판은 [감정 색상표](../frontend/src/display/themes.js)에서 색·배경색·효과를 선택한다. 예를 들어 `JOY → joy → 분홍`, `SADNESS → sadness → 파랑`, `TIRED → tired → 회색`이다. 구름 요소도 이 색상표의 `color` 또는 `tint`를 사용하도록 연결할 수 있다. 모델이 임의 CSS나 색상 코드를 보내는 방식은 사용하지 않는다.
+검수와 감정 표현은 별도 결과다. 승인된 글의 `emotion`을 서버가 `sceneId`로 바꾸고, 전광판은 [감정 색상표](../frontend/src/display/themes.js)에서 구름 색·배경색·효과를 선택한다. 예를 들어 `JOY → joy → 분홍`, `SADNESS → sadness → 파랑`, `TIRED → tired → 회색`이다. [새 디자인](design-integration.md)의 구름 16종에 낮/밤 색과 중립색을 적용했다. 모델이 임의 CSS나 색상 코드를 보내는 방식은 사용하지 않는다.
 
-현재 Gemini 프로필은 검수만 수행하며 감정은 `NEUTRAL` fallback이다. [분석기](../backend/inference/provider_moderation.py)의 `emotion_predictor` 연결 지점에 별도 감정 분석기를 붙일 수 있지만, 기본 로더에는 아직 실제 감정 분석기를 연결하지 않았다. 감정 분석 실패는 중립 색상으로 처리하고 검수의 공개 허용 여부를 바꾸지 않는다. 구름 도형 전체가 이미 감정별로 채색됐거나 실제 기분을 자동 분석하고 있다고 표시하지 않는다.
+Gemini는 검수만 수행한다. `--emotion-model models/student-v0`로 기존 bundle을 선택하면 [감정 전용 연결](gemini-emotion-integration.md)이 ALLOW 뒤에만 실행된다. 선택하지 않으면 `NEUTRAL`이다. 일반적인 감정 추론 오류·애매한 결과·로컬 ‘부적절’ 분류는 중립색으로 처리하고 Gemini 판정을 바꾸지 않는다. 감정 실행이 멈추면 전체 12초 wrapper/15초 추론 경계에서 기술 실패로 비공개 종료될 수 있다. 감정 모델 정확도는 별도 평가한다.
 
 ## API 키 없이 모의 실행
 

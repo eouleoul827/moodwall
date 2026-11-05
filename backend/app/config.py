@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import AliasChoices, Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, PrivateAttr, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,6 +55,9 @@ class Settings(BaseSettings):
     lexicon_version: str = "lexicon-v1"
     lexicon_path: str | None = None
     model_manifest_path: str | None = None
+    # Optional local presentation classifier; Gemini remains the safety gate.
+    emotion_manifest_path: str | None = None
+    _emotion_release: dict | None = PrivateAttr(default=None)
     worker_warmup_seconds: int = Field(default=180, ge=1, le=600)
     inference_timeout_seconds: int = Field(default=60, ge=1, le=60)
     db_pool_size: int = Field(default=5, ge=1, le=10)
@@ -86,6 +90,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_environment(self):
+        if self.emotion_manifest_path is not None:
+            if self.moderation_profile not in {"gemini", "gemini_mock"}:
+                raise ValueError("Local presentation emotions require Gemini moderation")
+            from inference.local_emotion import verify_emotion_bundle
+
+            self._emotion_release = verify_emotion_bundle(self.emotion_manifest_path).release_parameters
         origin = urlsplit(self.public_origin)
         if origin.scheme not in {"http", "https"} or not origin.hostname:
             raise ValueError("PUBLIC_ORIGIN must be an http(s) origin")
@@ -180,6 +190,10 @@ class Settings(BaseSettings):
             "auto_strikes",
         )
         result = {name: getattr(self, name) for name in names}
+        if self._emotion_release is not None:
+            # Verified at Settings creation, not once per HTTP request. The
+            # worker rechecks before loading; filesystem paths are not identity.
+            result["local_emotion"] = deepcopy(self._emotion_release)
         if self.moderation_profile == "gemini":
             result["provider_tariff_valid_from"] = self.provider_tariff_valid_from.isoformat()
             result["provider_tariff_valid_until"] = self.provider_tariff_valid_until.isoformat()
