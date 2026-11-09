@@ -76,7 +76,7 @@ async def playback_graph(database, settings):
             "first_start_authorized_at": ACCEPTED,
             "content_delete_at": ACCEPTED + timedelta(hours=1),
             "quota_status": "CONSUMED",
-            "completed_at": ACCEPTED + timedelta(seconds=14),
+            "completed_at": ACCEPTED + timedelta(seconds=4),
         },
     ],
     ids=[
@@ -90,7 +90,7 @@ async def playback_graph(database, settings):
         "predisplay-no-positive-time",
         "purged-without-time",
         "available-with-purged-time",
-        "completion-before-15s",
+        "completion-before-5s-floor",
     ],
 )
 async def test_receipt_rejects_inconsistent_lifetime_even_with_null_fields(playback_graph, assignments):

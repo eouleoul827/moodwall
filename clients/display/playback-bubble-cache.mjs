@@ -353,7 +353,7 @@ export class PlaybackBubbleSynchronizer {
       throw new TypeError("Display page limit exceeded");
     } catch (error) {
       if (epoch !== this.epoch) return { completed: false, pages };
-      if ([401, 403].includes(error?.status)) this.resetAuthentication();
+      if (error?.status === 401) this.resetAuthentication();
       else this.cache.disconnect();
       throw error;
     } finally { if (this.controller === controller) this.controller = null; }

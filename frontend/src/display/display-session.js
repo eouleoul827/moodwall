@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export const AUTH_ERRORS = new Set([401, 403]);
+// Only 401 means the device credential is gone. 403 is CSRF expiry, an origin
+// mismatch or a school web-filter page: retry it instead of blanking forever.
+export const AUTH_ERRORS = new Set([401]);
 export const SESSION_CHANNEL = 'moodwall-display-session';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,7 +84,7 @@ export function useDisplaySession(fetcher = fetch) {
         if (AUTH_ERRORS.has(error.status)) invalidateSession();
         else {
           setBoot('ERROR'); setProblem('연결을 확인한 뒤 다시 시도해 주세요.');
-          if (error.status === undefined || error.status === 429 || error.status >= 500) {
+          if (error.status === undefined || error.status === 403 || error.status === 429 || error.status >= 500) {
             const delay = error.status === 429 ? Math.max(retry, error.retryAfterMs || retry) : retry;
             if (error.status === 429) notBefore = performance.now() + delay;
             timer = setTimeout(verify, delay);

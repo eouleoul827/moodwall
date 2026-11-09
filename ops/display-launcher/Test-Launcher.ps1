@@ -19,6 +19,12 @@ function Assert-Throws {
     $script:Passed++
 }
 
+function Invoke-ExpectedInstallerFailure {
+    param([scriptblock]$Action)
+    # Windows PowerShell 5.1 turns redirected native stderr into a terminating error under Stop.
+    $ErrorActionPreference = 'Continue'
+    & $Action 2>&1 | Out-Null
+}
 $testRoot = [IO.Path]::Combine([IO.Path]::GetTempPath(), ('moodwall-launcher-test-' + [Guid]::NewGuid().ToString('N')))
 [void][IO.Directory]::CreateDirectory($testRoot)
 try {
@@ -225,6 +231,63 @@ Export-ModuleMember -Function *
     Assert-Equal $LASTEXITCODE 0 'public click refuses staff window reuse before any network or browser action'
     Assert-Equal ($output -join '') '' 'staff window guard is silent on public launch'
     Assert-Equal (@(Get-MoodwallLauncherEvents $silentFixture)[-1] -match ' STAFF_WINDOW_OPEN$') $true 'staff role cannot fall through to activation'
+
+    # --- Library LED wall (2046 x 768) and laptop-as-server mode ---
+    $laptop = [pscustomobject]@{ X = 0; Y = 0; Width = 1920; Height = 1080; Primary = $true }
+    $wall = [pscustomobject]@{ X = 1920; Y = 0; Width = 2046; Height = 768; Primary = $false }
+    Assert-Equal (Select-MoodwallTargetScreen @($laptop, $wall)).X 1920 'extended desktop opens on the LED wall'
+    Assert-Equal (Select-MoodwallTargetScreen @($wall, $laptop)).X 1920 'screen order does not matter'
+    $wallOnly = [pscustomobject]@{ X = 0; Y = 0; Width = 2046; Height = 768; Primary = $true }
+    Assert-Equal (Select-MoodwallTargetScreen @($wallOnly)).Width 2046 'second-screen-only mode uses the only screen'
+    Assert-Equal (Select-MoodwallTargetScreen @($laptop)).Width 1920 'laptop alone still opens'
+    Assert-Throws { Select-MoodwallTargetScreen @([pscustomobject]@{ X = 0; Y = 0; Width = 0; Height = 0; Primary = $true }) } 'no usable screen'
+    $windowArgs = @(Get-MoodwallWindowArguments $wall)
+    Assert-Equal ($windowArgs -join ' ') '--window-position=1920,0 --window-size=2046,768' 'window placed on the wall'
+    $placed = @(Add-MoodwallWindowArguments -BrowserArguments $plan.BrowserArguments -WindowArguments $windowArgs)
+    Assert-Equal $placed[-1] '"https://school.test/display"' 'URL remains the last browser argument'
+    Assert-Equal ($placed -contains '--window-size=2046,768') $true 'window size argument added'
+    Assert-Equal (@(Add-MoodwallWindowArguments -BrowserArguments $plan.BrowserArguments).Count) $plan.BrowserArguments.Count 'no screen keeps original arguments'
+    Assert-Equal ($plan.BrowserArguments -contains '--hide-crash-restore-bubble') $true 'no restore bubble on the public wall'
+
+    $repo = [IO.Path]::Combine($testRoot, 'Server Repo')
+    [void][IO.Directory]::CreateDirectory([IO.Path]::Combine($repo, 'frontend', 'dist'))
+    foreach ($file in @('compose.yaml', 'compose.frontend.yaml', 'compose.gemini.yaml', 'compose.library.yaml')) { [IO.File]::WriteAllText([IO.Path]::Combine($repo, $file), 'services: {}') }
+    [IO.File]::WriteAllText([IO.Path]::Combine($repo, 'frontend', 'dist', 'index.html'), '<!doctype html>')
+    $envPath = [IO.Path]::Combine($repo, '.env')
+    [IO.File]::WriteAllText($envPath, "MOODWALL_BOARD_ID=x`r`nMOODWALL_PUBLIC_ORIGIN='https://moodwall.school.edu/'`r`n")
+    Assert-Equal (Get-MoodwallEnvOrigin $envPath) 'https://moodwall.school.edu' 'origin read from .env without quotes or slash'
+    $server = Get-MoodwallServerConfiguration -ServerRoot $repo -ComposeFiles @('compose.yaml', 'compose.library.yaml')
+    Assert-Equal $server.serverRoot $repo 'server root normalized'
+    Assert-Throws { Get-MoodwallServerConfiguration -ServerRoot $repo -ComposeFiles @('..\evil.yaml') } 'compose file names are restricted'
+    Assert-Throws { Get-MoodwallServerConfiguration -ServerRoot $repo -ComposeFiles @('compose.missing.yaml') } 'missing compose file rejected'
+    $composeArgs = @(Get-MoodwallComposeArguments ([pscustomobject]$server) @('up', '-d'))
+    Assert-Equal ($composeArgs[0..2] -join '|') ('compose|--project-directory|' + $repo) 'compose project directory pinned'
+    Assert-Equal $composeArgs[-1] '-d' 'compose command appended last'
+
+    $serverInstall = [IO.Path]::Combine($testRoot, 'Server Install')
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly
+    Assert-Equal $LASTEXITCODE 0 'server-mode PlanOnly succeeds without typing the URL'
+    $serverPlan = ($output -join "`n") | ConvertFrom-Json
+    Assert-Equal $serverPlan.DisplayUrl 'https://moodwall.school.edu/display' 'wall address comes from PUBLIC_ORIGIN'
+    Assert-Equal ($serverPlan.Server.composeFiles -join ',') 'compose.yaml,compose.frontend.yaml,compose.gemini.yaml,compose.library.yaml' 'default library compose stack'
+    Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOnShortcutPath)) '무드월 켜기.lnk' 'power-on icon'
+    Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOffShortcutPath)) '무드월 끄기.lnk' 'power-off icon'
+    Assert-Equal ([IO.Directory]::Exists($serverInstall)) $false 'server-mode PlanOnly writes nothing'
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -DisplayUrl 'https://other.school.edu' -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'launcher URL different from PUBLIC_ORIGIN is refused'
+    [IO.File]::WriteAllText($envPath, "MOODWALL_PUBLIC_ORIGIN=http://localhost:8000`r`n")
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'localhost PUBLIC_ORIGIN cannot serve phones and is refused'
+    [IO.File]::WriteAllText($envPath, "MOODWALL_PUBLIC_ORIGIN=https://moodwall.school.edu`r`n")
+    Remove-Item -LiteralPath ([IO.Path]::Combine($repo, 'frontend', 'dist', 'index.html'))
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'missing frontend build is refused'
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'neither URL nor server root is refused'
+    $profileProcesses = @(Select-MoodwallProfileProcesses -ProfileDirectory $plan.ProfileDirectory -BrowserPath $plan.BrowserPath -Processes @($displayProcess, $personalProcess))
+    Assert-Equal $profileProcesses.Count 1 'power-off closes only the dedicated Moodwall profile'
+    # The last checks deliberately run failing installers; CI's dot-sourced shell exits with $LASTEXITCODE.
+    $global:LASTEXITCODE = 0
     Write-Output ("PASS: $script:Passed launcher checks; no UI, network or real installation performed.")
 } finally {
     # Delete only the unique temporary test directory whose absolute ancestry is checked.

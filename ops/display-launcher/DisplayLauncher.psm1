@@ -4,6 +4,10 @@ $script:MarkerName = 'moodwall-display-launcher.marker'
 $script:MarkerValue = 'MoodwallDisplayLauncher:1'
 $script:ShortcutName = '무드월 전광판 시작.lnk'
 $script:StaffShortcutName = '무드월 직원 설정·점검.lnk'
+$script:PowerOnShortcutName = '무드월 켜기.lnk'
+$script:PowerOffShortcutName = '무드월 끄기.lnk'
+# Library LED wall: 2046 x 768 px (8000 x 3000 mm, P4). Used to find it among screens.
+$script:PanelAspect = 2046 / 768
 
 function ConvertTo-MoodwallDisplayUrl {
     [CmdletBinding()]
@@ -107,7 +111,7 @@ function Get-MoodwallLaunchPlan {
         BrowserKind = $Browser.Kind
         BrowserPath = $browserPath
         ProfileDirectory = $profilePath
-        BrowserArguments = @('--no-first-run', '--no-default-browser-check', '--new-window', '--start-fullscreen', ('--user-data-dir="' + $profilePath + '"'), ('"' + $url + '"'))
+        BrowserArguments = @('--no-first-run', '--no-default-browser-check', '--hide-crash-restore-bubble', '--new-window', '--start-fullscreen', ('--user-data-dir="' + $profilePath + '"'), ('"' + $url + '"'))
         ShortcutPath = [IO.Path]::Combine($desktopPath, $script:ShortcutName)
         ShortcutTarget = $powershellPath
         ShortcutArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $launcherPath + '"'
@@ -116,6 +120,10 @@ function Get-MoodwallLaunchPlan {
         SetupUrl = ([Uri]$url).GetLeftPart([UriPartial]::Authority) + '/display/setup'
         SetupBrowserArguments = @('--no-first-run', '--no-default-browser-check', '--new-window', ('--user-data-dir="' + $profilePath + '"'), ('"' + ([Uri]$url).GetLeftPart([UriPartial]::Authority) + '/display/setup"'))
         StaffSessionPath = [IO.Path]::Combine($rootPath, 'staff-session.marker')
+        PowerOnShortcutPath = [IO.Path]::Combine($desktopPath, $script:PowerOnShortcutName)
+        PowerOnArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + [IO.Path]::Combine($rootPath, 'Start-Moodwall.ps1') + '"'
+        PowerOffShortcutPath = [IO.Path]::Combine($desktopPath, $script:PowerOffShortcutName)
+        PowerOffArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + [IO.Path]::Combine($rootPath, 'Stop-Moodwall.ps1') + '"'
         Configuration = [ordered]@{ schemaVersion = 1; displayUrl = $url }
     }
 }
@@ -137,7 +145,7 @@ function Assert-MoodwallInstallRoot {
     if (-not [IO.File]::Exists($markerPath) -or [IO.File]::ReadAllText($markerPath).Trim() -ne $script:MarkerValue) {
         throw '기존 파일이 있는 폴더에는 설치할 수 없습니다. 무드월 전용 빈 폴더를 선택해 주세요.'
     }
-    $allowed = @($script:MarkerName, 'DisplayLauncher.psm1', 'Start-Display.ps1', 'Start-Staff.ps1', 'config.json', 'Profiles', 'Logs', 'staff-session.marker')
+    $allowed = @($script:MarkerName, 'DisplayLauncher.psm1', 'Start-Display.ps1', 'Start-Staff.ps1', 'Start-Moodwall.ps1', 'Stop-Moodwall.ps1', 'config.json', 'server.json', 'Profiles', 'Logs', 'staff-session.marker')
     foreach ($item in $items) {
         if ($item.Name -notin $allowed -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw '설치 폴더에 알 수 없는 파일 또는 연결 항목이 있어 갱신을 중단했습니다.'
@@ -169,6 +177,20 @@ function Get-MoodwallExistingDisplay {
         [Parameter(Mandatory = $true)][string]$BrowserPath,
         [AllowEmptyCollection()][object[]]$Processes = @()
     )
+    $matched = @(Select-MoodwallProfileProcesses -ProfileDirectory $ProfileDirectory -BrowserPath $BrowserPath -Processes $Processes)
+    $window = @($matched | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1)
+    if ($window.Count) { return [pscustomobject]@{ Action = 'Activate'; Process = $window[0] } }
+    if ($matched.Count) { return [pscustomobject]@{ Action = 'AlreadyRunning'; Process = $matched[0] } }
+    return [pscustomobject]@{ Action = 'Launch'; Process = $null }
+}
+
+function Select-MoodwallProfileProcesses {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProfileDirectory,
+        [Parameter(Mandatory = $true)][string]$BrowserPath,
+        [AllowEmptyCollection()][object[]]$Processes = @()
+    )
     $profilePath = ConvertTo-MoodwallAbsolutePath $ProfileDirectory
     $expectedBrowser = ConvertTo-MoodwallAbsolutePath $BrowserPath
     $matched = @()
@@ -181,10 +203,95 @@ function Get-MoodwallExistingDisplay {
         try { $candidate = ConvertTo-MoodwallAbsolutePath $candidate } catch { continue }
         if ([string]::Equals($candidate, $profilePath, [StringComparison]::OrdinalIgnoreCase)) { $matched += $process }
     }
-    $window = @($matched | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1)
-    if ($window.Count) { return [pscustomobject]@{ Action = 'Activate'; Process = $window[0] } }
-    if ($matched.Count) { return [pscustomobject]@{ Action = 'AlreadyRunning'; Process = $matched[0] } }
-    return [pscustomobject]@{ Action = 'Launch'; Process = $null }
+    return $matched
+}
+
+function Select-MoodwallTargetScreen {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object[]]$Screens, [double]$PanelAspect = $script:PanelAspect)
+    # The wall is the screen shaped like the panel; a laptop's own 16:9/16:10 screen
+    # loses, and a primary screen wins only when nothing better is attached.
+    $best = $null; $bestScore = [double]::MaxValue
+    foreach ($screen in $Screens) {
+        if ($screen.Width -le 0 -or $screen.Height -le 0) { continue }
+        $score = [Math]::Abs(($screen.Width / $screen.Height) - $PanelAspect)
+        if ($screen.Primary) { $score += 0.5 }
+        if ($score -lt $bestScore) { $best = $screen; $bestScore = $score }
+    }
+    if (-not $best) { throw '연결된 화면을 찾지 못했습니다.' }
+    return $best
+}
+
+function Get-MoodwallScreens {
+    Add-Type -AssemblyName System.Windows.Forms
+    foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
+        [pscustomobject]@{ X = $screen.Bounds.X; Y = $screen.Bounds.Y; Width = $screen.Bounds.Width; Height = $screen.Bounds.Height; Primary = $screen.Primary }
+    }
+}
+
+function Get-MoodwallWindowArguments {
+    param([Parameter(Mandatory = $true)][object]$Screen)
+    # --start-fullscreen uses the monitor the window opens on; without a position
+    # Chromium picks the primary (laptop) screen in extended mode.
+    return @(('--window-position=' + [int]$Screen.X + ',' + [int]$Screen.Y), ('--window-size=' + [int]$Screen.Width + ',' + [int]$Screen.Height))
+}
+
+function Add-MoodwallWindowArguments {
+    param([Parameter(Mandatory = $true)][string[]]$BrowserArguments, [AllowEmptyCollection()][string[]]$WindowArguments = @())
+    # The quoted URL stays last.
+    if (-not $WindowArguments.Count) { return $BrowserArguments }
+    return @($BrowserArguments[0..($BrowserArguments.Count - 2)]) + $WindowArguments + @($BrowserArguments[-1])
+}
+
+function Get-MoodwallEnvOrigin {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$EnvPath)
+    foreach ($line in [IO.File]::ReadAllLines($EnvPath)) {
+        $match = [regex]::Match($line, '^\s*MOODWALL_PUBLIC_ORIGIN\s*=\s*(?<value>.*?)\s*$')
+        if ($match.Success) { return $match.Groups['value'].Value.Trim([char[]]@([char]34, [char]39)).TrimEnd('/') }
+    }
+    throw '.env에 MOODWALL_PUBLIC_ORIGIN이 없습니다.'
+}
+
+function Get-MoodwallServerConfiguration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ServerRoot,
+        [Parameter(Mandatory = $true)][string[]]$ComposeFiles
+    )
+    $root = ConvertTo-MoodwallAbsolutePath $ServerRoot
+    foreach ($file in $ComposeFiles) {
+        if ($file -cnotmatch '^compose(\.[a-z0-9-]+)?\.yaml$') { throw ('허용하지 않는 Compose 파일 이름입니다: ' + $file) }
+        if (-not [IO.File]::Exists([IO.Path]::Combine($root, $file))) { throw ('Compose 파일이 없습니다: ' + $file) }
+    }
+    return [ordered]@{ schemaVersion = 1; serverRoot = $root; composeFiles = @($ComposeFiles) }
+}
+
+function Read-MoodwallServerConfiguration {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+    $path = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'server.json')
+    if (-not [IO.File]::Exists($path)) { return $null }
+    $raw = [IO.File]::ReadAllText($path)
+    if ($raw.Length -gt 4096) { throw '서버 설정 파일을 확인해 주세요.' }
+    $config = $raw | ConvertFrom-Json -ErrorAction Stop
+    if ($config.schemaVersion -ne 1 -or $config.serverRoot -isnot [string]) { throw '서버 설정 파일 형식이 올바르지 않습니다.' }
+    return [pscustomobject](Get-MoodwallServerConfiguration -ServerRoot $config.serverRoot -ComposeFiles @($config.composeFiles))
+}
+
+function Get-MoodwallComposeArguments {
+    param([Parameter(Mandatory = $true)][object]$Server, [Parameter(Mandatory = $true)][string[]]$Command)
+    $arguments = @('compose', '--project-directory', $Server.serverRoot)
+    foreach ($file in $Server.composeFiles) { $arguments += @('-f', [IO.Path]::Combine($Server.serverRoot, $file)) }
+    return $arguments + $Command
+}
+
+function Resolve-MoodwallDocker {
+    $command = Get-Command docker.exe -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    $fallback = [IO.Path]::Combine($env:ProgramFiles, 'Docker', 'Docker', 'resources', 'bin', 'docker.exe')
+    if ([IO.File]::Exists($fallback)) { return $fallback }
+    throw 'Docker Desktop이 설치되어 있지 않습니다.'
 }
 
 function Test-MoodwallEndpoint {
@@ -263,7 +370,7 @@ function Write-MoodwallLauncherEvent {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$InstallRoot,
-        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED')][string]$Code
+        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED', 'POWER_ON', 'DOCKER_STARTING', 'DOCKER_UNAVAILABLE', 'SERVER_FAILED', 'SERVER_UNAVAILABLE', 'POWER_ON_FAILED', 'POWER_OFF', 'POWER_OFF_FAILED')][string]$Code
     )
     try {
         $logRoot = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'Logs')
@@ -292,4 +399,4 @@ function Get-MoodwallLauncherEvents {
     return @(Get-Content -LiteralPath $path -Encoding UTF8 -Tail 12 | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z [A-Z_]+$' })
 }
 
-Export-ModuleMember -Function ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents
+Export-ModuleMember -Function Select-MoodwallProfileProcesses, Select-MoodwallTargetScreen, Get-MoodwallScreens, Get-MoodwallWindowArguments, Add-MoodwallWindowArguments, Get-MoodwallEnvOrigin, Get-MoodwallServerConfiguration, Read-MoodwallServerConfiguration, Get-MoodwallComposeArguments, Resolve-MoodwallDocker, ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents

@@ -91,6 +91,9 @@ describe('public display', () => {
     expect(screen.getByText('오늘도 수고했어').closest('.mw-bubble').dataset.cloudShape).toMatch(/^cloud-\d{2}\.svg$/);
     act(() => app.wiring.renderer.show(item));
     expect(screen.getByRole('region', { name: '새로운 메시지' }).querySelector('.mw-duration-track').dataset.durationSeconds).toBe('15');
+    act(() => app.wiring.renderer.show({ ...item, id: '00000000-0000-4000-8000-000000000011' }, { durationMs: 9000 }));
+    const track = screen.getByRole('region', { name: '새로운 메시지' }).querySelector('.mw-duration-track');
+    expect(track.dataset.durationSeconds).toBe('9'); expect(track.style.getPropertyValue('--play-duration')).toBe('9000ms');
     expectQuiet();
   });
   it('uses SSE hints and silently stops on authentication failure without a registration form', async () => {
@@ -164,10 +167,37 @@ describe('public display', () => {
     expect(app.runtime.start).toHaveBeenCalledTimes(1);
     expect(app.fetcher.mock.calls.some(([path]) => path === '/api/display/pair')).toBe(false); app.unmount();
   });
-  it.each([401, 403])('silently stops startup retries for HTTP %s, including an HTML error', async status => {
-    vi.useFakeTimers(); const app = harness(vi.fn(async () => new Response('Access denied', { status })));
+  it('silently stops startup retries for HTTP 401, including an HTML error', async () => {
+    vi.useFakeTimers(); const app = harness(vi.fn(async () => new Response('Access denied', { status: 401 })));
     await act(async () => {}); expectQuiet(); await act(async () => vi.advanceTimersByTimeAsync(120_000));
     expect(app.fetcher).toHaveBeenCalledTimes(1); expect(app.runtime.start).not.toHaveBeenCalled(); app.unmount();
+  });
+  it('keeps retrying a 403 (school web filter page, CSRF or origin) quietly with bounded backoff', async () => {
+    vi.useFakeTimers(); let attempts = 0;
+    const app = harness(vi.fn(async path => path === '/api/display/session'
+      ? (++attempts <= 3 ? new Response('Access denied', { status: 403 }) : response(session)) : response(ticket)));
+    await act(async () => {}); expectQuiet();
+    await act(async () => vi.advanceTimersByTimeAsync(5000 + 10_000 + 20_000));
+    expect(attempts).toBe(4); expect(app.runtime.start).toHaveBeenCalledTimes(1); expectQuiet(); app.unmount();
+  });
+  it('a 403 during playback refreshes the session instead of blanking the wall', async () => {
+    const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByAltText('기분을 남기는 참여 QR 코드')).toBeTruthy());
+    const before = app.fetcher.mock.calls.filter(([path]) => path === '/api/display/session').length;
+    app.fetcher.mockImplementationOnce(async () => response({ code: 'CSRF_REJECTED' }, 403));
+    await act(async () => { await app.wiring.fetch('/api/display/heartbeat', { method: 'POST' }); });
+    await waitFor(() => expect(app.fetcher.mock.calls.filter(([path]) => path === '/api/display/session').length).toBe(before + 1));
+    expect(app.runtime.resetAuthentication).not.toHaveBeenCalled();
+    expect(screen.getByAltText('기분을 남기는 참여 QR 코드')).toBeTruthy(); app.unmount();
+  });
+  it('drifts only the newest clouds while still counting every cloud', async () => {
+    const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    const many = Array.from({ length: 45 }, (_, index) => ({ ...item, content: `구름 ${index}`,
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}` }));
+    act(() => app.wiring.renderBubbles({ visible: true, bubbles: many, totalCount: 45 }));
+    expect(document.querySelectorAll('.mw-bubble-track')).toHaveLength(30);
+    expect(screen.queryByText('구름 0')).toBeNull(); expect(screen.getByText('구름 44')).toBeTruthy();
+    expect(document.querySelector('.mw-wall-heading em').textContent).toBe('45'); app.unmount();
   });
   it('recovers from malformed successful proxy responses without exposing them', async () => {
     vi.useFakeTimers(); let attempts = 0;

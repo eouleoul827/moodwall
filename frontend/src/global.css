@@ -15,4 +15,5 @@ button { color: inherit; }
 .screen-message p { color: #4b505b; line-height: 1.7; margin: 0; }
 .screen-message .brand-word { font-size: 25px; color: #2f6beb; }
 .screen-message button { border: 0; background: #2f6beb; color: white; padding: 16px 20px; border-radius: 16px; font-weight: 700; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+/* The public display opts out with .mw-signage: the laptop's setting is not the viewers' preference. */
+@media (prefers-reduced-motion: reduce) { :root:not(.mw-signage) *, :root:not(.mw-signage) *::before, :root:not(.mw-signage) *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

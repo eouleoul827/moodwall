@@ -258,6 +258,24 @@ test("midnight clears memory and persistent data even while offline", () => {
   assert.equal(storage.getItem(cache.key), null);
 });
 
+test("KST midnight clears every cloud, including one still inside its first hour", () => {
+  const storage = memoryStorage();
+  const cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  const lateStart = Date.parse("2026-11-04T14:30:00Z"); // 23:30 KST; its hour ends 00:30 KST.
+  const lateServerNow = lateStart + 10 * 60_000;
+  const floating = card({ firstStartAuthorizedAt: iso(lateStart), contentDeleteAt: iso(lateStart + 3_600_000) });
+  const ambient = card({ id: "44444444-4444-4444-8444-444444444444", content: "아침에 남긴 말",
+    firstStartAuthorizedAt: iso(BASE), contentDeleteAt: iso(BASE + 3_600_000) });
+  assert.equal(cache.synchronize(snapshot({ serverNow: iso(lateServerNow), snapshotAt: iso(lateServerNow),
+    onlineLeaseUntil: iso(lateServerNow + 30 * 60_000), bubbles: [ambient, floating] }), 0), true);
+  const before = cache.view(0);
+  assert.deepEqual(before.bubbles.map(bubble => bubble.phase).sort(), ["AMBIENT", "FLOATING"]);
+  const atMidnight = Date.parse("2026-11-04T15:00:00Z") - lateServerNow;
+  assert.equal(cache.view(atMidnight).visible, false);
+  assert.equal(cache.cards.size, 0);
+  assert.equal(storage.getItem(cache.key), null);
+});
+
 test("server cannot accidentally give a new first-start TTL on replay", () => {
   const cache = new PlaybackBubbleCache({ boardId: BOARD });
   assert.equal(cache.synchronize(snapshot({ bubbles: [card({ contentDeleteAt: iso(BASE + 3_600_001) })] }), 0), false);

@@ -7,10 +7,16 @@ import './display.css';
 import './display-scene.css';
 import DisplayBackdrop from './DisplayBackdrop.jsx';
 import CloudMessage from './CloudMessage.jsx';
+import LedQr from './LedQr.jsx';
 import { AUTH_ERRORS, displayRequest, useDisplaySession } from './display-session.js';
 import { createDisplayDiagnostics } from './display-diagnostics.js';
 
 const EMPTY_BUBBLES = { visible: false, bubbles: [], totalCount: 0 };
+// Every received cloud stays counted in the heading and forecast, but only the
+// newest ones drift. A 2046 × 768 panel becomes an unreadable, GPU-heavy mass
+// long before the 2000-card cache limit (each cloud is a masked, filtered layer).
+export const MAX_DRIFTING_CLOUDS = 30;
+const RECHECK_AFTER_403_MS = 30_000;
 function WeatherIcon({ className = '' }) {
   return <svg className={className} viewBox="0 0 100 100" fill="none" aria-hidden="true">
     <circle cx="40" cy="36" r="18" fill="#f6d49b" />
@@ -42,7 +48,9 @@ function SceneParticles({ item }) {
 
 const BubbleField = function BubbleField({ view, period }) {
   return <div className="mw-bubble-field" aria-label="이 화면에 남은 메시지">
-    {view.visible && view.bubbles.map((bubble, index) => {
+    {view.visible && view.bubbles.slice(-MAX_DRIFTING_CLOUDS).map((bubble, shownIndex, shown) => {
+      // Position from the index in the full ordered list so older clouds never jump rows.
+      const index = view.bubbles.length - shown.length + shownIndex;
       const seed = seedFor(bubble.id);
       return <div key={bubble.id} className={`mw-bubble-track ${bubble.phase === 'AMBIENT' ? 'is-ambient' : ''}`}
         style={{ '--row': `${6 + ((index * 113 + seed % 47) % 72)}%`, '--rest-x': `${23 + seed % 46}%`,
@@ -87,17 +95,47 @@ function Sky({ period }) {
 }
 
 export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch }) {
-  const { session, csrfRef, invalidate } = useDisplaySession(fetcher);
+  const { session, csrfRef, invalidate, check } = useDisplaySession(fetcher);
   const [bubbles, setBubbles] = useState(EMPTY_BUBBLES), [spotlight, setSpotlight] = useState(null);
   const [qr, setQr] = useState(null), [mode, setMode] = useState('MOODWALL'), [now, setNow] = useState(Date.now());
   const [authority, setAuthority] = useState({ connected: false, until: 0 });
   const [fatal, setFatal] = useState(false);
   const sceneElement = useRef(null), runtimeRef = useRef(null), diagnosticsRef = useRef(null), spotlightRef = useRef(null);
+  // The visible clock and day/night colours follow the server, not a library laptop's clock.
+  const clockOffsetRef = useRef(0), lastRecheckRef = useRef(-Infinity);
+  const syncClock = serverNow => {
+    const parsed = Date.parse(serverNow);
+    if (Number.isFinite(parsed)) clockOffsetRef.current = parsed - Date.now();
+  };
 
   useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 1000);
+    const clock = setInterval(() => setNow(Date.now() + clockOffsetRef.current), 1000);
     return () => clearInterval(clock);
   }, []);
+
+  // A signage panel must not follow the laptop's "reduce animations" setting, which
+  // managed school PCs often switch off for speed; viewers cannot change it anyway.
+  useEffect(() => {
+    document.documentElement.classList.add('mw-signage');
+    return () => document.documentElement.classList.remove('mw-signage');
+  }, []);
+
+  // Keep the laptop from blanking the panel while the wall is visible.
+  useEffect(() => {
+    if (!session || typeof navigator === 'undefined' || !navigator.wakeLock?.request) return undefined;
+    let active = true, lock = null;
+    const acquire = async () => {
+      if (!active || document.visibilityState !== 'visible' || (lock && !lock.released)) return;
+      try { lock = await navigator.wakeLock.request('screen'); } catch { /* power policy may refuse */ }
+      if (!active) void lock?.release().catch(() => {});
+    };
+    void acquire();
+    document.addEventListener('visibilitychange', acquire);
+    return () => {
+      active = false; document.removeEventListener('visibilitychange', acquire);
+      void lock?.release().catch(() => {});
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!session) return;
@@ -116,10 +154,16 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
       setQr(null); setBubbles(EMPTY_BUBBLES); setSpotlight(null);
       setAuthority({ connected: false, until: 0 }); invalidate();
     };
+    // 403 is never a revocation: refresh the session (a new CSRF token) at a bounded rate.
+    const recheck = () => {
+      if (performance.now() - lastRecheckRef.current < RECHECK_AFTER_403_MS) return;
+      lastRecheckRef.current = performance.now(); void check();
+    };
     const observedFetch = async (path, options) => {
       const response = await fetcher(path, options);
       if (!active || invalidated) return response;
       if (AUTH_ERRORS.has(response.status)) revoke();
+      else if (response.status === 403) recheck();
       return response;
     };
     const renderer = {
@@ -139,11 +183,13 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
           diagnostics.record('RENDER', 'ASSET_FAILURE', 'RECOVERED');
         } catch (error) { if (!signal.aborted) diagnostics.record('RENDER', 'ASSET_FAILURE'); throw error; }
       },
-      show(item) {
+      show(item, display) {
         if (!active || invalidated || document.visibilityState !== 'visible') throw new Error('PAGE_HIDDEN');
         if (currentMode !== 'MOODWALL') throw new Error('PAGE_HIDDEN');
         spotlightRef.current = item;
-        flushSync(() => setSpotlight(item));
+        // The controller passes the server-chosen full-screen time for the progress bar.
+        const durationMs = Number.isInteger(display?.durationMs) ? display.durationMs : 15_000;
+        flushSync(() => setSpotlight({ ...item, displayDurationMs: durationMs }));
         if (sceneElement.current) sceneElement.current.hidden = false;
       },
       hide() {
@@ -173,6 +219,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
               next.revision === latestControl.revision && next.at < latestControl.at))) return;
           latestControl = next;
         }
+        if (state.serverNow) syncClock(state.serverNow);
         if (state.mode) { currentMode = state.mode; setMode(state.mode); }
         if (state.mode && state.mode !== 'MOODWALL' || Array.isArray(state.removedIds) && state.removedIds.includes(spotlightRef.current?.id)) {
           renderer.hide(); runtimeRef.current?.player?.pause('HIDDEN');
@@ -191,6 +238,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         if (!active || invalidated) return;
         if (AUTH_ERRORS.has(error?.status)) revoke();
         else {
+          if (error?.status === 403) recheck();
           const code = error?.code === 'PLAYBACK_OWNED' ? 'PLAYBACK_OWNED'
             : ['STORAGE_UNAVAILABLE', 'CACHE_STORAGE_UNAVAILABLE', 'COMPLETED_CACHE_UNVERIFIED'].includes(error?.code) ? 'STORAGE_UNAVAILABLE'
             : error?.fatal ? 'RENDER_FAILURE'
@@ -213,11 +261,13 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         const ticket = await displayRequest('/api/display/qr', { signal: controller.signal, fetcher: observedFetch });
         const url = new URL(ticket.joinUrl);
         if (!['https:', 'http:'].includes(url.protocol)) throw new Error('INVALID_QR');
-        const image = await QRCode.toDataURL(ticket.joinUrl, { errorCorrectionLevel: 'M', margin: 2, width: 440, color: { dark: '#32372fff', light: '#ffffffff' } });
+        // One pixel per module; LedQr enlarges it by whole physical pixels.
+        const image = await QRCode.toDataURL(ticket.joinUrl, { errorCorrectionLevel: 'M', margin: 2, scale: 1, color: { dark: '#32372fff', light: '#ffffffff' } });
         if (!active || invalidated) return;
         const validFor = Date.parse(ticket.validUntil) - Date.parse(ticket.serverNow);
         const rotatesIn = Date.parse(ticket.rotatesAt) - Date.parse(ticket.serverNow);
         if (!Number.isFinite(validFor) || validFor <= 0 || !Number.isFinite(rotatesIn) || performance.now() >= started + validFor) throw new Error('INVALID_QR');
+        syncClock(ticket.serverNow);
         setQr({ image, expires: started + validFor });
         diagnostics.record('QR', 'QR_UNAVAILABLE', 'RECOVERED');
         qrNotBefore = 0;
@@ -244,7 +294,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
       active = false; runtime.stop(); runtimeRef.current = null;
       controller.abort(); clearTimeout(qrTimer); events?.close(); diagnostics.stop(); diagnosticsRef.current = null;
     };
-  }, [session, runtimeFactory, fetcher, invalidate, csrfRef]);
+  }, [session, runtimeFactory, fetcher, invalidate, check, csrfRef]);
 
   const validQr = Boolean(qr && mode === 'MOODWALL' && authority.connected && performance.now() < authority.until && performance.now() < qr.expires);
   const wallAvailable = Boolean(session && mode === 'MOODWALL' && bubbles.visible && !fatal);
@@ -269,7 +319,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         <aside className="mw-join-panel">
           <div className="mw-wordmark">MOOD WALL</div>
           <h1>오늘 기분,<br />한 줄로 남겨요</h1>
-          <div className="mw-qr-box">{validQr ? <img src={qr.image} alt="기분을 남기는 참여 QR 코드" /> : <WeatherIcon />}</div>
+          <div className="mw-qr-box">{validQr ? <LedQr image={qr.image} alt="기분을 남기는 참여 QR 코드" /> : <WeatherIcon />}</div>
           {validQr && <p>폰 카메라로 찍어주세요<br /><strong>30자 · 1시간에 3번</strong></p>}
         </aside>
         <section className="mw-wall-center">
@@ -285,8 +335,9 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         <SceneParticles item={spotlight} /><EmotionMark className="mw-scene-mark" sceneId={spotlight.sceneId} />
         <header><span className="mw-emotion-pill">{theme.label}</span><p>새 구름이 도착했어요</p></header>
         <p className="mw-full-message" style={{ '--message-font': [...spotlight.content].length > 24 ? 4.5 : 5.1667 }}>{spotlight.content}</p>
-        <footer><span>익명 · 방금 전</span>{validQr && <div className="mw-spotlight-qr"><p>나도 남기기<br /><small>QR을 찍어주세요</small></p><img src={qr.image} alt="기분을 남기는 참여 QR 코드" /></div>}</footer>
-        <div className="mw-duration-track" data-duration-seconds="15" aria-hidden="true"><i /></div>
+        <footer><span>익명 · 방금 전</span>{validQr && <div className="mw-spotlight-qr"><p>나도 남기기<br /><small>QR을 찍어주세요</small></p><div className="mw-spotlight-qr-box"><LedQr image={qr.image} alt="기분을 남기는 참여 QR 코드" /></div></div>}</footer>
+        <div className="mw-duration-track" data-duration-seconds={spotlight.displayDurationMs / 1000}
+          style={{ '--play-duration': `${spotlight.displayDurationMs}ms` }} aria-hidden="true"><i /></div>
       </div>}
     </section>
     </div>

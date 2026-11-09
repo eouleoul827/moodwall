@@ -1,5 +1,7 @@
 # 전광판 노트북의 역할과 현장 운영
 
+2026-11-09: 도서관 LED(2046×768) 한 대 구성은 **노트북이 서버까지 맡는 방식**으로 정리했다. [도서관 노트북 운영](library-laptop-operation.md)을 우선한다. 아래 클라우드 권고는 여러 전광판이나 상시 운영으로 확장할 때의 기준이다.
+
 2026-11-05 구현: 공개 `/display`의 오류 안내·자동 등록 폼을 기본 배경으로 대체하고 직원 설정을 `/display/setup`으로 분리했다. 공개 런처의 오류 팝업도 제거했다. [현재 복구 구현과 검증 범위](display-recovery-implementation.md), [설계와 보존 기준](display-recovery-design.md)을 따른다. 아래 v1 설명의 공개 연결 안내·접수 시점 기준 보관은 현행 v2 동작에 적용하지 않는다.
 
 현재 v2 전광판 React 화면은 [준비 완료 순서와 15초 재생](playback-design.md), [접수와 제어 오류](submission-status-errors.md)를 연결했다. 단일 재생 주체·고정된 시작 승인 기한·완료 보고·중단 복구를 제공한다. [실제 화면 실행](../frontend/README.md)과 [모듈 연결법](../clients/display/README.md)을 따르며, 아래 즉시 말풍선·접수 기준 1시간은 이전 v1 운영 설명이다.
@@ -74,7 +76,7 @@ flowchart LR
 
 `bubbles`를 안정된 ID로 합쳐 일반 말풍선으로 렌더한다. 고정 slot·remainingMs는 없다. 같은 ID를 다시 받았다고 입장 애니메이션을 재시작하지 않는다. expiresAt부터 이미 받은 내용은 AMBIENT로 전환한다. 100개는 전송 페이지 크기이며 표시 상한이 아니다. `DisplaySynchronizer`로 매 poll 첫 페이지부터 nextCursor=null까지 수집하고 422 INVALID_CURSOR는 1회 첫 페이지 재시작한다. 이전 인증 epoch의 성공·실패는 현재 화면을 바꾸지 않는다. 서버 ID 부재로 캐시를 삭제하지 않는다.
 
-카드·state의 ambientUntil은 다음 KST 자정이다. 캐시는 board·deviceGeneration·업무 날짜에 묶고 removedIds는 원문과 함께 지운다. cacheResetToken 변경은 당일 캐시 초기화 후 현재 허용 카드만 합치는 경계다. 받은 당일 카드를 ID로 합쳐 모두 렌더하며 고정40개 순환은 없다. `bubbleTotalCount`는 아직 DB에 남은 수로 로컬 전체와 다르다.
+카드·state의 ambientUntil은 다음 KST 자정이다. 캐시는 board·deviceGeneration·업무 날짜에 묶고 removedIds는 원문과 함께 지운다. cacheResetToken 변경은 당일 캐시 초기화 후 현재 허용 카드만 합치는 경계다. 받은 당일 카드를 ID로 합쳐 보관한다. 2026-11-09부터 화면에서 움직이는 구름은 최신 30개(`MAX_DRIFTING_CLOUDS`)만 렌더하고 개수·예보는 전체로 계산한다. 2046×768 LED에서 그 이상은 읽을 수 없고 GPU 부담만 커진다. `bubbleTotalCount`는 아직 DB에 남은 수로 로컬 전체와 다르다.
 
 [캐시 모듈](../clients/display/bubble-cache.mjs)의 기본 당일 보관 상한 2000개(설정 최대 10000개)는 메모리 보호용이며 제품의 4개 표시 제한이 아니다. 초과 시 오래된 카드부터 제거한다. localStorage 제한·프로필 삭제·강제 종료의 복구 한계를 실제 노트북에서 확인한다. view는 `{visible,bubbles,totalCount}`이고 phase는 FLOATING/AMBIENT다. 독립 모듈은 완성된 React 화면·실제 브라우저 통합 검증을 뜻하지 않는다.
 

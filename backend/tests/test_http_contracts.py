@@ -20,7 +20,7 @@ from inference.fake import FakeAnalyzer
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "app" / "resources" / "openapi.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-CONTRACT_SHA256 = "45874efe66c730d18d438d4f95aa660a33e7a488a44bdc6cdb6609f692ed3901"
+CONTRACT_SHA256 = "0fe8964fad6bdbcdef4706c19d9248c6aa3c3b31e693caad9b94d80ae902d592"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 PRIVATE_FIELDS = {
     "participantId",
@@ -92,7 +92,7 @@ def test_packaged_contract_matches_pinned_and_repository_copy():
 
 
 def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
-    assert CONTRACT["info"]["version"] == "0.11.0"
+    assert CONTRACT["info"]["version"] == "0.12.0"
     assert CONTRACT["components"]["schemas"]["DisplayState"]["properties"]["bubbles"]["maxItems"] == 100
     assert "slot" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
     assert "remainingMs" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]

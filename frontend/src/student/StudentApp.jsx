@@ -8,7 +8,7 @@ import './student.css';
 const defaultApi = createStudentApi();
 const defaultClient = options => new SubmissionClient(options);
 const COMPLETE = { card: 'COMPLETE', title: '메시지를 보냈어요!',
-  message: '메시지 확인 후 표시 여부가 정해져요.\n전광판에 표시되면 15초 동안 크게 보여요.' };
+  message: '메시지 확인 후 표시 여부가 정해져요.\n전광판에 표시되면 화면 가득 크게 보여요.' };
 
 function formatTime(value) {
   return new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' }).format(new Date(value));

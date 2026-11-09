@@ -1,0 +1,29 @@
+# Library laptop = the server. Apply after compose.yaml, compose.frontend.yaml and
+# compose.gemini.yaml (add compose.gemini-emotion.yaml for local emotion colours).
+#
+# Students' phones (LTE/5G or any Wi-Fi) reach the laptop only through a Cloudflare
+# *named* tunnel bound to a fixed HTTPS hostname. No inbound port is opened on the
+# school network and the API keeps listening on 127.0.0.1 only.
+#
+# One address everywhere: MOODWALL_PUBLIC_ORIGIN in .env is that hostname, the QR
+# points to it, and the display launcher opens the wall through the same hostname.
+# Never open the wall via http://localhost:8000 — every POST would fail the origin
+# check. See docs/library-laptop-operation.md.
+services:
+  api:
+    environment:
+      MOODWALL_ENVIRONMENT: production
+  worker:
+    environment:
+      MOODWALL_ENVIRONMENT: production
+  cloudflared:
+    # Pinned release; update deliberately. The tunnel's public hostname is routed to
+    # http://api:8000 in the Cloudflare dashboard (Zero Trust → Networks → Tunnels).
+    image: cloudflare/cloudflared:2024.12.2
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${MOODWALL_TUNNEL_TOKEN:?Set MOODWALL_TUNNEL_TOKEN in .env (Cloudflare named tunnel token)}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy

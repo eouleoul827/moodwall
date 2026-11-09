@@ -107,6 +107,7 @@ async def test_full_fifteen_seconds_and_same_complete_key_recovers(clients, syst
     await approve(system, identifier)
     assert (await clients["display"].get("/api/v2/display/state")).json()["bubbles"] == []
     state, identity = await claim_player(clients, identity)
+    assert state["attempt"]["durationMs"] == 15000  # nothing else waiting
     started = await command(clients, state, identity, "start")
     assert started.status_code == 200, started.text
     framed = await command(clients, state, identity, "frame")
@@ -133,6 +134,43 @@ async def test_full_fifteen_seconds_and_same_complete_key_recovers(clients, syst
     assert bubbles[0]["contentDeleteAt"] == started.json()["attempt"]["item"]["contentDeleteAt"]
     async with database.connection() as conn:
         assert (await one(conn, "SELECT reserved_count FROM board_admission_counters"))["reserved_count"] == 0
+
+
+async def test_backlog_shortens_the_server_chosen_duration_and_complete_enforces_it(
+    clients, system, database, monkeypatch
+):
+    settings = system.state.playback.settings
+    monkeypatch.setattr(settings, "playback_relaxed_backlog", 0)
+    identity = await player(clients)
+    first = await submit(clients)
+    second = await submit(clients, who="stranger")
+    await approve(system, first)
+    await approve(system, second)
+    state, identity = await claim_player(clients, identity)
+    assert state["attempt"]["durationMs"] == 14000  # one message waits behind it
+    async with database.connection() as conn:
+        stored = await one(
+            conn, "SELECT duration_ms FROM playback_attempts WHERE id=%s", (state["attempt"]["attemptId"],)
+        )
+    assert stored["duration_ms"] == 14000
+    assert (await command(clients, state, identity, "start")).status_code == 200
+    framed = await command(clients, state, identity, "frame")
+    assert framed.status_code == 200, framed.text
+    first_frame = datetime.fromisoformat(framed.json()["attempt"]["firstFrameAt"].replace("Z", "+00:00"))
+
+    async def at(offset):
+        async def clock(conn):
+            return first_frame + offset
+
+        return clock
+
+    monkeypatch.setattr("app.playback.db_time", await at(timedelta(seconds=13, milliseconds=900)))
+    early = await command(clients, state, identity, "complete")
+    assert early.status_code == 409 and early.json()["code"] == "PLAYBACK_TOO_EARLY"
+    monkeypatch.setattr("app.playback.db_time", await at(timedelta(seconds=14)))
+    done = await command(clients, state, identity, "complete")
+    assert done.status_code == 200, done.text
+    assert done.json()["attempt"]["status"] == "DONE" and done.json()["attempt"]["durationMs"] == 14000
 
 
 async def test_start_retry_does_not_extend_authorization_or_retention(clients, system, database, monkeypatch):

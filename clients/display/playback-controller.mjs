@@ -6,6 +6,13 @@ const DECIMAL = /^(0|[1-9][0-9]{0,18})$/;
 const decimal = value => typeof value === "string" && DECIMAL.test(value);
 const HOUR = 3_600_000;
 const DURATION = 15_000;
+// The server picks each attempt's full-screen time from its backlog (5-15 s) and
+// enforces the same value on complete. Older servers omit it and keep 15 s.
+const MIN_DURATION = 5_000;
+const validDuration = value => Number.isInteger(value) && value >= MIN_DURATION && value <= DURATION;
+export function playbackDuration(current) {
+  return validDuration(current?.durationMs) ? current.durationMs : DURATION;
+}
 const DROP_PRESENTATION = new Set(["HIDDEN", "FAILED", "EXPIRED", "CANCELLED"]);
 const parseTime = value => {
   const time = typeof value === "string" ? Date.parse(value) : NaN;
@@ -121,13 +128,14 @@ function attempt(value, previous = null) {
       !["CLAIMED", "START_AUTHORIZED", "PLAYING", "DONE", "INTERRUPTED"].includes(value.status)) {
     throw failure("INVALID_PLAYBACK_RESPONSE");
   }
+  if (value.durationMs !== undefined && !validDuration(value.durationMs)) throw failure("INVALID_PLAYBACK_RESPONSE");
   parseTime(value.leaseUntil);
   parseTime(value.item.ambientUntil);
   return value;
 }
 
 /**
- * renderer: {prepare(item,{signal}), show(item), hide(), float(item)?}.
+ * renderer: {prepare(item,{signal}), show(item,{durationMs}), hide(), float(item)?}.
  * show() synchronously commits the prepared fullscreen frame; no loading inside show.
  * runOnce() owns at most one item; run() continues until its AbortSignal is cancelled.
  * UNKNOWN retains an immutable command and retries it on the next runOnce().
@@ -332,7 +340,7 @@ export class DisplayPlaybackController {
       } else this.current = attempt(data.attempt);
     } catch (error) {
       if (!current()) return;
-      if ([401, 403].includes(error?.status)) this.resetAuthentication();
+      if (error?.status === 401) this.resetAuthentication();
       else if (!transient(error)) this.pause("CLIENT_ERROR");
       // A temporary disconnect can finish only the already authorized item before lease expiry.
     }
@@ -401,7 +409,8 @@ export class DisplayPlaybackController {
       this.#guard({ starting: true });
       await this.clock.nextFrame(this.controller.signal);
       this.#guard({ starting: true });
-      this.renderer.show(this.current.item);
+      const duration = playbackDuration(this.current);
+      this.renderer.show(this.current.item, { durationMs: duration });
       const committedAt = this.clock.now();
       // show() commits before the browser paints this animation frame. Start
       // timing on the following visible frame, conservatively after that paint.
@@ -417,7 +426,7 @@ export class DisplayPlaybackController {
       }
       let lastFrame = this.clock.now(), lastPoll = lastFrame, lastHeartbeat = lastFrame;
       let observing = false, heartbeating = false;
-      while (this.clock.now() - firstFrame < DURATION) {
+      while (this.clock.now() - firstFrame < duration) {
         await this.clock.nextFrame(this.controller.signal);
         const now = this.clock.now();
         if (now < lastFrame || now - lastFrame >= 1000) throw failure("FRAME_GAP");
@@ -432,7 +441,7 @@ export class DisplayPlaybackController {
           this.#request({ action: "heartbeat", body: { clientInstanceId: this.clientInstanceId,
             displayProtocolVersion: "2" } }, this.controller.signal)
             .catch(error => {
-              if (generation === this.generation && operation === this.operation && [401, 403].includes(error?.status)) {
+              if (generation === this.generation && operation === this.operation && error?.status === 401) {
                 this.resetAuthentication();
               }
             })
@@ -454,7 +463,7 @@ export class DisplayPlaybackController {
         this.renderer.hide();
         return { status: "UNKNOWN", code: error.code || "NETWORK" };
       }
-      if ([401, 403].includes(error?.status)) this.resetAuthentication();
+      if (error?.status === 401) this.resetAuthentication();
       else await this.#interrupt(error.code);
       this.status = "INTERRUPTED";
       return { status: "INTERRUPTED", code: error.code || "CLIENT_ERROR" };

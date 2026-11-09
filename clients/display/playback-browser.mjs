@@ -67,7 +67,9 @@ export function createMoodwallDisplayRuntime({ boardId, renderer, renderBubbles,
     if (closed) return Promise.resolve({ completed: false, pages: 0 });
     if (!inFlightSync) inFlightSync = synchronizer.synchronize().catch(error => {
       if (closed) return { completed: false, pages: 0 };
-      if ([401, 403].includes(error?.status)) {
+      // Only 401 proves the device credential is gone. A 403 is CSRF expiry, an
+      // origin mismatch or a school web filter page and must stay retryable.
+      if (error?.status === 401) {
         authInvalid = true;
         try { player.resetAuthentication(); } catch (problem) { fatal(problem); }
       }
