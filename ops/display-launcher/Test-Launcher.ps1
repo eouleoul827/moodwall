@@ -286,6 +286,8 @@ Export-ModuleMember -Function *
     Assert-Equal ($LASTEXITCODE -ne 0) $true 'neither URL nor server root is refused'
     $profileProcesses = @(Select-MoodwallProfileProcesses -ProfileDirectory $plan.ProfileDirectory -BrowserPath $plan.BrowserPath -Processes @($displayProcess, $personalProcess))
     Assert-Equal $profileProcesses.Count 1 'power-off closes only the dedicated Moodwall profile'
+    # The last checks deliberately run failing installers; CI's dot-sourced shell exits with $LASTEXITCODE.
+    $global:LASTEXITCODE = 0
     Write-Output ("PASS: $script:Passed launcher checks; no UI, network or real installation performed.")
 } finally {
     # Delete only the unique temporary test directory whose absolute ancestry is checked.
