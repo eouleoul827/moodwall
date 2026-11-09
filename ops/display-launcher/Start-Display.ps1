@@ -42,7 +42,11 @@ try {
         }
         [void][IO.Directory]::CreateDirectory($plan.ProfileDirectory)
         # The employee must see the browser; only the PowerShell shortcut helper is hidden.
-        $browser = Start-Process -FilePath $plan.BrowserPath -ArgumentList ($plan.BrowserArguments -join ' ') -WindowStyle Normal -PassThru
+        # Open on the LED wall, not on the laptop's own screen (extended desktop mode).
+        $windowArguments = @()
+        try { $windowArguments = @(Get-MoodwallWindowArguments (Select-MoodwallTargetScreen @(Get-MoodwallScreens))) } catch { }
+        $browserArguments = Add-MoodwallWindowArguments -BrowserArguments $plan.BrowserArguments -WindowArguments $windowArguments
+        $browser = Start-Process -FilePath $plan.BrowserPath -ArgumentList ($browserArguments -join ' ') -WindowStyle Normal -PassThru
         Write-MoodwallLauncherEvent $PSScriptRoot STARTED
         # Retain the launch fence while Chromium creates its own process singleton.
         try { [void]$browser.WaitForInputIdle(5000) } catch { } # Browser singleton handoff can end the first process.

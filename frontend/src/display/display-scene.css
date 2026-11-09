@@ -1,6 +1,8 @@
-/* The reviewed 2400 × 800 artwork scales as one 3:1 canvas, including on staff laptops. */
+/* The reviewed 2400 × 800 artwork scales by width (1u = 1% of the frame width). Panels between
+   2:1 and 3:1 — the library LED wall is 2046 × 768 (2.66:1) — are filled edge to edge; the
+   extra height goes to the flexible columns instead of empty bands. */
 .mw-display-day,.mw-display-night { --mw-u:min(1vw,3svh); display:grid; place-items:center; background:var(--mw-bg); color:var(--mw-ink); }
-.mw-display-frame { position:relative; width:min(100vw,300svh); aspect-ratio:3/1; overflow:hidden; background:var(--mw-bg); }
+.mw-display-frame { position:relative; width:min(100vw,300svh); height:min(100svh,50vw); overflow:hidden; background:var(--mw-bg); }
 .mw-display-frame .mw-wall-content { position:absolute; inset:0; height:100%; }
 .mw-display-frame [hidden] { display:none!important; }
 .mw-display-frame .mw-sky { position:absolute; inset:0; background:linear-gradient(180deg,var(--mw-sky-top),var(--mw-sky-bottom)); transition:background-color 4s ease; }
@@ -11,12 +13,12 @@
 .mw-sky-night .mw-night-stars { opacity:1; }
 .mw-display-frame .mw-wall-layout { position:relative; z-index:1; display:grid; grid-template-columns:calc(var(--mw-u) * 18.3333) minmax(0,1fr) calc(var(--mw-u) * 21.6667); gap:calc(var(--mw-u) * 1.6667); height:100%; min-height:0; padding:calc(var(--mw-u) * 2); }
 .mw-display-frame .mw-join-panel,.mw-display-frame .mw-forecast { align-self:stretch; min-width:0; border-radius:calc(var(--mw-u) * 1.5); padding:calc(var(--mw-u) * 1.6667); background:var(--mw-panel); box-shadow:none; transition:background-color 4s,color 4s; }
-.mw-display-frame .mw-wordmark { display:block; font-size:calc(var(--mw-u) * .9167); line-height:1.3; font-weight:900; color:var(--mw-sub); letter-spacing:.2em; }
+.mw-display-frame .mw-wordmark { display:block; font-size:calc(var(--mw-u) * 1); line-height:1.3; font-weight:900; color:var(--mw-sub); letter-spacing:.2em; }
 .mw-display-frame .mw-join-panel h1 { margin:calc(var(--mw-u) * .6667) 0 calc(var(--mw-u) * .8333); font-size:calc(var(--mw-u) * 2.3333); line-height:1.2; letter-spacing:-.03em; font-family:'Jua',sans-serif; color:var(--mw-ink); }
 .mw-display-frame .mw-qr-box { width:100%; max-width:calc(var(--mw-u) * 14.3333); align-self:center; aspect-ratio:1; padding:calc(var(--mw-u) * .25); border:calc(var(--mw-u) * .125) dashed var(--mw-line); border-radius:calc(var(--mw-u) * 1); background:#fff; }
 .mw-display-frame .mw-qr-box img { width:100%; height:100%; border-radius:calc(var(--mw-u) * .5); }
 .mw-display-frame .mw-qr-box>svg { width:48%; color:#a8a89c; }
-.mw-display-frame .mw-join-panel>p { font-size:calc(var(--mw-u) * .75); color:var(--mw-sub); line-height:1.5; margin:calc(var(--mw-u) * .75) 0 0; letter-spacing:-.03em; }
+.mw-display-frame .mw-join-panel>p { font-size:calc(var(--mw-u) * 1.1); color:var(--mw-sub); line-height:1.5; margin:calc(var(--mw-u) * .75) 0 0; letter-spacing:-.03em; }
 .mw-display-frame .mw-join-panel strong { color:var(--mw-sub); font-weight:500; }
 .mw-display-frame .mw-wall-center { display:flex; position:relative; flex-direction:column; padding:calc(var(--mw-u) * .6667) calc(var(--mw-u) * 1); }
 .mw-display-frame .mw-wall-heading { display:flex; flex-direction:row; justify-content:space-between; gap:calc(var(--mw-u) * .5); }
@@ -24,13 +26,13 @@
 .mw-display-frame .mw-wall-heading h2 { color:var(--mw-ink); font-size:calc(var(--mw-u) * 3.5); font-family:'Jua',sans-serif; font-weight:400; letter-spacing:-.05em; line-height:1.15; margin:0; }
 .mw-display-frame .mw-wall-heading h2 em { color:inherit; }
 .mw-display-frame .mw-wall-heading time { position:static; color:var(--mw-ink); font-size:calc(var(--mw-u) * 2.6667); font-weight:900; padding:0; line-height:1.1; letter-spacing:-.04em; }
-.mw-count-scope { display:block; margin-top:calc(var(--mw-u) * .5); font-size:calc(var(--mw-u) * .75); color:var(--mw-ink); opacity:.8; }
-.mw-display-frame .mw-wall-caption { padding:calc(var(--mw-u) * .5) calc(var(--mw-u) * .75); border:0; border-radius:calc(var(--mw-u) * 2); font-size:calc(var(--mw-u) * .875); color:var(--mw-ink); background:var(--mw-panel); opacity:.9; }
+.mw-count-scope { display:block; margin-top:calc(var(--mw-u) * .5); font-size:calc(var(--mw-u) * 1); color:var(--mw-ink); opacity:.8; }
+.mw-display-frame .mw-wall-caption { padding:calc(var(--mw-u) * .5) calc(var(--mw-u) * .75); border:0; border-radius:calc(var(--mw-u) * 2); font-size:calc(var(--mw-u) * 1.1); color:var(--mw-ink); background:var(--mw-panel); opacity:.9; }
 .mw-display-frame .mw-empty { align-self:center; margin:0 auto auto; padding-top:calc(var(--mw-u) * 1.5); color:var(--mw-ink); }
 .mw-display-frame .mw-empty svg { width:calc(var(--mw-u) * 4); color:var(--mw-ink); opacity:.6; }
 .mw-display-frame .mw-empty p { font-size:calc(var(--mw-u) * 1.25); line-height:1.5; margin:calc(var(--mw-u) * .25) 0; }
 .mw-display-frame .mw-forecast { display:flex; flex-direction:column; gap:calc(var(--mw-u) * .8); }
-.mw-display-frame .mw-eyebrow { color:var(--mw-sub); font-size:calc(var(--mw-u) * .9167); font-weight:900; letter-spacing:.15em; }
+.mw-display-frame .mw-eyebrow { color:var(--mw-sub); font-size:calc(var(--mw-u) * 1); font-weight:900; letter-spacing:.15em; }
 .mw-forecast-heading { display:flex; align-items:center; gap:calc(var(--mw-u) * .6); min-height:calc(var(--mw-u) * 4); }
 .mw-display-frame .mw-weather-icon { flex-shrink:0; width:calc(var(--mw-u) * 2.6667); color:var(--mw-ink); margin:0; }
 .mw-display-frame .mw-forecast h2 { font-family:'Jua',sans-serif; color:var(--mw-ink); font-size:calc(var(--mw-u) * 1.8); line-height:1.2; margin:0; font-weight:400; }
@@ -38,9 +40,9 @@
 .mw-display-frame .mw-mood-row { display:grid; grid-template-columns:calc(var(--mw-u) * 3.3333) minmax(0,1fr) calc(var(--mw-u) * 2.5); gap:calc(var(--mw-u) * .5833); font-size:calc(var(--mw-u) * 1.0833); font-weight:700; color:var(--mw-ink); }
 .mw-display-frame .mw-mood-row small { color:var(--mw-sub); font-size:calc(var(--mw-u) * 1); }
 .mw-display-frame .mw-mood-track { height:calc(var(--mw-u) * .9167); background:var(--mw-track); border-radius:999px; }
-.mw-display-frame .mw-local-note { color:var(--mw-sub); font-size:calc(var(--mw-u) * .7); margin:auto 0 0; padding-top:calc(var(--mw-u) * .5); }
+.mw-display-frame .mw-local-note { color:var(--mw-sub); font-size:calc(var(--mw-u) * 1); margin:auto 0 0; padding-top:calc(var(--mw-u) * .5); }
 .mw-display-frame .mw-bubble-field { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
-.mw-display-frame .mw-bubble-track { position:absolute; left:calc(var(--mw-u) * -38); top:var(--row); animation:mwCloudDrift var(--drift-duration) linear var(--drift-delay) infinite; }
+.mw-display-frame .mw-bubble-track { position:absolute; left:calc(var(--mw-u) * -38); top:var(--row); animation:mwCloudDrift var(--drift-duration) linear var(--drift-delay) infinite; will-change:transform; }
 .mw-display-frame .mw-bubble { display:block; position:relative; width:calc(var(--mw-u) * var(--cloud-width)); height:calc(var(--mw-u) * var(--cloud-height)); max-width:none; padding:0; border:0; border-radius:0; background:none; box-shadow:none; font-size:calc(var(--mw-u) * var(--cloud-font)); color:var(--mw-cloud-ink); white-space:nowrap; filter:drop-shadow(0 calc(var(--mw-u) * .25) calc(var(--mw-u) * .4167) var(--mw-shadow)); animation:mwCloudBob var(--bob-duration) ease-in-out infinite; }
 .mw-display-frame .mw-bubble .mw-cloud-shape { display:block; position:absolute; inset:0; width:100%; height:100%; border:0; border-radius:0; opacity:.94; background:radial-gradient(ellipse at var(--cloud-glow-x) var(--cloud-text-top),var(--cloud-tint) 0%,var(--cloud-tint) 38%,color-mix(in srgb,var(--cloud-tint) 25%,#fff) 100%); mask-image:var(--cloud-mask); -webkit-mask-image:var(--cloud-mask); mask-size:100% 100%; -webkit-mask-size:100% 100%; mask-repeat:no-repeat; -webkit-mask-repeat:no-repeat; transform:scaleX(var(--cloud-flip)); transition:background-color 4s; }
 .mw-display-night .mw-bubble .mw-cloud-shape { background:radial-gradient(ellipse at var(--cloud-glow-x) var(--cloud-text-top),var(--cloud-tint) 0%,var(--cloud-tint) 38%,color-mix(in srgb,var(--cloud-tint) 75%,#fff) 100%); }
@@ -53,15 +55,19 @@
 .mw-display-frame .mw-spotlight-inner>header,.mw-display-frame .mw-spotlight-inner>footer { flex-shrink:0; flex-direction:row; align-items:center; gap:calc(var(--mw-u) * 1); }
 .mw-display-frame .mw-emotion-pill { color:#14161b; background:var(--scene-color); font-size:calc(var(--mw-u) * 1.5833); padding:calc(var(--mw-u) * .5) calc(var(--mw-u) * 1.4167); font-weight:900; }
 .mw-display-frame .mw-spotlight-inner header p { color:var(--mw-sub); margin:0; font-size:calc(var(--mw-u) * 1.3333); font-weight:700; }
-.mw-display-frame .mw-full-message { min-height:0; max-width:82%; margin:0; font-family:'Jua',sans-serif; font-size:calc(var(--mw-u) * var(--message-font,5.1667)); color:var(--mw-ink); line-height:1.2; letter-spacing:-.03em; }
+.mw-display-frame .mw-full-message { min-height:0; max-width:calc(100% - var(--mw-u) * 24); margin:0; font-family:'Jua',sans-serif; font-size:calc(var(--mw-u) * var(--message-font,5.1667)); color:var(--mw-ink); line-height:1.2; letter-spacing:-.03em; }
 .mw-display-frame .mw-scene-mark { position:absolute; width:calc(var(--mw-u) * 26.6667); height:calc(var(--mw-u) * 26.6667); right:5%; top:10%; max-height:none; opacity:.22; }
 .mw-display-frame .mw-spotlight-inner footer { color:var(--mw-sub); font-size:calc(var(--mw-u) * 1.0833); justify-content:space-between; }
 .mw-display-frame .mw-spotlight-qr { background:var(--mw-panel); padding:calc(var(--mw-u) * .5833) calc(var(--mw-u) * .5833) calc(var(--mw-u) * .5833) calc(var(--mw-u) * 1.1667); gap:calc(var(--mw-u) * .8333); border-radius:calc(var(--mw-u) * 1); }
 .mw-display-frame .mw-spotlight-qr p { color:var(--mw-ink); font-size:calc(var(--mw-u) * 1.0833); line-height:1.35; }
 .mw-display-frame .mw-spotlight-qr small { color:var(--mw-sub); font-size:1em; }
-.mw-display-frame .mw-spotlight-qr img { width:calc(var(--mw-u) * 4.5833); height:calc(var(--mw-u) * 4.5833); border-radius:calc(var(--mw-u) * .5833); }
+/* At 4.6u the 81-module ticket QR got 1.16 LED pixels per module and could not be scanned.
+   13u keeps 3 whole pixels per module on the 2046 px wall; it floats over the message column. */
+.mw-display-frame .mw-spotlight-qr { position:absolute; right:0; bottom:0; }
+.mw-spotlight-qr-box { flex-shrink:0; width:calc(var(--mw-u) * 13); height:calc(var(--mw-u) * 13); padding:calc(var(--mw-u) * .25); display:flex; align-items:center; justify-content:center; background:#fff; border-radius:calc(var(--mw-u) * .5833); }
+.mw-led-qr { display:block; width:100%; height:100%; image-rendering:pixelated; }
 .mw-display-frame .mw-duration-track { height:calc(var(--mw-u) * .5); background:var(--mw-track); }
-.mw-display-frame .mw-duration-track i { background:var(--scene-color); animation:mwProgress 15s linear forwards; }
+.mw-display-frame .mw-duration-track i { background:var(--scene-color); animation:mwProgress var(--play-duration,15s) linear forwards; }
 .mw-display-frame .mw-particles>span { width:calc(var(--size) * .75); height:calc(var(--size) * .75); }
 .mw-display-frame .mw-effect-fireworks>span { width:calc(var(--mw-u) * .8333); height:calc(var(--mw-u) * 1.3333); }
 .mw-display-frame .mw-effect-rain>span { width:calc(var(--mw-u) * .2083); height:calc(var(--mw-u) * 3.75); }
@@ -70,7 +76,7 @@
 @keyframes mwCloudBob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(calc(var(--mw-u) * -.5833)); } }
 @keyframes mwStarGlow { 0%,100% { opacity:.3; } 50% { opacity:1; } }
 @media (prefers-reduced-motion:reduce) {
-  .mw-display-frame .mw-bubble-track { animation:none; left:var(--rest-x); }
-  .mw-display-frame .mw-bubble,.mw-display-frame .mw-night-stars i { animation:none; }
-  .mw-display-frame .mw-duration-track i { animation:none; }
+  :root:not(.mw-signage) .mw-display-frame .mw-bubble-track { animation:none; left:var(--rest-x); }
+  :root:not(.mw-signage) .mw-display-frame .mw-bubble,:root:not(.mw-signage) .mw-display-frame .mw-night-stars i { animation:none; }
+  :root:not(.mw-signage) .mw-display-frame .mw-duration-track i { animation:none; }
 }

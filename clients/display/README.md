@@ -1,5 +1,7 @@
 # 전광판 재생과 당일 말풍선 캐시
 
+2026-11-09: 전체 화면 시간은 **서버가 claim 때 정한다**. 뒤에 대기하는 글이 2개 이하면 15초, 그보다 많으면 1개당 1초씩 줄여 최소 8초(`PLAYBACK_MAX_SECONDS`·`PLAYBACK_MIN_SECONDS`·`PLAYBACK_RELAXED_BACKLOG`). 시도 응답의 `durationMs`(5000~15000)를 전광판이 따르고 서버 complete와 DB 제약도 같은 값으로 검증한다. 아래 모듈 설명의 “15초”는 이 기본값이다. OpenAPI 0.12.0, DB head `0009_playback_duration`.
+
 **현재 v2 연결 모듈:** `playback-controller.mjs`, `playback-bubble-cache.mjs`, `playback-browser.mjs`를 새 API 0.8.0과 함께 사용한다. [로컬 구현 가이드](../../docs/playback-local-implementation.md)와 [15초 재생 설계](../../docs/playback-design.md)를 따른다. 아래 별도 v1 설명의 `bubble-cache.mjs`는 이전 호환 모듈이다.
 
 공개 오류 비노출 연결에서는 `onProblem`을 직원 진단으로 보내고 인증·중단 제어는 유지한다. runtime의 선택적 `onState`는 `source`가 `playback` 또는 `snapshot`인 인증 메타데이터와 `connected`, `storageAvailable`, RTT를 차감한 `leaseRemainingMs`·`monotonicLeaseUntil`을 전달한다. snapshot 실패의 `connected:false`만으로 허가된 현재 글의 15초 재생을 강제 중단하지 않는다. 치명적인 RAF·루프 실패는 작업을 정리하고 `{source:"runtime",connected:false,fatal:true}`를 전달한다. 진단 콜백의 실패는 제어에 영향을 주지 않는다.
@@ -93,7 +95,7 @@ const { visible, bubbles, totalCount } = cache.view(performance.now());
 // phase === "AMBIENT"이면 opacity를 낮추되 content는 그대로 텍스트로 표시한다.
 // dangerouslySetInnerHTML을 사용하지 않는다.
 
-// 현재 인증 해지·재페어링 시작·현재 세션의 401/403
+// 현재 인증 해지·재페어링 시작·현재 세션의 401 (403은 CSRF·Origin·웹필터이므로 재시도)
 displaySync.resetAuthentication();
 // 네트워크 단절·보호 화면 전환: 당일 캐시는 보존하되 화면을 가린다.
 displaySync.disconnect();

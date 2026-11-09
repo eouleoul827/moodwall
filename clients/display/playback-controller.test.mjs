@@ -41,6 +41,7 @@ function harness(options = {}) {
       if (options.empty) return null;
       owner = command.body.clientInstanceId; epoch = "1";
       active = { attemptId: ATTEMPT, submissionId: ITEM, status: "CLAIMED", attemptNumber: 1,
+        ...(options.durationMs === undefined ? {} : { durationMs: options.durationMs }),
         startAuthorizedAt: null, startNotAfter: null, leaseUntil: iso(BASE + now + 10_000),
         item: { id: ITEM, content: "오늘 행복해", emotion: "JOY", animationId: "hearts", sceneId: "joy",
           sceneVersion: "1", sceneSeed: "abc", readySequence: "9007199254740993",
@@ -64,7 +65,7 @@ function harness(options = {}) {
   } };
   const renderer = {
     prepare: async item => { draws.push({ action: "prepare", at: now, item }); options.prepare?.(item); },
-    show: item => draws.push({ action: "show", at: now, item }),
+    show: (item, display) => draws.push({ action: "show", at: now, item, display }),
     hide: () => draws.push({ action: "hide", at: now }),
     float: item => draws.push({ action: "float", at: now, item }),
   };
@@ -85,6 +86,29 @@ test("prepared item holds first visible frame for at least fifteen monotonic sec
     ["claim", "start", "frame", "complete"]);
   assert.ok(calls.find(row => row.action === "complete").at - first.at >= 15_000);
 });
+
+test("the server-chosen duration replaces the fixed fifteen seconds", async () => {
+  const { player, calls, draws } = harness({ durationMs: 8000 });
+  assert.equal((await player.runOnce()).status, "DONE");
+  const first = draws.find(row => row.action === "show");
+  assert.deepEqual(first.display, { durationMs: 8000 });
+  const completedAfter = calls.find(row => row.action === "complete").at - first.at;
+  assert.ok(completedAfter >= 8000 && completedAfter < 9000, String(completedAfter));
+});
+
+test("a server without durationMs keeps the fifteen-second contract", async () => {
+  const { player, draws } = harness();
+  assert.equal((await player.runOnce()).status, "DONE");
+  assert.deepEqual(draws.find(row => row.action === "show").display, { durationMs: 15_000 });
+});
+
+for (const durationMs of [4999, 15_001, 8000.5, "8000"]) {
+  test(`an out-of-contract duration ${JSON.stringify(durationMs)} is never played`, async () => {
+    const { player, draws } = harness({ durationMs });
+    assert.notEqual((await player.runOnce()).status, "DONE");
+    assert.equal(draws.some(row => row.action === "show"), false);
+  });
+}
 
 test("simultaneous ticks coalesce and cannot claim a second item", async () => {
   const { player, calls } = harness();
@@ -378,7 +402,7 @@ test("current authentication revocation clears cache and stops the active render
   let clears = 0;
   const { player, draws, calls } = harness({ request: async (command, standard) => {
     if (command.action === "state" && calls.filter(row => row.action === "state").length > 2) {
-      throw error("DISPLAY_REVOKED", 403);
+      throw error("SESSION_EXPIRED", 401);
     }
     return standard(command);
   } });
@@ -387,6 +411,19 @@ test("current authentication revocation clears cache and stops the active render
   assert.equal(clears, 1);
   assert.ok(!calls.some(row => row.action === "complete"));
   assert.equal(draws.at(-1).action, "hide");
+});
+
+test("a 403 (CSRF expiry, origin mismatch or web filter) never revokes the device", async () => {
+  let clears = 0;
+  const { player, calls } = harness({ request: async (command, standard) => {
+    if (command.action === "state" && calls.filter(row => row.action === "state").length > 2) {
+      throw error("CSRF_REJECTED", 403);
+    }
+    return standard(command);
+  } });
+  player.cache = { clear: () => { clears++; } };
+  await player.runOnce();
+  assert.equal(clears, 0);
 });
 
 test("read-only state cannot make an already expired attempt lease valid", async () => {

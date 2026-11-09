@@ -15,6 +15,7 @@ export default function DisplaySetupApp({ fetcher = fetch, storage, catalogReade
   const { session, boot, busy, problem: sessionProblem, check, invalidate, accept } = useDisplaySession(fetcher);
   const [code, setCode] = useState(''), [pairing, setPairing] = useState(false), [problem, setProblem] = useState('');
   const [bubbles, setBubbles] = useState([]), [catalogProblem, setCatalogProblem] = useState('');
+  const [publicOrigin, setPublicOrigin] = useState('');
   const lifecycle = useRef(0);
   useEffect(() => { const current = ++lifecycle.current; return () => { if (lifecycle.current === current) lifecycle.current++; }; }, []);
 
@@ -51,6 +52,18 @@ export default function DisplaySetupApp({ fetcher = fetch, storage, catalogReade
     return () => { active = false; request?.abort(); clearInterval(timer); window.removeEventListener('storage', refresh); };
   }, [session, fetcher, storage, catalogReader, invalidate]);
 
+  // Every POST must carry the server's PUBLIC_ORIGIN. Opening the wall from another
+  // address (localhost vs 127.0.0.1, LAN IP vs HTTPS domain) silently breaks it.
+  useEffect(() => {
+    if (!session) { setPublicOrigin(''); return; }
+    const controller = new AbortController();
+    displayRequest('/api/display/qr', { fetcher, signal: controller.signal })
+      .then(ticket => { try { setPublicOrigin(new URL(ticket.joinUrl).origin); } catch { setPublicOrigin(''); } })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [session, fetcher]);
+  const originMismatch = Boolean(publicOrigin && publicOrigin !== window.location.origin);
+
   const pair = async event => {
     event.preventDefault(); if (pairing || code.trim().length < 16) return;
     const current = lifecycle.current;
@@ -80,6 +93,8 @@ export default function DisplaySetupApp({ fetcher = fetch, storage, catalogReade
         <button className="mw-primary" disabled={pairing || code.trim().length < 16}>{pairing ? '연결하고 있어요…' : '전광판 연결하기'}</button>
       </form>}
       {(problem || sessionProblem) && <p className="mw-setup-error" role="alert">{problem || sessionProblem}</p>}
+      {originMismatch && <p className="mw-setup-error" role="alert">
+        이 화면 주소({window.location.origin})가 서버의 공개 주소({publicOrigin})와 달라요. 이대로는 전광판이 송출되지 않아요. 런처를 공개 주소로 다시 설치해 주세요.</p>}
       <button className="mw-primary" disabled={busy || pairing} onClick={() => { setProblem(''); void check(); }}>다시 연결하기</button>
       {session && <>
         <p>화면 송출과 접수의 중단·재개는 운영자 화면에서 따로 관리해 주세요.</p>

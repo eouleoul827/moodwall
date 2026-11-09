@@ -10,6 +10,18 @@ const catalogReader = vi.fn(() => ({ bubbles: [], storageAvailable: true }));
 function setup(fetcher, props = {}) { return render(<DisplaySetupApp fetcher={fetcher} catalogReader={catalogReader} {...props} />); }
 
 describe('explicit staff display setup', () => {
+  it.each([
+    ['https://moodwall.library.kr', true],
+    [null, false],
+  ])('warns staff when the wall is opened outside PUBLIC_ORIGIN (%s)', async (origin, warned) => {
+    const joinUrl = `${origin || window.location.origin}/join#ticket=t`;
+    const fetcher = vi.fn(async path => path === '/api/display/session' ? response(session)
+      : path === '/api/display/qr' ? response({ joinUrl }) : response({ nextCursor: null }));
+    setup(fetcher); await screen.findByText('전광판이 등록되어 있어요');
+    await waitFor(() => expect(fetcher.mock.calls.some(([path]) => path === '/api/display/qr')).toBe(true));
+    if (warned) expect(await screen.findByText(/서버의 공개 주소\(https:\/\/moodwall\.library\.kr\)/)).toBeTruthy();
+    else { await act(async () => {}); expect(screen.queryByText(/서버의 공개 주소/)).toBeNull(); }
+  });
   it('pairs a device and never claims playback or implicitly resumes a paused board', async () => {
     const fetcher = vi.fn(async path => path === '/api/display/session' ? response({ code: 'AUTH_REQUIRED' }, 401) : path === '/api/display/pair' ? response(session) : response({ nextCursor: null }));
     setup(fetcher);

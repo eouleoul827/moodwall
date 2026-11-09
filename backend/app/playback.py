@@ -19,7 +19,7 @@ from psycopg import errors
 
 from app.db import all_rows, db_time, one, schema_ready
 from app.display import BubbleCursorCodec, effective_mode
-from app.domain import ANIMATIONS, business_day, midnight_after, normalize_content
+from app.domain import ANIMATIONS, business_day, midnight_after, normalize_content, playback_duration_ms
 from app.errors import Problem
 from app.security import derive_key
 
@@ -616,6 +616,7 @@ class PlaybackService:
                 "startAuthorizedAt": attempt["start_authorized_at"],
                 "startNotAfter": attempt["start_not_after"],
                 "firstFrameAt": attempt["first_frame_at"],
+                "durationMs": attempt["duration_ms"],
                 "completedAt": attempt["completed_at"],
                 "leaseUntil": attempt["lease_until"],
                 "item": self._item_payload(item, receipt, source) if visible else None,
@@ -762,6 +763,17 @@ class PlaybackService:
                     now,
                 )
                 return None
+            behind = await one(
+                conn,
+                "SELECT count(*) AS n FROM presentation_items WHERE board_id=%s AND status IN ('READY','INTERRUPTED') AND id<>%s",
+                (board["id"], item["id"]),
+            )
+            duration_ms = playback_duration_ms(
+                behind["n"],
+                maximum=self.settings.playback_max_seconds,
+                minimum=self.settings.playback_min_seconds,
+                relaxed=self.settings.playback_relaxed_backlog,
+            )
             board["playback_epoch"] += 1
             board["playback_current_item_id"] = item["id"]
             await conn.execute(
@@ -775,7 +787,7 @@ class PlaybackService:
             attempt = await one(
                 conn,
                 """INSERT INTO playback_attempts(item_id,board_id,client_instance_id,device_generation,playback_epoch,
-                attempt_number,claimed_at,lease_until) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                attempt_number,claimed_at,lease_until,duration_ms) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                 (
                     item["id"],
                     board["id"],
@@ -785,6 +797,7 @@ class PlaybackService:
                     item["attempt_count"] + 1,
                     now,
                     min(now + timedelta(seconds=10), board["device_token_expires_at"]),
+                    duration_ms,
                 ),
             )
             await conn.execute(
@@ -899,13 +912,12 @@ class PlaybackService:
             elif action == "complete":
                 if attempt["status"] != "PLAYING":
                     raise Problem(409, "PLAYBACK_NOT_READY")
-                if now < attempt["first_frame_at"] + timedelta(seconds=15):
+                complete_after = attempt["first_frame_at"] + timedelta(milliseconds=attempt["duration_ms"])
+                if now < complete_after:
                     raise Problem(
                         409,
                         "PLAYBACK_TOO_EARLY",
-                        retry_after=max(
-                            1, math.ceil((attempt["first_frame_at"] + timedelta(seconds=15) - now).total_seconds())
-                        ),
+                        retry_after=max(1, math.ceil((complete_after - now).total_seconds())),
                     )
                 await conn.execute(
                     "UPDATE playback_attempts SET status='DONE',completed_at=%s WHERE id=%s", (now, attempt_id)
