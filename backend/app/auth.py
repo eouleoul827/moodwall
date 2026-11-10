@@ -25,7 +25,11 @@ from app.security import (
 )
 
 STUDENT_LIFETIME = timedelta(days=30)
-DISPLAY_LIFETIME = timedelta(days=30)
+# The wall's credential slides: while it heartbeats, the expiry moves to now + DISPLAY_LIFETIME
+# (at most once per DISPLAY_RENEW_EVERY). Only a wall left unused for DISPLAY_LIFETIME — about a
+# school vacation and more — or revoked by an operator needs pairing again. Students stay absolute.
+DISPLAY_LIFETIME = timedelta(days=180)
+DISPLAY_RENEW_EVERY = timedelta(days=1)
 OPERATOR_LIFETIME = timedelta(hours=8)
 OPERATOR_IDLE = timedelta(minutes=30)
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
@@ -109,6 +113,20 @@ class AuthService:
         ):
             raise self._expired(role)
         return Actor(role, row["id"], None, digest, token, row)
+
+    @staticmethod
+    async def renew_display_credential(conn, board: dict, now: datetime) -> bool:
+        """Slide a live wall's expiry. Caller holds the board row lock and already rejected expiry."""
+        expires = board["device_token_expires_at"]
+        if expires is None or now >= expires or expires - now > DISPLAY_LIFETIME - DISPLAY_RENEW_EVERY:
+            return False
+        renewed = now + DISPLAY_LIFETIME
+        await conn.execute(
+            "UPDATE board_runtime SET device_token_expires_at=%s WHERE id=%s AND device_token_version=%s",
+            (renewed, board["id"], board["device_token_version"]),
+        )
+        board["device_token_expires_at"] = renewed
+        return True
 
     @staticmethod
     def _expired(role: str) -> Problem:

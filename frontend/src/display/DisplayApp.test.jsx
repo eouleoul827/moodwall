@@ -140,6 +140,18 @@ describe('public display', () => {
     await waitFor(() => expect(app.fetcher.mock.calls.filter(([path]) => path === '/api/display/session').length).toBe(before + 1));
     expect(app.factory).toHaveBeenCalledTimes(1); expect(app.runtime.stop).not.toHaveBeenCalled(); expect(screen.getByText(item.content)).toBeTruthy();
   });
+  it('keeps playing when a session check returns the server-renewed expiry', async () => {
+    let checks = 0;
+    const app = harness(vi.fn(async path => {
+      if (path !== '/api/display/session') return response(ticket);
+      checks++; return response(checks === 1 ? session : { ...session, credentialExpiresAt: '2027-06-30T00:00:00Z' });
+    }));
+    await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    act(() => app.wiring.renderer.show(item));
+    fireEvent.focus(window);
+    await waitFor(() => expect(checks).toBe(2));
+    expect(app.factory).toHaveBeenCalledTimes(1); expect(app.runtime.stop).not.toHaveBeenCalled(); expect(screen.getByText(item.content)).toBeTruthy();
+  });
   it('turns runtime fatal errors into a quiet backdrop', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     act(() => app.wiring.renderer.show(item)); act(() => app.wiring.onState({ source: 'runtime', connected: false, fatal: true }));

@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+from .auth import AuthService
 from .db import all_rows, db_time, one
 from .domain import ANIMATIONS, MENTION_RETENTION_SECONDS, business_day, midnight_after
 from .errors import Problem
@@ -252,6 +253,7 @@ class DisplayService:
             now = await db_time(conn)
             if now >= board["device_token_expires_at"]:
                 raise Problem(401, "SESSION_EXPIRED", cookie_role="display")
+            await AuthService.renew_display_credential(conn, board, now)
             await settle_board(conn, board, now)
             board["heartbeat_lease_until"] = min(now + timedelta(seconds=30), board["device_token_expires_at"])
             board["state_version"] += 1
