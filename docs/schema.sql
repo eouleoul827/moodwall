@@ -639,7 +639,8 @@ CREATE INDEX display_diagnostic_latest_expiry_idx ON display_diagnostic_latest(r
 COMMENT ON TABLE display_diagnostic_events IS 'Allowlisted advisory reports only, 7 days and at most 1000 events per board.';
 COMMENT ON TABLE display_diagnostic_latest IS 'Latest component/code report per device generation; not evidence of physical panel health.';
 
--- Additive 0009: server-chosen full-screen duration per attempt (5-15 s).
+-- Additive 0009: recorded full-screen duration (5-15 s for upgrade compatibility).
+-- New attempts always use 15000 ms; existing attempts retain their stored value.
 ALTER TABLE playback_attempts
     ADD COLUMN duration_ms integer NOT NULL DEFAULT 15000
     CONSTRAINT playback_duration_range CHECK (duration_ms BETWEEN 5000 AND 15000);
@@ -649,4 +650,4 @@ ALTER TABLE playback_attempts ADD CONSTRAINT playback_completion CHECK (complete
 ALTER TABLE submission_receipts DROP CONSTRAINT receipt_completion;
 ALTER TABLE submission_receipts ADD CONSTRAINT receipt_completion CHECK (completed_at IS NULL OR
     (first_start_authorized_at IS NOT NULL AND completed_at>=first_start_authorized_at+interval '5 seconds'));
-COMMENT ON COLUMN playback_attempts.duration_ms IS 'Chosen from the READY backlog at claim; complete is accepted only after first_frame_at + duration_ms.';
+COMMENT ON COLUMN playback_attempts.duration_ms IS 'New attempts use 15000 ms; pre-update attempts retain their recorded duration. complete is accepted only after first_frame_at + duration_ms.';

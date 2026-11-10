@@ -1,6 +1,7 @@
-"""Add the server-chosen playback duration (v0.12.0) to the reviewed contract.
+"""Document fixed fifteen-second playback (v0.12.1) in the reviewed contract.
 
-Idempotent: PlaybackAttempt gains required `durationMs` (5000-15000). Every response
+Idempotent: new attempts use 15000 ms; existing attempts retain their recorded
+durationMs (5000-15000) during an upgrade. Every response
 example that embeds an attempt receives the documented default, and the packaged
 byte copy plus the hash/version pins in test_http_contracts.py are refreshed.
 """
@@ -13,16 +14,16 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.12.0"
+VERSION = "0.12.1"
 DURATION = {
     "type": "integer",
     "minimum": 5000,
     "maximum": 15000,
     "description": (
-        "Full-screen milliseconds chosen by the server at claim from the READY backlog: "
-        "PLAYBACK_MAX_SECONDS while at most PLAYBACK_RELAXED_BACKLOG others wait, then one "
-        "second shorter per extra waiting message down to PLAYBACK_MIN_SECONDS. complete is "
-        "accepted only after firstFrameAt + durationMs."
+        "Full-screen milliseconds. Every new attempt is fixed at 15000 regardless of "
+        "queue length or deployment settings. Attempts created before this policy change "
+        "retain their recorded duration (5000-15000), including idempotent command replay. "
+        "complete is accepted only after firstFrameAt + durationMs."
     ),
 }
 
@@ -53,8 +54,8 @@ def build(contract):
         VERSION, contract["info"]["version"], key=lambda version: tuple(map(int, version.split(".")))
     )
     contract["info"]["description"] = contract["info"]["description"].replace(
-        "then reports completion after at least 15 seconds.",
         "then reports completion after the server-chosen durationMs (15 seconds, down to 8 when a queue builds up).",
+        "then reports completion after at least 15 seconds.",
     )
     schema = contract["components"]["schemas"]["PlaybackAttempt"]
     properties = list(schema["properties"].items())

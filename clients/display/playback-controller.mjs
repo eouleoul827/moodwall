@@ -6,8 +6,8 @@ const DECIMAL = /^(0|[1-9][0-9]{0,18})$/;
 const decimal = value => typeof value === "string" && DECIMAL.test(value);
 const HOUR = 3_600_000;
 const DURATION = 15_000;
-// The server picks each attempt's full-screen time from its backlog (5-15 s) and
-// enforces the same value on complete. Older servers omit it and keep 15 s.
+// New attempts always last 15 s. Keep recorded 5-15 s values for attempts that
+// began before the update; older servers that omit durationMs also use 15 s.
 const MIN_DURATION = 5_000;
 const validDuration = value => Number.isInteger(value) && value >= MIN_DURATION && value <= DURATION;
 export function playbackDuration(current) {

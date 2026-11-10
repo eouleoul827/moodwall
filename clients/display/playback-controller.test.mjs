@@ -87,7 +87,7 @@ test("prepared item holds first visible frame for at least fifteen monotonic sec
   assert.ok(calls.find(row => row.action === "complete").at - first.at >= 15_000);
 });
 
-test("the server-chosen duration replaces the fixed fifteen seconds", async () => {
+test("an attempt created before fixed playback keeps its recorded duration", async () => {
   const { player, calls, draws } = harness({ durationMs: 8000 });
   assert.equal((await player.runOnce()).status, "DONE");
   const first = draws.find(row => row.action === "show");

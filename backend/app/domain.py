@@ -12,6 +12,7 @@ import regex
 
 KST = ZoneInfo("Asia/Seoul")
 MENTION_RETENTION_SECONDS = 3600
+PLAYBACK_DURATION_MS = 15000
 WHITE_SPACE = (
     "\u0009\u000a\u000b\u000c\u000d\u0020\u0085\u00a0\u1680"
     + "".join(chr(i) for i in range(0x2000, 0x200B))
@@ -47,17 +48,6 @@ def business_day(now: datetime):
 
 def midnight_after(now: datetime):
     return datetime.combine(business_day(now) + timedelta(days=1), time(), KST).astimezone(timezone.utc)
-
-
-def playback_duration_ms(waiting_after_claim: int, *, maximum: int = 15, minimum: int = 8, relaxed: int = 2) -> int:
-    """Full-screen milliseconds for the message being claimed.
-
-    `waiting_after_claim` counts READY/INTERRUPTED messages still queued behind it.
-    A short queue keeps the full time; a burst (break time) shortens each message by
-    one second per extra waiting message so later students are not kept waiting.
-    """
-    excess = max(0, waiting_after_claim - relaxed)
-    return max(minimum, maximum - excess) * 1000
 
 
 def normalize_content(value: str) -> str:

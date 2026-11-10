@@ -136,11 +136,11 @@ describe('public display', () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     act(() => app.wiring.renderer.show(item));
     const before = app.fetcher.mock.calls.filter(([path]) => path === '/api/display/session').length;
-    fireEvent.focus(window);
+    await act(async () => { fireEvent.focus(window); });
     await waitFor(() => expect(app.fetcher.mock.calls.filter(([path]) => path === '/api/display/session').length).toBe(before + 1));
     expect(app.factory).toHaveBeenCalledTimes(1); expect(app.runtime.stop).not.toHaveBeenCalled(); expect(screen.getByText(item.content)).toBeTruthy();
   });
-  it('keeps playing when a session check returns the server-renewed expiry', async () => {
+  it.each(['focus', '403'])('keeps playing when a %s session check returns the server-renewed expiry', async trigger => {
     let checks = 0;
     const app = harness(vi.fn(async path => {
       if (path !== '/api/display/session') return response(ticket);
@@ -148,9 +148,39 @@ describe('public display', () => {
     }));
     await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     act(() => app.wiring.renderer.show(item));
-    fireEvent.focus(window);
-    await waitFor(() => expect(checks).toBe(2));
+    await act(async () => {
+      if (trigger === 'focus') fireEvent.focus(window);
+      else app.wiring.onProblem({ status: 403, code: 'CSRF_REJECTED' });
+    });
+    expect(checks).toBe(2);
     expect(app.factory).toHaveBeenCalledTimes(1); expect(app.runtime.stop).not.toHaveBeenCalled(); expect(screen.getByText(item.content)).toBeTruthy();
+  });
+  it.each([
+    { boardId: '00000000-0000-4000-8000-000000000002' },
+    { csrfToken: 'replacement-display-csrf' },
+  ])('stops the old playback when the credential identity changes %j', async replacement => {
+    let checks = 0;
+    const app = harness(vi.fn(async path => path === '/api/display/session'
+      ? response(++checks === 1 ? session : { ...session, ...replacement }) : response(ticket)));
+    await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    act(() => app.wiring.renderer.show(item));
+    const previousEvents = events[0];
+    await act(async () => { fireEvent.focus(window); });
+    expect(checks).toBe(2); expect(app.runtime.stop).toHaveBeenCalledTimes(1);
+    expect(previousEvents.close).toHaveBeenCalledTimes(1); expect(app.factory).toHaveBeenCalledTimes(2);
+    expect(app.wiring.boardId).toBe(replacement.boardId || session.boardId);
+    expect(app.wiring.csrfToken()).toBe(replacement.csrfToken || session.csrfToken);
+  });
+  it('stops active playback when a session check invalidates the credential', async () => {
+    let checks = 0;
+    const app = harness(vi.fn(async path => path === '/api/display/session'
+      ? (++checks === 1 ? response(session) : response({ code: 'AUTH_REQUIRED' }, 401)) : response(ticket)));
+    await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    act(() => app.wiring.renderer.show(item));
+    await act(async () => { fireEvent.focus(window); });
+    expect(checks).toBe(2); expect(app.runtime.stop).toHaveBeenCalledTimes(1);
+    expect(app.factory).toHaveBeenCalledTimes(1); expect(events[0].close).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(item.content)).toBeNull(); expectQuiet();
   });
   it('turns runtime fatal errors into a quiet backdrop', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());

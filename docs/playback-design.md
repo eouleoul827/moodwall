@@ -1,6 +1,6 @@
 # 무드월 준비 완료 순서와 15초 재생 설계
 
-2026-11-09: 전체 화면 시간은 **서버가 claim 때 정한다**. 뒤에 대기하는 글이 2개 이하면 15초, 그보다 많으면 1개당 1초씩 줄여 최소 8초(`PLAYBACK_MAX_SECONDS`·`PLAYBACK_MIN_SECONDS`·`PLAYBACK_RELAXED_BACKLOG`). 시도 응답의 `durationMs`(5000~15000)를 전광판이 따르고 서버 complete와 DB 제약도 같은 값으로 검증한다. 아래의 “15초”는 이 기본값이다. OpenAPI 0.12.0, DB head `0009_playback_duration`.
+2026-11-10: 전체 화면 시간은 **대기량과 관계없이 15초 고정**이다. 새 claim과 재시도는 `durationMs=15000`으로 생성한다. 업데이트 전에 생성된 시도만 저장된 `durationMs`(5000~15000)를 그대로 따르며 서버 complete와 DB 제약도 같은 값으로 검증한다. 기존 `MOODWALL_PLAYBACK_MAX_SECONDS`·`MOODWALL_PLAYBACK_MIN_SECONDS`·`MOODWALL_PLAYBACK_RELAXED_BACKLOG` 설정은 무시하며 추가 DB 마이그레이션은 필요 없다. OpenAPI 0.12.1, DB head `0009_playback_duration`.
 
 2026-11-05 추가 구현: [전광판 오류 비노출과 기존 동작 보존](display-recovery-design.md)을 코드에 반영했다. 공개 오류 안내와 자동 등록 화면 전환을 분리하고 이 문서의 재생·보관 계약을 유지한다. 최신 계약은 HTTP 0.11.0, DB head는 `0008_display_diagnostics`이며 [현재 구현과 검증 범위](display-recovery-implementation.md)를 따른다.
 

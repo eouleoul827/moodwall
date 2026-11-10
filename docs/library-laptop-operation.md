@@ -170,5 +170,5 @@ flowchart LR
 
 - **QR 밀도(백엔드):** 서명된 JWT ticket(약 340자) 때문에 QR이 15버전이다. ticket을 짧은 형식으로 바꾸면 7버전 안팎(45칸)이 되어 같은 크기에서 칸이 약 1.7배 커지고, 더 멀리서 인식된다.
 - **IP 기준 한도:** Funnel 뒤에서는 모든 학생 요청이 노트북 내부 주소 하나로 보인다. 학생 입장 IP 한도(분당 600)를 학생 전체가 나눠 쓴다. 도서관 규모에서는 충분하지만, 보안 이벤트의 IP 정보는 의미가 없다.
-- **재생 시간:** 서버가 claim 때 대기열을 보고 정한다. 기본 15초이고, 뒤에 3개 이상 기다리면 1개당 1초씩 줄어 최소 8초가 된다. `.env`의 `MOODWALL_PLAYBACK_MAX_SECONDS`·`MOODWALL_PLAYBACK_MIN_SECONDS`·`MOODWALL_PLAYBACK_RELAXED_BACKLOG`로 조정한다.
+- **재생 시간:** 대기량과 관계없이 15초 고정이다. 기존 `.env`의 `MOODWALL_PLAYBACK_MAX_SECONDS`·`MOODWALL_PLAYBACK_MIN_SECONDS`·`MOODWALL_PLAYBACK_RELAXED_BACKLOG` 값은 무시한다. 업데이트 전에 시작한 시도만 저장된 재생 시간을 유지한다.
 - **구름과 제목 겹침:** 구름이 가운데 제목 뒤를 지나며 글자와 겹친다. 기존 시안의 동작이며 디자인 담당과 정할 사항이다.

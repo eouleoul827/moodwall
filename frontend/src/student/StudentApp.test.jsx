@@ -9,7 +9,7 @@ const session = () => ({ csrfToken: 'test-csrf', serverNow: new Date().toISOStri
 const accepted = (status = 'WAITING') => ({ state: 'ACCEPTED', receipt: { userStatus: status }, view: {
   card: status === 'NEEDS_REWRITE' ? 'REWRITE' : 'COMPLETE',
   title: status === 'NEEDS_REWRITE' ? '표현을 조금 바꿔 주세요' : '메시지를 보냈어요!',
-  message: status === 'NEEDS_REWRITE' ? '표현을 바꿔 다시 보내 주세요.' : '확인 후 전광판에 순서대로 올라가요. 표시되면 화면 가득 크게 보여요.',
+  message: status === 'NEEDS_REWRITE' ? '표현을 바꿔 다시 보내 주세요.' : '확인 후 전광판에 순서대로 올라가요. 표시되면 15초 동안 크게 보여요.',
 } });
 
 function setup({ sendResult = accepted(), connectedSession = session(), reload, recoveryResult, recoveryPersistent } = {}) {
@@ -38,8 +38,8 @@ describe('student composition and receipts', () => {
     expect(api.connect).toHaveBeenCalledWith('test-ticket', expect.any(AbortSignal));
     expect(client.begin).toHaveBeenCalledExactlyOnceWith('오늘도 좋은 하루!');
     expect(screen.queryByText('배경 이모지 고르기')).toBeNull();
-    expect(screen.getByText(/표시되면 화면 가득 크게 보여요/)).toBeTruthy();
-    expect(screen.queryByText(/전광판에 곧 올라가요|약 1분|자정까지|15초/)).toBeNull();
+    expect(screen.getByText(/표시되면 15초 동안 크게 보여요/)).toBeTruthy();
+    expect(screen.queryByText(/전광판에 곧 올라가요|약 1분|자정까지/)).toBeNull();
     const watched = client.watchReceipt.mock.calls[0][0];
     act(() => watched.onChange(accepted('SHOWING')));
     expect(screen.getByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();

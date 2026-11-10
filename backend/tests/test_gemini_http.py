@@ -30,7 +30,7 @@ from inference.provider_moderation import (
     redact_input,
 )
 
-SYNTHETIC_KEY = "synthetic-local-test-key-01234567890123456789"
+SYNTHETIC_KEY = "AQ.synthetic-local-test-key-01234567890123456789"
 ALLOW = {"schema_version": "1", "decision": "ALLOW", "reason_codes": [], "policy_rule_ids": []}
 
 
@@ -90,6 +90,31 @@ def analyzer_for(transport):
         moderation_profile="gemini",
         max_input_tokens=16384,
     )
+
+
+@pytest.mark.parametrize("key", ["synthetic-legacy-key-0123456789", SYNTHETIC_KEY])
+def test_standard_and_auth_keys_reach_header_only_without_exposure(key):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return response(payload={"totalTokens": 100})
+
+    live = GeminiHTTPTransport(SecretStr(key), _transport=httpx.MockTransport(handler))
+    assert live.count_input_tokens(compile_request(redact_input("연결 확인"))) == 100 + COUNT_FRAMING_MARGIN
+    assert len(seen) == 1
+    assert seen[0].headers["x-goog-api-key"] == key
+    assert not seen[0].url.query
+    assert key not in str(seen[0].url)
+    assert key not in repr(live)
+
+
+@pytest.mark.parametrize("suffix", [" ", "\n", "\r", "\x00", "'", '"', "$", "`", "!"])
+def test_auth_key_still_rejects_whitespace_controls_and_injection(suffix):
+    invalid = SYNTHETIC_KEY + suffix
+    with pytest.raises(ProviderModerationError) as caught:
+        GeminiHTTPTransport(SecretStr(invalid))
+    assert invalid not in str(caught.value)
 
 
 def test_fixed_https_preflight_then_generation_with_real_usage_and_no_retention():

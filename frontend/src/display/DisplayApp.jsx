@@ -95,7 +95,9 @@ function Sky({ period }) {
 }
 
 export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch }) {
-  const { session, csrfRef, invalidate, check } = useDisplaySession(fetcher);
+  // Only a new credential starts a new runtime. Session metadata can refresh
+  // independently; playback/snapshot responses remain authoritative for mode.
+  const { runtimeSession: session, csrfRef, invalidate, check } = useDisplaySession(fetcher);
   const [bubbles, setBubbles] = useState(EMPTY_BUBBLES), [spotlight, setSpotlight] = useState(null);
   const [qr, setQr] = useState(null), [mode, setMode] = useState('MOODWALL'), [now, setNow] = useState(Date.now());
   const [authority, setAuthority] = useState({ connected: false, until: 0 });
