@@ -1,9 +1,9 @@
 name: frontend
 on:
   push:
-    paths: ["frontend/**", "clients/**", ".github/workflows/frontend.yml"]
+    paths: ["frontend/**", "clients/**", "scripts/browser-client-smoke.mjs", ".github/workflows/frontend.yml"]
   pull_request:
-    paths: ["frontend/**", "clients/**", ".github/workflows/frontend.yml"]
+    paths: ["frontend/**", "clients/**", "scripts/browser-client-smoke.mjs", ".github/workflows/frontend.yml"]
 permissions:
   contents: read
 jobs:
@@ -27,5 +27,7 @@ jobs:
         run: npm test
       - name: Shared recovery and display protocol
         run: node --test ../clients/*.test.mjs ../clients/display/*.test.mjs ../clients/student/*.test.mjs
+      - name: Native browser submission and playback transport
+        run: node ../scripts/browser-client-smoke.mjs
       - name: Build production screens and local assets
         run: npm run build

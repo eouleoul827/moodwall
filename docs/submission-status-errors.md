@@ -4,7 +4,7 @@
 
 ## Gemini 추가 계약의 상태
 
-[Gemini 검수 설계](gemini-moderation-design.md)의 새 사유 `SUPPORT_AVAILABLE`, 기능 헤더 `support-v1`, HTTP 409 `CLIENT_UPDATE_REQUIRED`, 신고 API를 구현했다. 서버 전용 실제 HTTP 연결과 외부 호출 없는 mock을 구분한다. 지원 결과는 기존 `NEEDS_REWRITE` 상태를 유지하면서 지원 사유를 원문 purge 전에 영수증에 보존하고, 학생 화면에서 일반 수정 안내보다 우선 표시한다.
+[Gemini 검수 설계](gemini-moderation-design.md)의 새 결정은 `ALLOW/BLOCK/UNCERTAIN`이다. 자기 감정·도움 요청만으로 새 SUPPORT를 만들지 않는다. 과거 사유 `SUPPORT_AVAILABLE`, 기능 헤더 `support-v1`, HTTP 409 `CLIENT_UPDATE_REQUIRED`는 기존 영수증 호환·원문 제거를 위해 유지한다. 해당 영수증은 `NEEDS_REWRITE`와 원문 purge 이전에 보존한 사유를 유지하되 학생에게 원문 미리보기나 도움 안내 없이 ‘이 글은 전광판에 표시되지 않았어요. 다른 내용으로 다시 작성할 수 있어요.’를 표시한다. 서버 전용 실제 HTTP 연결과 외부 호출 없는 mock을 구분하며 신고 API는 유지한다.
 
 운영자 검수 상태의 `transportConfigured`는 서버 키 설정 여부이고, `workerReady`는 현재 bundle의 유효한 작업자 lease 여부다. 둘을 실제 모델 품질 검증으로 해석하지 않는다. `lastFailureCode`는 인증·한도·시간 초과 등의 고정된 코드만 반환하며 키·공급자 응답 본문·학생 원문은 포함하지 않는다. 연결 준비·복구·예산 부족 동안 새 접수는 기존 HTTP 503 `MODEL_NOT_READY`로 닫고, 진행 중 기술 실패는 제재 없이 종료한다. 이미 전송을 시작한 검수를 자동으로 다시 호출하지 않는다.
 
@@ -122,6 +122,7 @@ POST 응답을 잃어 submissionId를 모르면 POST /api/v2/submission-receipts
 | --- | --- | --- | --- |
 | CONTENT_REQUIRES_REWRITE | NEEDS_REWRITE | 표현을 바꿔 다시 작성하도록 안내 | 시작 전 예약 반환. 확정 규칙만 별도 위반 가산 |
 | CONTENT_REVIEW_UNCERTAIN | NEEDS_REWRITE | 공개할 수 있는 내용으로 다시 작성하도록 안내 | 예약 반환, 위반 가산 없음 |
+| CONTENT_REVIEW_UNAVAILABLE | FAILED | 제공자 안전 필터로 검수를 완료하지 못함. “내용 확인을 완료하지 못했어요. 이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요.” | 예약 반환, 위반 가산·자동 재호출 없음 |
 | PREPARATION_TIMEOUT | FAILED | 120초 준비 기한 초과, 늦은 결과 무시 | 시작 전 예약 반환, 제재 없음 |
 | PREPARATION_UNAVAILABLE | FAILED | 모델·규칙 엔진·작업자·저장소 오류 | 시작 전 예약 반환, 제재 없음 |
 | INVALID_ANALYSIS_RESULT | FAILED | 잘못된 라벨·NaN·스키마·정책 버전 불일치 | 시작 전 예약 반환, 제재 없음 |

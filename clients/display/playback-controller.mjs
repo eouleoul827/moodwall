@@ -57,7 +57,8 @@ export class FetchPlaybackTransport {
         (baseUrl !== "" && !baseUrl.startsWith("/")) || baseUrl.startsWith("//")) {
       throw new TypeError("Invalid same-origin playback transport");
     }
-    this.fetch = fetch;
+    // Native Window.fetch cannot be called with this transport as its receiver.
+    this.fetch = (...args) => fetch(...args);
     this.csrfToken = csrfToken;
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
@@ -449,6 +450,11 @@ export class DisplayPlaybackController {
         }
       }
       this.#guard();
+      // The visible duration is complete. Confirmation may retry through a
+      // disconnect, so stop drawing before network waits can extend this frame
+      // beyond its lease. Only the confirmed DONE below can add a bubble or
+      // permit the next claim.
+      this.renderer.hide();
       await this.#send(this.#command("complete"));
       return this.#finished();
     } catch (error) {

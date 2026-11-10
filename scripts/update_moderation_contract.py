@@ -197,7 +197,7 @@ def build(contract):
         )
         endpoint["responses"].setdefault("409", {"$ref": "#/components/responses/Error409"})
     schemas["SubmissionReceipt"]["properties"]["reasonCode"]["description"] = (
-        "SUPPORT_AVAILABLE selects private fixed help before generic NEEDS_REWRITE. Required capability survives source purge/profile rollback. No new moderation status."
+        "Legacy SUPPORT_AVAILABLE receipts show a neutral nonpublication notice without help guidance or actions; private source content stays hidden. New moderation does not emit SUPPORT. Required capability survives source purge/profile rollback. No new moderation status."
     )
     return contract
 

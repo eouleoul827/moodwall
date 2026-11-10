@@ -52,7 +52,6 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
   const [connectionError, setConnectionError] = useState('');
   const [clock, setClock] = useState(Date.now());
   const [bootKey, setBootKey] = useState(0);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [updateRequired, setUpdateRequired] = useState(false);
   const csrfRef = useRef('');
   const clockOffset = useRef(0);
@@ -145,6 +144,7 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
   const length = characterCount(text.trim());
   const validation = validateMention(text);
   const view = result?.view || COMPLETE;
+  const privateReceipt = result?.receipt?.reasonCode === 'SUPPORT_AVAILABLE';
 
   const watchAccepted = () => {
     void client.watchReceipt({ intervalMs: 3000, onChange: next => {
@@ -152,7 +152,7 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
       if (next.state === 'UPDATE_REQUIRED') { setUpdateRequired(true); return; }
       if (next.state !== 'ACCEPTED') return;
       setResult(next);
-      if (next.view.card === 'SUPPORT') setPreview('');
+      if (next.receipt?.reasonCode === 'SUPPORT_AVAILABLE') setPreview('');
       if (screenRef.current === 'compose' && next.view.card !== 'COMPLETE') {
         setNotice(`이전 메시지: ${next.view.message}`);
       }
@@ -167,7 +167,7 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
       setUnconfirmed(false);
       setNotice('');
       setScreen('receipt');
-      if (next.view.card === 'SUPPORT') { setPreview(''); setText(''); }
+      if (next.receipt?.reasonCode === 'SUPPORT_AVAILABLE') { setPreview(''); setText(''); }
       watchAccepted();
       void refreshUsage();
     } else if (next.state === 'UPDATE_REQUIRED') {
@@ -203,7 +203,7 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
       if (next.state === 'UPDATE_REQUIRED') { setUpdateRequired(true); return; }
       if (next.state !== 'ACCEPTED') return;
       setResult(next);
-      if (next.view.card === 'SUPPORT') setPreview('');
+      if (next.receipt?.reasonCode === 'SUPPORT_AVAILABLE') setPreview('');
       if (screenRef.current === 'compose' && next.view.card !== 'COMPLETE') setNotice(`이전 메시지: ${next.view.message}`);
       watchAccepted();
     } catch { /* Keep the accepted card or original uncertain key during a read outage. */ }
@@ -278,18 +278,17 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
           </div>
         </form> : <section className="student-receipt">
           <div className="student-receipt-main">
-            <div className={`student-result-mark${view.card === 'SUPPORT' ? ' is-support' : view.card === 'REWRITE' ? ' is-notice' : view.card !== 'COMPLETE' ? ' is-neutral' : ''}`} aria-hidden="true">{view.card === 'COMPLETE' ? <svg viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7.5" /></svg> : view.card === 'SUPPORT' ? '♡' : view.card === 'REWRITE' ? '!' : '…'}</div>
+            <div className={`student-result-mark${view.card === 'REWRITE' ? ' is-notice' : view.card !== 'COMPLETE' ? ' is-neutral' : ''}`} aria-hidden="true">{view.card === 'COMPLETE' ? <svg viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7.5" /></svg> : view.card === 'REWRITE' ? '!' : '…'}</div>
             <div aria-live="polite"><h1>{view.card === 'COMPLETE' ? COMPLETE.title : view.title}</h1><p className="student-result-copy">{view.card === 'COMPLETE' ? COMPLETE.message : view.message}</p></div>
-            {preview && view.card !== 'SUPPORT' && <MoodPreview content={preview} complete />}
+            {preview && !privateReceipt && <MoodPreview content={preview} complete />}
             {view.card === 'COMPLETE' && <div className="student-wait-note"><p>표시되는 메시지는 앞선 구름이 지나간 뒤 순서대로 보여요.</p></div>}
           </div>
           <div className="student-actions">
-            {view.card === 'SUPPORT' && <button className="student-button" type="button" onClick={() => setHelpOpen(true)}>도움받는 방법 보기</button>}
-            <button className="student-button student-button-secondary" disabled={availability.blocked || updateRequired} onClick={writeAgain}>{view.card === 'SUPPORT' ? '작성 화면으로' : view.card === 'REWRITE' ? '수정하기' : view.card === 'UNCERTAIN' ? '다시 작성하기' : view.card === 'COMPLETE' ? '하나 더 쓰기' : '다시 쓰기'}</button>
+            <button className="student-button student-button-secondary" disabled={availability.blocked || updateRequired} onClick={writeAgain}>{view.card === 'REWRITE' ? '수정하기' : view.card === 'UNCERTAIN' ? '다시 작성하기' : view.card === 'COMPLETE' ? '하나 더 쓰기' : '다시 쓰기'}</button>
             {availability.text && <p className="student-rules" role="status">{availability.text}</p>}
           </div>
         </section>}
-      <StudentHelp open={helpOpen} onOpenChange={setHelpOpen} api={api} csrfToken={() => csrfRef.current} refreshSession={refreshSession} canReport={Boolean(session)} showReportEntry={screen === 'receipt'} />
+      <StudentHelp api={api} csrfToken={() => csrfRef.current} refreshSession={refreshSession} canReport={Boolean(session)} showReportEntry={screen === 'receipt'} />
       <footer className="student-footer">moodwall · 우리의 오늘이 모이는 곳</footer>
     </div>
   </main>;

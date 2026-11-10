@@ -7,7 +7,7 @@
     },
     "decision": {
       "type": "string",
-      "enum": ["ALLOW", "BLOCK", "UNCERTAIN", "SUPPORT"]
+      "enum": ["ALLOW", "BLOCK", "UNCERTAIN"]
     },
     "reason_codes": {
       "type": "array",
@@ -21,8 +21,7 @@
           "PERSONAL_INFORMATION",
           "OTHER_UNSAFE",
           "INSUFFICIENT_CONTEXT",
-          "OUT_OF_DOMAIN",
-          "SELF_CRISIS"
+          "OUT_OF_DOMAIN"
         ]
       },
       "maxItems": 5
@@ -39,7 +38,6 @@
           "CP05",
           "CP06",
           "CP07",
-          "CP08",
           "CP09",
           "CP10"
         ]

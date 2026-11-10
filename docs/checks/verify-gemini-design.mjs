@@ -14,7 +14,7 @@ const segmenter = new Intl.Segmenter("ko", { granularity: "grapheme" });
 const mapping = {
   CP01: ["HARASSMENT"], CP02: ["HATE"], CP03: ["SEXUAL_CONTENT"],
   CP04: ["THREAT"], CP05: ["PERSONAL_INFORMATION"], CP06: ["OTHER_UNSAFE"],
-  CP07: ["OTHER_UNSAFE"], CP08: ["SELF_CRISIS"], CP09: ["OTHER_UNSAFE"],
+  CP07: ["OTHER_UNSAFE"], CP09: ["OTHER_UNSAFE"],
   CP10: ["INSUFFICIENT_CONTEXT", "OUT_OF_DOMAIN"],
 };
 const sameSet = (a, b) => assert.deepEqual([...a].sort(), [...b].sort());
@@ -54,8 +54,8 @@ function semantic(value, flags) {
       sameSet(rules, ["CP10"]); assert.equal(reasons.length, 1);
     } else {
       assert.ok(!rules.includes("CP10"));
-      if (decision === "SUPPORT") assert.ok(rules.includes("CP08"));
-      else { assert.equal(decision, "BLOCK"); assert.ok(!rules.includes("CP08")); }
+      assert.equal(decision, "BLOCK");
+      assert.ok(!rules.includes("CP08"));
     }
   }
   if (flags?.restricted_identifier) assert.ok(rules.includes("CP05"));
@@ -65,14 +65,14 @@ function semantic(value, flags) {
 sameSet(Object.keys(schema.properties), ["schema_version", "decision", "reason_codes", "policy_rule_ids"]);
 sameSet(schema.required, Object.keys(schema.properties));
 assert.equal(schema.additionalProperties, false);
-sameSet(schema.properties.decision.enum, ["ALLOW", "BLOCK", "UNCERTAIN", "SUPPORT"]);
+sameSet(schema.properties.decision.enum, ["ALLOW", "BLOCK", "UNCERTAIN"]);
 sameSet(schema.properties.policy_rule_ids.items.enum, Object.keys(mapping));
 sameSet(schema.properties.reason_codes.items.enum, [...new Set(Object.values(mapping).flat())]);
 assert.equal(schema.properties.reason_codes.maxItems, 5);
 assert.equal(schema.properties.policy_rule_ids.maxItems, 5);
 assert.ok(cases.length >= 40);
 const seen = new Set();
-const counts = { ALLOW: 0, BLOCK: 0, UNCERTAIN: 0, SUPPORT: 0 };
+const counts = { ALLOW: 0, BLOCK: 0, UNCERTAIN: 0 };
 let maximumGraphemes = 0;
 for (const item of cases) {
   sameSet(Object.keys(item), ["case_id", "scenario_group_id", "text", "local_findings", "expected"]);
@@ -109,6 +109,7 @@ const invalid = [
   { ...allow, reason_codes: ["HATE"] },
   { ...allow, decision: "BLOCK" },
   { ...allow, decision: "SUPPORT", reason_codes: ["HATE"], policy_rule_ids: ["CP02"] },
+  { ...allow, decision: "SUPPORT", reason_codes: ["SELF_CRISIS"], policy_rule_ids: ["CP08"] },
   { ...allow, decision: "BLOCK", reason_codes: ["SELF_CRISIS"], policy_rule_ids: ["CP08"] },
   { ...allow, decision: "BLOCK", reason_codes: ["HATE", "HATE"], policy_rule_ids: ["CP02"] },
   { ...allow, decision: "BLOCK", reason_codes: ["HATE"], policy_rule_ids: ["CP01"] },

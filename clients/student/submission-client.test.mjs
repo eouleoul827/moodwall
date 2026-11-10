@@ -40,6 +40,32 @@ test("202 shows the existing completion card immediately and sends only content"
   assert.equal(JSON.stringify(result.receipt).includes("오늘 행복해"), false);
 });
 
+test("browser-native fetch and timer defaults never receive the client as this", async t => {
+  const requests = [], timers = [], cleared = [];
+  t.mock.method(globalThis, "fetch", async function (url) {
+    assert.equal(this, undefined, "Window.fetch rejects a class instance receiver");
+    requests.push(url);
+    return response(url === "/api/v2/submissions" ? 202 : 200, receipt());
+  });
+  t.mock.method(globalThis, "setTimeout", function (_callback, ms) {
+    assert.equal(this, undefined, "Window.setTimeout rejects a class instance receiver");
+    timers.push(ms);
+    return timers.length;
+  });
+  t.mock.method(globalThis, "clearTimeout", function (id) {
+    assert.equal(this, undefined, "Window.clearTimeout rejects a class instance receiver");
+    cleared.push(id);
+  });
+  const client = new SubmissionClient({ uuid: () => ID, storage: null });
+  client.begin("오늘 행복해");
+  assert.equal((await client.send()).state, "ACCEPTED");
+  assert.equal((await client.recover()).state, "ACCEPTED");
+  assert.equal((await client.getReceipt()).state, "ACCEPTED");
+  assert.deepEqual(requests, ["/api/v2/submissions", "/api/v2/submission-receipts/lookup", `/api/v2/submissions/${ID}`]);
+  assert.deepEqual(timers, [5000, 5000, 5000]);
+  assert.deepEqual(cleared, [1, 2, 3]);
+});
+
 test("duplicate button presses use a single in-flight request", async () => {
   const { client, requests } = setup();
   client.begin("안녕");
@@ -61,6 +87,47 @@ test("network ambiguity keeps the same immutable key and body when explicitly re
   assert.equal((await client.send()).state, "ACCEPTED");
   assert.equal(requests[0].init.headers["Idempotency-Key"], requests[1].init.headers["Idempotency-Key"]);
   assert.equal(requests[0].init.body, requests[1].init.body);
+});
+
+test("a rate-limited retry cannot discard an earlier uncertain acceptance", async () => {
+  for (const code of ["RATE_LIMITED", "REQUEST_RATE_LIMITED"]) {
+    const storage = memoryStorage(), requests = [];
+    let keys = 0;
+    const client = new SubmissionClient({ storage, wallNow: () => BASE,
+      uuid: () => `aaaaaaaa-aaaa-4aaa-8aaa-${String(++keys).padStart(12, "0")}`,
+      fetch: async (url, init) => {
+        requests.push({ url, init });
+        if (requests.length === 1) throw Error("response lost after acceptance");
+        if (requests.length === 2) return response(429, { code }, "application/problem+json");
+        return response(200, receipt({ userStatus: "WAITING" }));
+      } });
+    const intent = client.begin("hello");
+    assert.equal((await client.send()).state, "UNKNOWN");
+    assert.equal((await client.send()).state, "UNKNOWN");
+    assert.equal(client.intent, intent);
+    assert.equal(client.hasPendingRecovery, true);
+    assert.equal(JSON.parse([...storage.values.values()][0]).idempotencyKey, intent.idempotencyKey);
+    assert.throws(() => client.begin("another message"), { code: "PENDING_SUBMISSION_EXISTS" });
+    const restored = await client.recover();
+    assert.equal(restored.state, "ACCEPTED");
+    assert.equal(restored.receipt.submissionId, ID);
+    assert.equal(requests[0].init.headers["Idempotency-Key"], requests[1].init.headers["Idempotency-Key"]);
+    assert.equal(requests[0].init.body, requests[1].init.body);
+    assert.equal(requests[2].url, "/api/v2/submission-receipts/lookup");
+    assert.deepEqual(JSON.parse(requests[2].init.body), { idempotencyKey: intent.idempotencyKey });
+    assert.equal(keys, 1);
+  }
+});
+
+test("a rate limit on the first attempt remains a definitive rejection", async () => {
+  const storage = memoryStorage();
+  const client = new SubmissionClient({ storage, wallNow: () => BASE, uuid: () => ID,
+    fetch: async () => response(429, { code: "RATE_LIMITED" }, "application/problem+json") });
+  client.begin("hello");
+  assert.deepEqual(await client.send(), { state: "REJECTED", code: "RATE_LIMITED" });
+  assert.equal(client.hasPendingRecovery, false);
+  assert.equal(storage.values.size, 0);
+  assert.doesNotThrow(() => client.begin("another message"));
 });
 
 test("lost response recovers through an owner-scoped lookup with no automatic re-submission", async () => {
@@ -171,12 +238,13 @@ test("five-second deadline settles an abort-ignoring transport", async () => {
   assert.equal(client.intent.idempotencyKey, ID);
 });
 
-test("private support takes priority over generic rewrite and normal status cards", () => {
+test("a private nonpublication result uses a neutral notice without crisis guidance", () => {
   for (const userStatus of ["NEEDS_REWRITE", "SHOWN"]) {
     const view = studentReceiptView(receipt({ userStatus, reasonCode: "SUPPORT_AVAILABLE", contentStatus: "PURGED" }));
-    assert.equal(view.card, "SUPPORT");
+    assert.equal(view.card, "NOTICE");
+    assert.equal(view.title, "전광판에 표시되지 않았어요");
     assert.match(view.message, /전광판에 표시하지 않았어요/);
-    assert.doesNotMatch(view.message, /바꿔|수정|벌점/);
+    assert.doesNotMatch(`${view.title} ${view.message}`, /바꿔|수정|벌점|도움|선생님|어른|연락|위기|힘들/);
   }
 });
 
@@ -187,14 +255,29 @@ test("uncertainty uses a neutral explanation rather than calling the message har
   assert.doesNotMatch(view.message, /욕설|괴롭힘|벌점/);
 });
 
+test("provider safety failure is a terminal neutral notice without requiring rephrasing", async () => {
+  const { client, requests } = setup(() => response(202, receipt({
+    processingStatus: "FAILED", userStatus: "FAILED", reasonCode: "CONTENT_REVIEW_UNAVAILABLE", contentStatus: "PURGED",
+  })));
+  client.begin("오늘 기분을 남겨요");
+  const result = await client.send();
+  assert.equal(result.view.card, "NOTICE");
+  assert.equal(result.view.title, "내용 확인을 완료하지 못했어요");
+  assert.equal(result.view.message, "이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요.");
+  assert.equal(result.view.terminal, true);
+  assert.equal(result.receipt.userStatus, "FAILED");
+  assert.doesNotMatch(result.view.message, /위반|욕설|경고|벌점|바꿔|수정/);
+  assert.equal(requests.length, 1);
+});
+
 test("support receipt releases the retained message body while preserving its recovery key", async () => {
   const { client, requests } = setup(() => response(202, receipt({ userStatus: "NEEDS_REWRITE", reasonCode: "SUPPORT_AVAILABLE", contentStatus: "PURGED" })));
   const intent = client.begin("도와줘 너무 힘들어");
   const result = await client.send();
-  assert.equal(result.view.card, "SUPPORT");
+  assert.equal(result.view.card, "NOTICE");
   assert.equal(client.intent.content, "");
   assert.equal(client.intent.idempotencyKey, intent.idempotencyKey);
-  assert.equal((await client.send()).view.card, "SUPPORT");
+  assert.equal((await client.send()).view.card, "NOTICE");
   assert.equal(requests.length, 1);
 });
 

@@ -119,6 +119,14 @@ async def run_submission(runtime: Runtime, submission_id):
                 except TimeoutError:
                     # wait_for cannot kill a native thread. Withdraw READY and
                     # let the supervisor kill the process after finalization.
+                    stage = getattr(runtime.analyzer, "last_stage", None)
+                    if stage not in {"MODERATION", "EMOTION", "COMPLETE"}:
+                        stage = "UNKNOWN"
+                    log.error(
+                        "moderation_wrapper_timeout stage=%s provider_response_received=%s",
+                        stage,
+                        isinstance(getattr(runtime.analyzer, "last_usage", None), dict),
+                    )
                     fatal_provider = True
                     runtime.poisoned = True
                     if runtime.control:
@@ -145,8 +153,10 @@ async def run_submission(runtime: Runtime, submission_id):
         outcome = RunFailed(error_code="INVALID_MODEL_OUTPUT")
         provider_failure_kind = "INVALID_OUTPUT" if provider_mode else None
     except ProviderModerationError as error:
-        outcome = RunFailed(error_code=error.error_code)
         provider_failure_kind = getattr(error, "failure_kind", None)
+        outcome = RunFailed(
+            error_code="PROVIDER_SAFETY_BLOCK" if provider_failure_kind == "SAFETY" else error.error_code
+        )
         provider_retry_after = getattr(error, "retry_after_seconds", None)
     except ProviderUnavailable:
         outcome = RunFailed(error_code="MODEL_NOT_READY")
@@ -462,6 +472,7 @@ async def supervise(settings: Settings) -> int:
                 while not stopping.is_set():
                     now = time.monotonic()
                     if not child.is_alive():
+                        log.error("worker_child_exited exit_code=%s", child.exitcode)
                         failure = True
                         break
                     if (not ready.is_set() and now >= startup_deadline) or (active and now >= active["deadline"]):
@@ -491,7 +502,17 @@ async def supervise(settings: Settings) -> int:
                             parent_control.send({"type": "ACK", "run_token": message["run_token"]})
                         elif kind == "DONE" and active and message.get("run_token") == active["run_token"]:
                             active = None
+                        elif kind == "FAULT":
+                            code = message.get("code")
+                            # Only known machine codes belong in logs, never
+                            # arbitrary child/provider text or student content.
+                            if code not in {"INFERENCE_TIMEOUT", "LEXICON_ERROR"}:
+                                code = "UNKNOWN"
+                            log.error("worker_child_fault code=%s", code)
+                            failure = True
+                            break
                         else:
+                            log.error("worker_control_protocol_error")
                             failure = True
                             break
                     await asyncio.sleep(0.05)

@@ -81,7 +81,6 @@ function MoodForecast({ bubbles }) {
         <span>{entry.label}</span><div className="mw-mood-track"><i style={{ width: `${total ? entry.count / total * 100 : 0}%`, background: entry.color }} /></div>
         <small>{total ? Math.round(entry.count / total * 100) : 0}%</small>
       </div>)}</div>
-    <p className="mw-local-note">이 화면에 남은 기분 기준</p>
   </aside>;
 }
 
@@ -322,12 +321,11 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
           <div className="mw-wordmark">MOOD WALL</div>
           <h1>오늘 기분,<br />한 줄로 남겨요</h1>
           <div className="mw-qr-box">{validQr ? <LedQr image={qr.image} alt="기분을 남기는 참여 QR 코드" /> : <WeatherIcon />}</div>
-          {validQr && <p>폰 카메라로 찍어주세요<br /><strong>30자 · 1시간에 3번</strong></p>}
+          {validQr && <p>카메라로 찍어주세요</p>}
         </aside>
         <section className="mw-wall-center">
-          <header className="mw-wall-heading"><div><p>{date}</p><h2>지금 <em>{bubbles.bubbles.length}</em>개의 구름이<br />머물고 있어요</h2><span className="mw-count-scope">이 화면에 남은 기분 기준</span></div><time>{time}</time></header>
-          {!bubbles.bubbles.length && <div className="mw-empty"><WeatherIcon /><p>이 벽의 첫 번째 기분을<br />남겨볼까요?</p></div>}
-          {validQr && <div className="mw-wall-caption"><span aria-hidden="true">↗</span> QR을 찍으면 내 한 줄이 화면 가득 떠요</div>}
+          <header className="mw-wall-heading"><div><p>{date}</p><h2>지금 <em>{bubbles.bubbles.length}</em>개의 구름이<br />머물고 있어요</h2></div><time>{time}</time></header>
+          {!bubbles.bubbles.length && <div className="mw-empty"><WeatherIcon /><p>첫번째 구름을 남겨볼까요</p></div>}
         </section>
         <MoodForecast bubbles={bubbles.bubbles} />
       </div>

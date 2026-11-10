@@ -66,9 +66,11 @@ class Settings(BaseSettings):
     maintenance_enabled: bool = True
     moderation_backlog_limit: int = Field(default=8, ge=1, le=8)
     moderation_p95_seconds: float = Field(default=10, gt=0, le=60)
-    provider_timeout_seconds: float = Field(default=8, gt=0, le=8)
-    provider_connect_timeout_seconds: float = Field(default=2, gt=0, le=2)
-    provider_wrapper_timeout_seconds: float = Field(default=12, gt=0, le=12)
+    # Keep short deployment defaults, but permit bounded laptop/network budgets.
+    # These are preparation deadlines, independent of the fixed 15s playback.
+    provider_timeout_seconds: float = Field(default=8, gt=0, le=30)
+    provider_connect_timeout_seconds: float = Field(default=2, gt=0, le=5)
+    provider_wrapper_timeout_seconds: float = Field(default=12, gt=0, le=45)
     provider_max_input_tokens: int = Field(default=6144, ge=1, le=16384)
     provider_max_output_tokens: int = Field(default=512, ge=1, le=512)
     provider_rpm: int = Field(default=6, ge=1, le=10000)

@@ -8,7 +8,6 @@
   --student-blue: #2f6beb;
   --student-accent-soft: #e3ecff;
   --student-error: #c8352a;
-  --student-support: #4d7569;
   color-scheme: light;
   min-height: 100dvh;
   background: var(--student-bg);
@@ -121,7 +120,6 @@
   animation: student-pop .55s cubic-bezier(.3, 1.4, .5, 1) both;
 }
 .student-result-mark svg { width: 40px; height: 40px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.student-result-mark.is-support { background: var(--student-support); font-size: 40px; }
 .student-result-mark.is-notice { background: var(--student-soft); color: var(--student-ink); font-size: 38px; font-weight: 700; animation: none; }
 .student-result-mark.is-neutral { background: var(--student-accent-soft); color: var(--student-blue); font-size: 38px; animation: none; }
 .student-result-copy { font-size: 16px; line-height: 1.6; color: var(--student-sub); margin: 16px 0 0; white-space: pre-line; }
@@ -165,7 +163,6 @@
     --student-soft: #222842;
     --student-accent-soft: #1e2c55;
     --student-error: #ff6b5e;
-    --student-support: #59887a;
   }
 }
 @media (prefers-reduced-motion: reduce) {

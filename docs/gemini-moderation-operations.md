@@ -2,7 +2,9 @@
 
 작성일: 2026-11-04 · 갱신일: 2026-11-09. 이 문서는 [Gemini 검수 전체 설계](gemini-moderation-design.md)의 운영 상세안이다. Gemini를 서버 내부 게시 적합성 분류에 사용하는 전제로 작성했다. 실제 HTTPS transport·키 설정·토큰 사전 확인·사용량 정산·서버/화면/원장은 구현했다. **실제 키와 합성 문장으로 검수·승인 후 감정 연결을 부분 확인했으며 전체 앱 연결·실모델 정책 평가·청구서 대사·운영 배포는 완료하지 않았다.** [실제 연결 기록](checks/gemini-live-connection-2026-11-09.json)을 따른다. 아래 시간·비용·처리량은 무드월의 초기 운영값이며, 공급자가 보장한 성능이나 업계 표준 수치가 아니다.
 
-정책·응답 스키마·SUPPORT 우선순위는 전체 설계, 모델의 통과 조건은 [평가 설계](gemini-moderation-evaluation.md), 일반 배포·복원은 [기존 운영 기준](delivery-and-operations.md)을 함께 적용한다. 정상 게시에는 사람의 승인이 필요 없지만, 장애·유해 글 사고에는 대응 책임자가 필요하다. 실제 담당자 이름과 연락 경로는 배포 기록에 채운다.
+정책·응답 스키마는 전체 설계, 모델의 통과 조건은 [평가 설계](gemini-moderation-evaluation.md), 일반 배포·복원은 [기존 운영 기준](delivery-and-operations.md)을 함께 적용한다. 정상 게시에는 사람의 승인이 필요 없지만, 장애·유해 글 사고에는 대응 책임자가 필요하다. 실제 담당자 이름과 연락 경로는 배포 기록에 채운다.
+
+2026-11-10부터 신규 검수는 `ALLOW/BLOCK/UNCERTAIN`만 사용한다. 다른 위반이 없는 ‘살기 싫다’, ‘죽고 싶다’는 감정 표현으로 허용하고 감정 분석을 진행한다. 구체적인 위해 방법·실행 계획·조장은 CP07로 차단한다. 과거 `SUPPORT_AVAILABLE` 영수증은 원문 비공개를 유지하면서 일반 비게시 안내만 표시한다. 도움 안내·버튼·연락 기능은 제공하지 않으며, 아래 SUPPORT 관련 보존 규칙은 과거 데이터 호환성에만 적용한다.
 
 실제 키를 넣어 시작하는 방법과 모의 검수·예산 원장·회로·운영 화면의 현재 구현은 [실행 가이드](gemini-moderation-implementation.md)를 따른다. mock의 사용량과 금액은 합성 계측이며 실제 공급자 청구·지연·정책 품질의 수락 증거가 아니다. 이 문서의 담당자 지정·현장 대응·정기 canary·외부 경보는 운영 수락 계획으로 구분하고 실행 기록 없이 완료로 표시하지 않는다.
 
@@ -18,7 +20,7 @@
 
 현재 readiness는 5초 갱신·15초 유효인 작업자 생존/준비 임대다. Gemini 장애만으로 API 조회·긴급 숨김·이미 승인된 장면까지 차단하지 않는다. 신규 접수 가능 여부에는 **작업자 준비 + provider 상태 + 전광판 상태 + 예산/쿼터 여유**가 모두 필요하다.
 
-새 Gemini 프로필의 `auto_strikes=false`를 릴리스 설정에 고정했다. 규칙에서 강한 욕설이 발견돼도 먼저 SUPPORT 여부를 판별하고, SUPPORT이면 공개하지 않으며 벌점을 주지 않는다. SUPPORT가 아니면 검증된 로컬 차단 규칙이 Gemini ALLOW보다 우선한다. 기존 규칙 우선·벌점 프로필은 별도 프로필로 남긴다. Gemini 분기에서는 규칙 즉시 확정을 미루고 모델 판정 계열로 최종화한다.
+새 Gemini 프로필의 `auto_strikes=false`를 릴리스 설정에 고정했다. 검증된 로컬 차단 규칙은 Gemini ALLOW보다 우선한다. 감정 표현을 허용한다는 이유로 함께 포함된 욕설·다른 위반까지 허용하지 않는다. 기존 규칙 우선·벌점 프로필은 별도 프로필로 남긴다. Gemini 분기에서는 규칙 즉시 확정을 미루고 모델 판정 계열로 최종화한다. 과거 SUPPORT 결과는 비공개·무벌점 호환성을 유지한다.
 
 ## 한 제출의 시간 예산과 호출 횟수
 
@@ -34,7 +36,13 @@
 | SDK/HTTP 자동 재시도 | 0회 | 라이브러리의 기본 retry·redirect 재전송·프록시 retry도 비활성화한다. |
 | 동일 제출의 provider dispatch | workflow 최대 1회 | countTokens 1회 뒤 생성 최대 1회. 429·5xx·timeout·잘못된 JSON·BLOCK·UNCERTAIN·안전 차단 모두 재호출하지 않는다. |
 
-worker가 claim을 얻은 직후 DB 시각으로 잔여 lease를 읽고 monotonic deadline으로 옮긴다. `remote_deadline = min(now_monotonic + 8초, lease_deadline - 4초)`로 정하며, 12초의 전체 wrapper 예산을 확보할 수 없는 claim은 원격 호출 없이 기술 실패로 끝낸다. 네트워크에서 시간을 모두 쓰고 DB 확정을 억지로 진행하지 않는다. finalization은 여전히 DB 시각·token·lease를 최종 권위로 검사한다.
+worker가 claim을 얻은 직후 DB 시각으로 잔여 lease를 확인한다. 설정된 전체 wrapper 시간과 DB 확정 여유 2초를 확보할 수 없는 claim은 원격 호출 없이 기술 실패로 끝낸다. HTTP transport는 두 요청에 하나의 monotonic deadline을 적용하고 wrapper와 supervisor가 전체 분석 시간을 제한한다. finalization은 DB 시각·token·lease를 최종 권위로 검사한다.
+
+2026-11-10 추가: 위 표는 기본값이다. 준비가 느린 노트북에서는 `MOODWALL_PROVIDER_TIMEOUT_SECONDS`(상한 30초), `MOODWALL_PROVIDER_CONNECT_TIMEOUT_SECONDS`(5초), `MOODWALL_PROVIDER_WRAPPER_TIMEOUT_SECONDS`(45초), `MOODWALL_INFERENCE_TIMEOUT_SECONDS`(60초)를 함께 조정할 수 있다. wrapper는 HTTP보다 최소 2초, inference lease는 wrapper보다 최소 2초 길어야 한다. **API와 worker에 같은 설정을 적용하고 둘 다 재시작한다.** 설정이 릴리스 hash에 포함되어 한쪽만 바꾸면 준비 상태가 일치하지 않는다. 표시 시간 15초와 준비 전체 기한 120초는 바뀌지 않는다.
+
+2026-11-10 앞선 격리 테스트에서는 HTTP 15초·연결 3초·wrapper 30초·inference 35초, 혼잡 예측 `MOODWALL_MODERATION_P95_SECONDS=20`을 적용했다. 당시 합성 문장 한 건에서 실제 Gemini와 로컬 감정 모델의 승인 뒤 실제 Chrome 전광판이 15.009초 재생하여 DONE을 확인했다. 이후 다른 시험에서 호출·분석 시간 초과가 발생하여 이 노트북의 로컬 override를 HTTP 25초·연결 3초·wrapper 45초·inference lease 55초, 혼잡 예측 `MOODWALL_MODERATION_P95_SECONDS=30`으로 조정했다. 이전 20초와 현재 30초 모두 측정된 p95가 아닌 보수적 추정값이다. 프로젝트 기본값은 바꾸지 않았다.
+
+새 예산과 아래 claim 복구 수정 적용 후 실제 게시 한 건을 확인했다. 앞선 관측에서 전광판 노트북 worker는 감정 모델 초기화 중 360초 기한을 넘겨 재시작했고, 호스트의 메모리 여유는 약 330MB였으나 이후 worker 준비 상태는 `true`로 회복됐다. 이 관측만으로 시간 초과의 원인을 확정하지 않는다. 한 건의 성공은 부하·장시간 안정성 검증을 대신하지 않는다. 기한 초과 시 검수를 생략하지 않으며 기존 글을 자동으로 재검수하지 않는다. worker의 재시작 정책도 유지한다. wrapper 기한 초과 진단에는 원문 없이 `MODERATION`/`EMOTION` 단계와 응답 수신 여부만 기록한다. HTTP transport의 개별 시간 초과는 별도 예외로 처리되므로 이 단계 로그나 worker 재시작 없이도 발생할 수 있다.
 
 현재 `AnalysisInput`에는 text만 있으므로 deadline·submission/run 식별자를 전달할 신뢰된 서버 내부 실행 context가 필요하다. 학생 글이나 모델 JSON이 deadline·run token·예산을 결정하게 하지 않는다. HTTP 전체 상한을 보장하지 못하는 동기 호출은 기존 supervisor의 프로세스 종료 경계로 회수한다. 로컬 프로세스를 죽여도 공급자 측 계산·과금이 취소됐다고 단정하지 않는다.
 
@@ -49,8 +57,8 @@ worker가 claim을 얻은 직후 DB 시각으로 잔여 lease를 읽고 monotoni
 | 유효한 정책 JSON의 ALLOW | 의미 판정 | 로컬 확정 차단·지원 우선순위와 버전 검사 후에만 승인 |
 | 유효한 BLOCK | 의미 판정 | 비공개, 고정 수정 안내, 벌점 없음 |
 | 유효한 UNCERTAIN | 의미 판정 | 비공개, 문맥을 명확히 다시 쓰는 고정 안내, 벌점 없음 |
-| 유효한 SUPPORT | 지원 판정 | 비공개 지원 화면, 일반 위반 안내·벌점 없음 |
-| 공급자 safety/prompt/response block·refusal | `PROVIDER_SAFETY_BLOCK` | 비공개. 무드월 정책 BLOCK으로 꾸미지 않고 지원 안내 진입점을 함께 제공 |
+| 과거 SUPPORT 영수증 | 호환 결과 | 원문 비공개·무벌점 유지, 도움 기능 없이 일반 비게시 안내. 신규 실제 모델 응답의 SUPPORT는 스키마 오류 |
+| 공급자 안전 차단 오류 | `PROVIDER_SAFETY_BLOCK` | 비공개. 무드월 정책 BLOCK으로 꾸미지 않고 영수증 `CONTENT_REVIEW_UNAVAILABLE`로 검수를 완료하지 못했다는 중립 안내 제공. 위반 가산·자동 재호출 없음 |
 | 429 | `PROVIDER_RATE_LIMITED` | 기술 실패, provider cooldown 반영, 동일 제출 재시도 없음 |
 | 인증·권한 오류 | `PROVIDER_AUTH_ERROR` | 기술 실패, 회로 즉시 중단, 키·프로젝트 조사 |
 | 5xx·연결 실패 | `PROVIDER_UNAVAILABLE` | 기술 실패, 회로 집계, 동일 제출 재시도 없음 |
@@ -63,6 +71,20 @@ worker가 claim을 얻은 직후 DB 시각으로 잔여 lease를 읽고 monotoni
 사용할 wire API는 **Interactions REST `POST /v1beta/interactions`, `Api-Revision: 2026-05-20`**로 고정한다. `store=false`, `background=false`를 명시하고 `previous_interaction_id`·tools·검색·파일·대화 이력을 사용하지 않는다. `generation_config`는 `max_output_tokens=512`, `thinking_level=minimal`, `thinking_summaries=none`으로 고정한다. `generateContent`의 요청/응답 문법을 혼용하지 않는다. [Interactions 공식 문서](https://ai.google.dev/gemini-api/docs/interactions)
 
 응답은 `status=completed`이고 마지막 `model_output`이 단일 text JSON인 경우에만 엄격한 정책 스키마 검증으로 넘긴다. failed/incomplete·tool call·refusal·다른 출력 형식은 승인으로 해석하지 않는다. Interactions의 HTTP 400 `safety`·`jailbreak`·`prohibited_content`·`blocklist` 등 공급자 안전 차단도 해당 API fixture로 검증한다. 공급자 안전 차단을 없애려고 설정을 자동 완화하거나 입력을 재작성해 재전송하지 않는다. [공급자 안전 필터 설명](https://ai.google.dev/gemini-api/docs/safety-settings)
+
+2026-11-10 일상 감정 표현의 오차단 조정: 검수용 요청의 다섯 추가 필터를 모두 `block_only_high` / `probability`로 고정한다. 기존 `block_medium_and_above`보다 낮은 차단 빈도를 의도한 정책 변경이며, 높은 심각도만 검사한다는 뜻은 아니다. 문장에 없는 성적 의미·악의를 추측하지 않는 지침과 허용 회귀 예시를 함께 반영한다. 입력을 숨기거나 특정 단어를 무조건 허용하지 않으며, 실패한 동일 제출을 필터를 낮춰 재호출하지 않는다. 변경은 릴리스 hash에 반영되므로 API와 worker를 함께 재시작한다. 공개 회귀 예시·모의 계약 테스트를 전체 실제 모델 정확도의 증거로 취급하지 않는다.
+
+같은 날 현재 프롬프트와 `block_only_high`를 적용한 검수 단독 진단에서 사용자 제공 재현 문장 `아주 기모찌하다`를 실제 Gemini로 한 번 검사했다. 결과는 `ALLOW`, `reason_codes=[]`, 약 4.2초였고 공급자 usage는 입력 4,165토큰·출력 23토큰이었다. 로컬 진단 스크립트 `.local/minimal_policy_probe.py`는 countTokens와 생성 각각 최대 한 번, 합계 최대 두 HTTP 요청만 허용하고 자동 재호출하지 않았다. 이 실험에는 `emotion_predictor`를 연결하지 않았으므로 **검수 판정만 확인한 결과**다. 로컬 감정 모델·학생 제출 API·작업 큐·DB 승인·전광판 실제 재생을 포함하는 전체 게시 성공이나 새 시간 예산의 성공 증거로 취급하지 않는다.
+
+이후 전광판 새로고침 후 2026-11-10 10:10:00 UTC에 같은 예문을 실제 제출한 시험은 `PREPARING → PROCESSING → FAILED`, 영수증 사유 `INVALID_ANALYSIS_RESULT`, 공급자 원장 `UNKNOWN/WORKER_LOST`로 끝났다. 10:11:45 UTC의 다음 제출도 같은 경로로 실패했다. 조사 결과 `recover_stale()`가 실행 시간 설정과 무관하게 STARTED 작업을 15초 뒤 회수하여, 유효한 55초 claim까지 UNKNOWN으로 먼저 정산하는 결함을 확인했다. 이후 도착한 분석 결과는 정상 원장 완료 기록이 없어 게시 승인이 거부된다. 이는 내용 차단과 별개이며, 영수증 이름만 보고 모델 JSON 문제라고 단정하면 안 된다.
+
+수정한 복구 기준은 제출의 저장된 run token·processing lease·전체 만료 시각을 따른다. 유효한 작업은 보존하고 만료·종료·token 불일치만 회수한다. 제출 행이 없는 시작 probe는 설정된 inference 제한 시간까지 보존하여 정상 연결 확인을 방해하지 않으며, 그 시간이 지난 고아 호출은 UNKNOWN으로 정산한다. 이 복구는 검수를 재실행하거나 미확인 결과를 게시하지 않는다. 실제 전광판 게시 성공 여부는 검수 단독 ALLOW와 구분해 검증한다.
+
+같은 날 최종 로컬 재검증에서 도움 안내 분기를 제거한 프롬프트·응답 스키마·프론트를 함께 적용했다. 공개 재현 예문 `살기 싫다`는 실제 학생 제출 API에서 `PROCESSING → APPROVED → CLAIMED → PLAYING → DONE/SHOWN`으로 완료됐다. 열린 Chrome 전광판이 재생을 확인했고, 같은 멱등 키의 재전송·영수증 복원은 같은 제출을 반환했으며 원문 삭제 시각은 첫 표시 승인 시각에서 정확히 3,600초 뒤였다. 도움 안내나 SUPPORT 분기로 보내지 않았다.
+
+이어 공개 재현 예문 `너머 피곧해 살려줘`를 한 번 제출한 시험은 `FAILED/PREPARATION_UNAVAILABLE`로 끝났고, 해당 공급자 원장은 `UNKNOWN/PROVIDER_TIMEOUT`, 시작부터 정산까지 약 8.06초였다. 따라서 이 실행을 정책 차단이나 게시 성공으로 기록하지 않는다. HTTP 전체 25초 이내라도 연결 등 개별 제한으로 먼저 실패할 수 있으며, 현 메타데이터만으로 네트워크·공급자 중 어느 쪽이 원인인지 확정할 수 없다. 자동 재호출·검수 생략은 하지 않았다. 이 예문의 모의 연결 테스트 통과와 실제 호출 안정성은 별개이며, 실서비스 전 연결 시간 초과 빈도와 부하 시험이 남아 있다.
+
+이번 수정의 로컬 검증은 검수 단위 테스트 215개, 실제 요청 정책 테스트 6개, 학생 제출·신고 클라이언트 41개, 학생 화면 25개, 전광판 75개, 격리 PostgreSQL 연결·복구 테스트 29개 통과다. 프론트 빌드·백엔드 Ruff·정책 자산 및 API 계약 검사도 통과했다. 이는 선택한 회귀 범위의 결과로, 전체 테스트 모음이나 실제 모델의 전체 정책 정확도를 검증했다는 뜻은 아니다.
 
 ## 프로젝트 공통 쿼터와 비용 상한
 
@@ -136,7 +158,7 @@ worker 생존 readiness와 provider 가용 상태를 분리한다. DB에 있는 
 | 예산/RPD 소진 | 신규 접수/dispatch 거절 | 새 일자라도 수동 중단·다른 장애가 남으면 자동 재개 금지 |
 | 원문 유출·유해 글 송출 사고 | 수동 PAUSED + 전광판 긴급 중단 | 아래 사고 절차와 정책/평가 확인 후 명시적 재개 |
 
-BLOCK·UNCERTAIN·SUPPORT는 정상 의미 결과이며 가용성 실패 횟수에 넣지 않는다. provider safety block은 별도 비율로 보고한다. 안전 차단만 급증하는 경우 정책 우회로 재시도하지 않고 잘못된 API 설정·모델 변경 가능성을 조사한다. 작은 표본의 비율만으로 자동 장애 선언하지 않는다.
+BLOCK·UNCERTAIN은 정상 의미 결과이며 가용성 실패 횟수에 넣지 않는다. 과거 SUPPORT도 당시의 의미 결과로 보존하지만 새 스키마에서 SUPPORT가 반환되면 기술적 응답 오류다. provider safety block은 별도 비율로 보고한다. 안전 차단만 급증하는 경우 정책 우회로 재시도하지 않고 잘못된 API 설정·모델 변경 가능성을 조사한다. 작은 표본의 비율만으로 자동 장애 선언하지 않는다.
 
 HALF_OPEN은 30초 이상 간격으로 합성 정상 글 probe 2개가 연속 통과해야 정상 `OPEN`으로 돌아간다. probe는 운영과 같은 고정 모델 ID·Api-Revision·설정 hash·Interactions 출력 parser를 사용하고, completed의 유효한 정책 JSON이 기대 ALLOW인지 검사한다. 단순 HTTP 200만으로 회복시키지 않는다. probe도 시간·RPM/TPM/RPD·USD 예산에 포함하고 학생 글은 쓰지 않는다. 실패하면 다시 차단하며 provider 연결이 회복돼도 전광판 수동 중단은 풀지 않는다. 이전 generation의 결과나 probe가 최신 회로를 닫지 못하도록 조건부 갱신한다. 실패 횟수별 60→120→240→최대 900초의 자동 지수 대기는 향후 운영 조정안이며 현재 적용됐다고 표시하지 않는다.
 
@@ -165,7 +187,7 @@ provider에 보내는 것은 정규화된 이번 글, 고정 정책/예시, 서�
 릴리스 bundle은 정책 CP ID·prompt/예시 hash·JSON schema hash·모델의 구체 stable ID·`/v1beta/interactions`와 `Api-Revision: 2026-05-20`·generation/safety/thinking/store 설정·SDK 또는 HTTP client lock·tariff·quota·실행 프로필·평가 보고서·UI 안내 버전을 함께 고정한다. `latest`나 자동 모델 선택을 사용하지 않는다. 이 API에서 `model_version` 응답 필드를 보장한다고 가정하지 않는다. 모델 ID와 설정 hash를 고정해도 원격 가중치의 불변성을 보장하지 않으므로 변화는 canary와 정기 평가로 감시한다.
 
 1. 합성 평가·오류 fixture와 원장 동시성/복원 시험을 먼저 통과시킨다. 실제 키가 없는 개발에서는 mock 전용이며 결과에 운영 준비 표시를 붙이지 않는다.
-2. 시험 프로젝트/전광판에서 합성 글로 호출 예산·유료 프로필·버전·usage 정산·SUPPORT 화면·hide/stop을 확인한다. 시작 probe를 로더와 운영 도구에서 중복 실행하지 않는다.
+2. 시험 프로젝트/전광판에서 합성 글로 호출 예산·유료 프로필·버전·usage 정산·일반 게시 결과 화면·hide/stop을 확인한다. 과거 SUPPORT 영수증도 도움 안내 없이 일반 비게시 결과만 보여야 한다. 시작 probe를 로더와 운영 도구에서 중복 실행하지 않는다.
 3. 운영 신규 접수를 멈춘다. 기존 PENDING/PROCESSING을 구 버전에서 끝내거나 제재 없이 terminal화한 후 구 worker 종료를 확인한다. 새 버전으로 옛 업무를 재분류하지 않는다.
 4. migration은 배포 작업 한 곳에서 실행한다. 새 프로필과 원장을 시작하고 singleton·API ready·worker readiness·provider 회로·예산을 각각 확인한다.
 5. 제한한 시험 전광판/운영 시간에서 새 접수를 열고 15분 또는 실제 완료 30건 중 늦은 조건까지 관찰한다. 처음에는 실제 원문을 구·신 공급자에 이중 전송하지 않는다. 나머지 전광판은 중단 상태를 유지한다.
@@ -179,7 +201,6 @@ provider에 보내는 것은 정규화된 이번 글, 고정 정책/예시, 서�
 | --- | --- | --- |
 | 서비스 운영 책임자 | 전광판 숨김·송출/접수 중지·재개 결정 | 담당자, 대체 담당, 사용 가능한 시간, 연락 경로 |
 | 기술 대응 담당 | provider/DB/키·원장·배포 조사, rollback | 담당자, 대체 담당, 경보 경로 |
-| 학생 지원 책임자 | 학교가 정한 비공개 지원 절차·안내 문구 관리 | 학교의 실제 절차와 담당 경로. 기능이 없으면 없다고 명시 |
 | 비용 책임자 | 예산 변경·청구 UNKNOWN 조정 | 권한 보유자와 변경 이력 |
 
 정상 글은 이 역할들의 사전 승인을 기다리지 않는다. 누군가 상주한다고 가정하지 않으며 대응 담당이 없는 시간에는 자동 회로 중단을 유지한다. SUPPORT 결과만으로 교사·보호자·외부기관에 연락하거나 학생을 추적하는 기능을 만들지 않는다. 실제 연결 기능이 없으면 “담당자에게 전달됨” 또는 “곧 연락함”이라고 안내하지 않는다.
@@ -190,9 +211,9 @@ provider에 보내는 것은 정규화된 이번 글, 고정 정책/예시, 서�
 | Gemini 장애·429 | 자동 OPEN 확인, 학생 한도 반환/기한 처리 확인, 고정 실패 안내 | 회로 probe와 쿼터/예산 회복. 실패 글 자동 재송출 금지 |
 | 키 노출 의심 | 해당 키 비활성·교체, 접수 중단, 저장소/로그/브라우저 경로 조사 | 이전 키 폐기·접근 원인 제거·과금 확인·합성 smoke 후 재개 |
 | 과금 급증·UNKNOWN 증가 | 전역 dispatch 중단, 고유 호출 원장과 공급자 청구 비교 | 이중 호출/단가/토큰 오류 해소, 비용 책임자의 변경 기록 |
-| SUPPORT 안내 문제 | 공개와 벌점 중단 불변식 우선 확인, 비공개 고정 안내로 정정 | 실제 지원 경로를 확인하고 화면·접근권한·지원 우선순위 회귀 시험 |
+| 과거 SUPPORT 영수증 표시 문제 | 과거 원문 비공개·무벌점 유지, 일반 비게시 결과로 표시 | 도움 안내·버튼이 없고 원문 미리보기도 노출되지 않는지 회귀 시험 |
 | DB 복원/worker crash | 접수 중단, 옛 generation과 dispatch 권한 폐기, STARTED 재송신 금지 | 기존 복원 sanitize, UNKNOWN 비용 보수 정산, 새 worker·합성 smoke 확인 |
 
 경보 계획은 `technical_failure / semantic_nonpublish / provider_safety_block / SUPPORT / budget_denied / quota_denied`를 분리한다. 검수 지연에는 queue 시간과 HTTP 시간을 따로 남기고, 202 수락 전체의 실패·만료도 분모에 포함한다. ALLOW 비율이 높아졌다는 사실만으로 품질 향상이라고 해석하지 않는다. **현재 자동 합성 호출은 startup 연결 확인과 장애 복구 probe다.** 운영 시간 중 30분에 1회 실행하는 품질 canary와 외부 경보 연계는 향후 운영 계획이며 아직 실행 스케줄러를 구현하지 않았다. 도입할 때는 동일 한도·비용에 포함하고 canary 오류의 신규 접수 중단·원인 확인을 검증한다. 정책에 맞는 BLOCK은 가용성 장애로 취급하지 않는다.
 
-구현 수락에는 정상 호출뿐 아니라 **timeout 후 늦은 응답·동일 키 재전송·worker 강제 종료·STARTED 후 crash·중복 finalize·quota 경합·자정 전환·OPEN 중 ALLOW 도착·SUPPORT와 욕설의 동시 존재·실제 사용량 없는 오류·가격 변경일·rollback 후 옛 queue job** 시험을 포함한다. 모두 통과했다는 실행 증거가 생기기 전에는 이 운영안을 이미 구현된 안전장치로 설명하지 않는다.
+구현 수락에는 정상 호출뿐 아니라 **timeout 후 늦은 응답·동일 키 재전송·worker 강제 종료·STARTED 후 crash·중복 finalize·quota 경합·자정 전환·OPEN 중 ALLOW 도착·감정 표현의 일반 게시 경로·감정 표현과 독립 위반의 동시 존재·과거 SUPPORT 영수증 호환·실제 사용량 없는 오류·가격 변경일·rollback 후 옛 queue job** 시험을 포함한다. 모두 통과했다는 실행 증거가 생기기 전에는 이 운영안을 이미 구현된 안전장치로 설명하지 않는다.

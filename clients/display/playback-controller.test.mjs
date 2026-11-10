@@ -76,6 +76,20 @@ function harness(options = {}) {
   return { player, calls, draws, clock, advance, setVisible: value => { visible = value; } };
 }
 
+test("playback transport calls an injected native fetch without a class receiver", async () => {
+  const calls = [];
+  const transport = new FetchPlaybackTransport({ fetch: async function (url, options) {
+    assert.equal(this, undefined, "Window.fetch rejects a transport instance receiver");
+    calls.push({ url, options });
+    return { status: 204 };
+  }, csrfToken: () => "test-csrf" });
+  assert.equal(await transport.request({ action: "state", clientInstanceId: ITEM }), null);
+  assert.equal(await transport.request({ action: "claim", body: { clientInstanceId: ITEM }, idempotencyKey: ATTEMPT }), null);
+  assert.equal(calls[0].options.method, "GET");
+  assert.equal(calls[1].options.headers["X-CSRF-Token"], "test-csrf");
+  assert.equal(calls[1].options.headers["Idempotency-Key"], ATTEMPT);
+});
+
 test("prepared item holds first visible frame for at least fifteen monotonic seconds", async () => {
   const { player, calls, draws } = harness();
   assert.equal((await player.runOnce()).status, "DONE");
@@ -235,6 +249,34 @@ test("lost completion responses retain exactly the same command before any next 
   assert.equal(new Set(completes.map(row => row.idempotencyKey)).size, 1);
   assert.deepEqual(completes[0].body, completes[3].body);
   assert.equal(calls.filter(row => row.action === "claim").length, 1);
+});
+
+test("slow completion failures cannot extend the spotlight while the same command awaits confirmation", async () => {
+  let attempts = 0;
+  const { player, calls, draws } = harness({ request: async (command, standard, ctx) => {
+    if (command.action === "complete" && ++attempts <= 3) {
+      const show = draws.find(row => row.action === "show");
+      const hide = draws.find(row => row.action === "hide");
+      assert.ok(hide, "fullscreen must be hidden before completion network work");
+      assert.ok(hide.at - show.at >= 15_000 && hide.at - show.at < 16_000);
+      await standard(command); // Server committed, but each response is lost slowly.
+      ctx.advance(4900);
+      throw error("NETWORK");
+    }
+    return standard(command);
+  } });
+  assert.equal((await player.runOnce()).status, "UNKNOWN");
+  assert.ok(!draws.some(row => row.action === "float"));
+  assert.equal(calls.filter(row => row.action === "claim").length, 1);
+  assert.equal(player.pending.action, "complete");
+  assert.equal((await player.runOnce()).status, "DONE");
+  const completes = calls.filter(row => row.action === "complete");
+  assert.equal(completes.length, 4);
+  assert.equal(new Set(completes.map(row => row.idempotencyKey)).size, 1);
+  assert.deepEqual(completes[0].body, completes[3].body);
+  assert.equal(calls.filter(row => row.action === "claim").length, 1);
+  assert.equal(draws.filter(row => row.action === "show").length, 1);
+  assert.equal(draws.filter(row => row.action === "float").length, 1);
 });
 
 test("TOO_EARLY completion retries the same key and is never accepted as done", async () => {
