@@ -103,6 +103,7 @@ class RunFailed(ContractModel):
         "INPUT_INVALID",
         "MODEL_NOT_READY",
         "TRANSIENT_DEPENDENCY",
+        "PROVIDER_SAFETY_BLOCK",
         "INFERENCE_TIMEOUT",
         "INVALID_MODEL_OUTPUT",
         "WORKER_LOST",

@@ -33,10 +33,12 @@ function receipt(value, expectedId = null) {
 }
 
 export function studentReceiptView(value) {
-  if (value.reasonCode === "SUPPORT_AVAILABLE") return { card: "SUPPORT", title: "혼자 감당하지 않아도 괜찮아요",
-    message: "많이 힘들었겠어요. 이 글은 전광판에 표시하지 않았어요. 지금 도움이 필요하다면 가까운 선생님이나 믿을 수 있는 어른에게 알려주세요.", terminal: true };
+  if (value.reasonCode === "SUPPORT_AVAILABLE") return { card: "NOTICE", title: "전광판에 표시되지 않았어요",
+    message: "이 메시지는 전광판에 표시하지 않았어요.", terminal: true };
   if (value.reasonCode === "CONTENT_REVIEW_UNCERTAIN") return { card: "UNCERTAIN", title: "공개 여부를 판단하기 어려웠어요",
     message: "이 글은 전광판에 표시하지 않았어요. 내용을 조금 더 분명하게 적어 다시 보낼 수 있어요.", terminal: true };
+  if (value.reasonCode === "CONTENT_REVIEW_UNAVAILABLE") return { card: "NOTICE", title: "내용 확인을 완료하지 못했어요",
+    message: "이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요.", terminal: true };
   if (NORMAL.has(value.userStatus)) return { card: "COMPLETE", title: "메시지를 보냈어요!",
     message: "확인 후 전광판에 순서대로 올라가요. 표시되면 15초 동안 크게 보여요.", terminal: TERMINAL.has(value.userStatus) };
   if (value.userStatus === "NEEDS_REWRITE") return { card: "REWRITE", title: "표현을 조금 바꿔 주세요",
@@ -64,8 +66,11 @@ export class SubmissionClient {
   constructor({ fetch = globalThis.fetch, csrfToken = () => "", uuid = secureUuid,
     now = () => performance.now(), wallNow = () => Date.now(), storage = sessionStorageOrNull(),
     sleep = wait, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
-    this.fetch = fetch; this.csrfToken = csrfToken; this.uuid = uuid; this.now = now;
-    this.sleep = sleep; this.setTimer = setTimer; this.clearTimer = clearTimer;
+    // Window APIs reject a class instance as their receiver (Illegal invocation).
+    // Call injected functions as plain functions, including native browser defaults.
+    this.fetch = (...args) => fetch(...args); this.csrfToken = csrfToken; this.uuid = uuid; this.now = now;
+    this.sleep = sleep; this.setTimer = (...args) => setTimer(...args);
+    this.clearTimer = (...args) => clearTimer(...args);
     this.intent = null; this.receipt = null; this.epoch = 0; this.inFlight = null;
     this.controllers = new Set(); this.watchController = null;
     this.state = "IDLE";
@@ -205,6 +210,7 @@ export class SubmissionClient {
     if (!this.canResend) return Promise.resolve(this.#unknown("ORIGINAL_CONTENT_UNAVAILABLE"));
     if (this.inFlight) return this.inFlight;
     const epoch = this.epoch, intent = this.intent;
+    const unresolved = ["UNKNOWN", "AUTH_REQUIRED"].includes(this.state);
     this.state = "SENDING";
     // Persist the key before dispatch, including when the POST response is lost.
     this.#remember();
@@ -217,6 +223,9 @@ export class SubmissionClient {
         if ([200, 202].includes(response.status)) return this.#applyReceipt(value);
         if (response.status === 409 && value.code === "CLIENT_UPDATE_REQUIRED") return this.#updateRequired();
         if (response.headers.get("Content-Type")?.includes("application/problem+json") && REJECTIONS.has(value.code)) {
+          // Request limiting runs before the server checks the idempotency key.
+          // It rejects this retry but cannot settle an earlier uncertain POST.
+          if (unresolved && ["RATE_LIMITED", "REQUEST_RATE_LIMITED"].includes(value.code)) return this.#unknown(value.code);
           this.state = "REJECTED";
           this.#forgetRecovery();
           return { state: "REJECTED", code: value.code };

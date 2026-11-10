@@ -347,6 +347,18 @@ def parse_interactions_response(
             output = parse_moderation_json(part["text"])
         if output is None:
             raise ValueError("no output")
+        if expected_request is not None:
+            # The legacy decoder still understands persisted SUPPORT results.
+            # New live responses must obey the policy schema actually sent;
+            # never turn a retired decision (possibly with other violations)
+            # into an ALLOW result or a new private-help receipt.
+            properties = expected_request["response_format"]["schema"]["properties"]
+            if (
+                output.decision not in properties["decision"]["enum"]
+                or any(reason not in properties["reason_codes"]["items"]["enum"] for reason in output.reason_codes)
+                or any(rule not in properties["policy_rule_ids"]["items"]["enum"] for rule in output.policy_rule_ids)
+            ):
+                raise ValueError("response outside requested moderation policy")
         return output
     except ProviderModerationError:
         raise
@@ -403,7 +415,10 @@ def _compiler_parameters() -> dict:
             "thinking_summaries": "none",
         },
         "safety_settings": [
-            {"type": category, "threshold": "block_medium_and_above", "method": "probability"}
+            # Moderation must be able to classify ordinary slang without an
+            # extra medium-probability veto. The application policy still runs
+            # on every input; this is not an ALLOW fallback or a per-text retry.
+            {"type": category, "threshold": "block_only_high", "method": "probability"}
             for category in ("hate_speech", "dangerous_content", "harassment", "sexually_explicit", "jailbreak")
         ],
         "store": False,
@@ -579,12 +594,14 @@ class GeminiModerationAnalyzer:
         self._max_input_tokens, self._max_output_tokens = max_input_tokens, max_output_tokens
         self._assets = (_resource("moderation-prompt.txt"), _resource("moderation-response.schema.json"))
         self.last_usage: dict[str, int] | None = None
+        self.last_stage: str | None = None
 
     def analyze(self, value: AnalysisInput) -> AnalysisResult:
         return self.analyze_moderated(value)
 
     def analyze_moderated(self, value: AnalysisInput, *, confirmed_profanity: bool = False) -> AnalysisResult:
         self.last_usage = None
+        self.last_stage = "MODERATION"
         value = AnalysisInput.model_validate(value)
         redacted = redact_input(value.text, confirmed_profanity=confirmed_profanity)
         request = compile_request(
@@ -625,13 +642,14 @@ class GeminiModerationAnalyzer:
         if result.decision == "ALLOW":
             emotion = EmotionResult(label="NEUTRAL", source="FALLBACK", score=None)
             if self._emotion_predictor is not None:
+                self.last_stage = "EMOTION"
                 try:
                     emotion = EmotionResult.model_validate(self._emotion_predictor(value))
                 except Exception:
                     pass  # Emotion failure cannot change safety or make content public.
         if self.moderation_profile == "gemini_mock":
             self.last_usage = {"input_tokens": estimate_input_tokens(request), "output_tokens": 128}
-        return AnalysisResult(
+        analysis = AnalysisResult(
             model_bundle_version=self.model_bundle_version,
             inference_policy_version=self.inference_policy_version,
             safety=SafetyResult(
@@ -641,3 +659,5 @@ class GeminiModerationAnalyzer:
             ),
             emotion=emotion,
         )
+        self.last_stage = "COMPLETE"
+        return analysis

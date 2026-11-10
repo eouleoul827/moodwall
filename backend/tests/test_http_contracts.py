@@ -20,7 +20,7 @@ from inference.fake import FakeAnalyzer
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "app" / "resources" / "openapi.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-CONTRACT_SHA256 = "6173b905ca6b50fef0b5810ff9651a7572f542b5b94b2eb90f716c1c5df18eb8"
+CONTRACT_SHA256 = "1ba86360b0d28a7440237297649198a2a304b76096f11f970acf26475f0eac71"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 PRIVATE_FIELDS = {
     "participantId",

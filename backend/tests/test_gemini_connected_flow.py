@@ -15,6 +15,7 @@ from app.db import one
 from app.profanity import ProfanityFilter
 from app.provider_control import ProviderControlService, ProviderUnavailable, token_cost
 from app.worker import Runtime, _bootstrap_provider, run_submission
+from inference.contracts import EmotionResult
 from inference.gemini_http import COUNT_TOKENS_PATH, INTERACTIONS_PATH
 from inference.loader import load_analyzer
 
@@ -54,7 +55,12 @@ def feature_clients(clients):
 def connected_runtime(database, settings, system):
     """Use the real loader/compiler/parser; replace only the TCP boundary."""
     calls = []
-    mode = {"generation_error": False, "counter_oversize": False, "generation_input_tokens": 100}
+    mode = {
+        "generation_error": False,
+        "generation_safety": False,
+        "counter_oversize": False,
+        "generation_input_tokens": 100,
+    }
 
     def handler(request):
         calls.append(request.url.path)
@@ -63,14 +69,16 @@ def connected_runtime(database, settings, system):
         assert request.url.path == INTERACTIONS_PATH
         if mode["generation_error"]:
             return response(401, {"error": {"code": "unauthorized", "message": "synthetic private " + SYNTHETIC_KEY}})
+        if mode["generation_safety"]:
+            return response(400, {"error": {"code": "safety", "message": "synthetic private body"}})
         text = json.loads(json.loads(request.content)["input"])["text"]
         result = None
         if text == CRISIS:
             result = {
                 "schema_version": "1",
-                "decision": "SUPPORT",
-                "reason_codes": ["OTHER_UNSAFE", "SELF_CRISIS"],
-                "policy_rule_ids": ["CP06", "CP08"],
+                "decision": "BLOCK",
+                "reason_codes": ["OTHER_UNSAFE"],
+                "policy_rule_ids": ["CP06"],
             }
         return response(payload=envelope(result=result, input_tokens=mode["generation_input_tokens"]))
 
@@ -117,7 +125,7 @@ async def test_startup_probe_is_durably_charged_before_allow_becomes_ready(featu
     assert summary["reservedMicroUsd"] == 0
 
 
-async def test_real_parser_support_with_profanity_is_private_purged_and_unpenalized(
+async def test_real_parser_blocks_independent_strong_profanity_without_support_routing(
     feature_clients, database, settings, system
 ):
     clients = feature_clients
@@ -127,7 +135,7 @@ async def test_real_parser_support_with_profanity_is_private_purged_and_unpenali
     identifier = await submit(clients, content=CRISIS)
     assert runtime.filter.scan(CRISIS).decision == "CONFIRMED"
     await run_submission(runtime, identifier)
-    receipt = await assert_private_and_released(clients, database, identifier, reason="SUPPORT_AVAILABLE")
+    receipt = await assert_private_and_released(clients, database, identifier, reason="CONTENT_REQUIRES_REWRITE")
     assert receipt["processingStatus"] == "NEEDS_REWRITE" and CRISIS not in json.dumps(receipt, ensure_ascii=False)
     assert calls == [COUNT_TOKENS_PATH, INTERACTIONS_PATH] * 2
     async with database.connection() as conn:
@@ -135,6 +143,44 @@ async def test_real_parser_support_with_profanity_is_private_purged_and_unpenali
             conn, "SELECT status,outcome_code FROM moderation_provider_attempts WHERE submission_id=%s", (identifier,)
         )
         assert attempt == {"status": "COMPLETED", "outcome_code": "OK"}
+
+
+@pytest.mark.parametrize("content", ["살기싫다", "살기 싫다", "죽고싶다", "죽고 싶다"])
+async def test_negative_personal_feelings_allow_the_ordinary_emotion_and_ready_flow(
+    feature_clients, database, settings, system, content
+):
+    clients = feature_clients
+    runtime, calls, _mode = connected_runtime(database, settings, system)
+    await _bootstrap_provider(runtime)
+    emotion_inputs = []
+
+    def predict_emotion(value):
+        emotion_inputs.append(value.text)
+        return EmotionResult(label="SADNESS", source="MODEL", score=0.9)
+
+    runtime.analyzer._emotion_predictor = predict_emotion
+    await player(clients)
+    identifier = await submit(clients, content=content)
+    await run_submission(runtime, identifier)
+    receipt = (await clients["student"].get(f"/api/v2/submissions/{identifier}")).json()
+    assert receipt["processingStatus"] == "APPROVED" and receipt["presentationStatus"] == "READY"
+    assert receipt["userStatus"] == "WAITING" and receipt["reasonCode"] != "SUPPORT_AVAILABLE"
+    assert emotion_inputs == [content]
+    assert calls == [COUNT_TOKENS_PATH, INTERACTIONS_PATH] * 2
+    async with database.connection() as conn:
+        source = await one(
+            conn,
+            "SELECT safety_verdict,reason_codes,emotion,emotion_source,strike_applied FROM submissions WHERE id=%s",
+            (identifier,),
+        )
+        assert source == {
+            "safety_verdict": "ALLOW",
+            "reason_codes": [],
+            "emotion": "SADNESS",
+            "emotion_source": "MODEL",
+            "strike_applied": False,
+        }
+        assert (await one(conn, "SELECT reserved_count FROM board_admission_counters"))["reserved_count"] == 1
 
 
 async def test_generation_auth_failure_pauses_provider_and_never_approves_or_replays(
@@ -161,6 +207,32 @@ async def test_generation_auth_failure_pauses_provider_and_never_approves_or_rep
         attempt = await one(conn, "SELECT * FROM moderation_provider_attempts WHERE submission_id=%s", (identifier,))
         assert attempt["status"] == "UNKNOWN" and attempt["outcome_code"] == "PROVIDER_AUTH_ERROR"
         assert SYNTHETIC_KEY not in str(attempt)
+
+
+async def test_provider_safety_failure_preserves_neutral_receipt_without_strikes_or_replay(
+    feature_clients, database, settings, system
+):
+    clients = feature_clients
+    runtime, calls, mode = connected_runtime(database, settings, system)
+    await _bootstrap_provider(runtime)
+    mode["generation_safety"] = True
+    await player(clients)
+    identifier = await submit(clients, content="오늘 기분을 남겨요")
+    await run_submission(runtime, identifier)
+    await run_submission(runtime, identifier)
+
+    receipt = await assert_private_and_released(clients, database, identifier, reason="CONTENT_REVIEW_UNAVAILABLE")
+    assert receipt["processingStatus"] == receipt["userStatus"] == "FAILED"
+    assert receipt["message"] == "이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요."
+    assert calls == [COUNT_TOKENS_PATH, INTERACTIONS_PATH] * 2
+    summary = await runtime.provider.summary()
+    assert summary["mode"] == "OPEN" and summary["consecutiveFailures"] == 0
+    assert summary["lastFailureCode"] == "PROVIDER_SAFETY_BLOCK"
+    async with database.connection() as conn:
+        attempt = await one(
+            conn, "SELECT status,outcome_code FROM moderation_provider_attempts WHERE submission_id=%s", (identifier,)
+        )
+        assert attempt == {"status": "UNKNOWN", "outcome_code": "PROVIDER_SAFETY_BLOCK"}
 
 
 async def test_count_limit_stops_before_generation_and_records_nonpublic_failure(

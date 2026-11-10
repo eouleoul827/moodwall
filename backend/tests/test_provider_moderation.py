@@ -186,8 +186,20 @@ def test_injected_json_stays_inside_the_data_string_and_compiler_is_private():
         "sexually_explicit",
         "jailbreak",
     }
+    assert all(item["threshold"] == "block_only_high" for item in request["safety_settings"])
     assert not {"tools", "previous_interaction_id", "api_key", "participant_id"} & set(request)
     assert API_REVISION == "2026-05-20"
+
+
+@pytest.mark.parametrize("text", ["기분 좋다", "아주 기모찌하다", "기모찌 좋네", "오늘 기분 개좋다", "今日はいい気分"])
+def test_positive_colloquial_expressions_reach_provider_unchanged(text):
+    scan = ProfanityFilter().scan(text)
+    assert scan.decision == "NO_MATCH"
+    assert not scan.matches
+    request = compile_request(redact_input(text))
+    payload = json.loads(request["input"])
+    assert payload["text"] == text
+    assert not any(payload["local_findings"].values())
 
 
 def test_trusted_flags_override_allow_and_uncertain_but_never_support():
@@ -224,12 +236,25 @@ def test_flags_and_crisis_are_preserved_when_merging_more_than_five_rules():
     assert len(merged.reason_codes) <= 5
 
 
-def test_adapter_support_is_private_and_has_no_emotion_or_score():
+def test_adapter_legacy_support_is_private_and_has_no_emotion_or_score():
+    class LegacySupportTransport:
+        def respond(self, _request):
+            return wire(
+                {
+                    "schema_version": "1",
+                    "decision": "SUPPORT",
+                    "reason_codes": ["OTHER_UNSAFE", "SELF_CRISIS"],
+                    "policy_rule_ids": ["CP06", "CP08"],
+                }
+            )
+
     calls = []
     text = "씨발 죽고 싶다"
     scan = ProfanityFilter().scan(text)
     assert scan.decision == "CONFIRMED"
-    analyzer = GeminiModerationAnalyzer("mock-release", "policy", emotion_predictor=calls.append)
+    analyzer = GeminiModerationAnalyzer(
+        "mock-release", "policy", transport=LegacySupportTransport(), emotion_predictor=calls.append
+    )
     result = analyzer.analyze_moderated(AnalysisInput(text=text), confirmed_profanity=scan.decision == "CONFIRMED")
     assert result.safety.verdict == "BLOCK"
     assert set(result.safety.reason_codes) == {"SELF_CRISIS", "OTHER_UNSAFE"}
@@ -247,6 +272,17 @@ def test_adapter_support_is_private_and_has_no_emotion_or_score():
         "민수 좋아해",
         "민수 오늘 발표 너무 빨랐어",
         "오늘 걔 안 와서 좋다",
+        "너머 피곧해 살려줘",
+        "너무 피곤해 살려줘",
+        "과제 너무 많아 살려줘ㅋㅋ",
+        "살기 싫다",
+        "살기싫다",
+        "죽고 싶다",
+        "죽고 싶어 도와줘",
+        "나를 해칠까 봐 무서워",
+        "지금 자해 충동이 있어",
+        "혼자 있으면 나를 해칠 것 같아",
+        "지금 나를 해칠까 무서워 살려줘",
     ],
 )
 def test_permitted_names_and_ordinary_context_reach_emotion_after_reviewed_allow(text):
@@ -277,6 +313,22 @@ def test_named_target_humiliation_still_blocks_without_a_name_privacy_reason(cas
     result = analyzer.analyze(AnalysisInput(text=case["text"]))
     assert result.safety.verdict == "BLOCK"
     assert result.safety.reason_codes == ["HARASSMENT"]
+    assert result.emotion is None and not calls
+
+
+@pytest.mark.parametrize(
+    "case_id", ["reg-065", "reg-066", "reg-067", "reg-068", "reg-069", "reg-077", "reg-108", "reg-109"]
+)
+def test_self_feelings_do_not_override_independent_violations(case_id):
+    case = next(case for case in CASES if case["case_id"] == case_id)
+    calls = []
+    analyzer = GeminiModerationAnalyzer("mock", "policy", emotion_predictor=calls.append)
+    result = analyzer.analyze_moderated(
+        AnalysisInput(text=case["text"]), confirmed_profanity=case["local_findings"]["confirmed_profanity"]
+    )
+    assert result.safety.verdict == "BLOCK"
+    assert result.safety.reason_codes == case["expected"]["reason_codes"]
+    assert "SELF_CRISIS" not in result.safety.reason_codes
     assert result.emotion is None and not calls
 
 

@@ -15,8 +15,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import Settings, gemini_tariff
-from app.db import one
+from app.db import db_time, one
+from app.domain import business_day, midnight_after
 from app.errors import Problem
+from app.moderation import ModerationService
 from app.profanity import ProfanityFilter
 from app.provider_control import ProviderControlService, ProviderUnavailable, token_cost
 from app.worker import Runtime, _bootstrap_provider, run_submission
@@ -123,6 +125,30 @@ def test_mock_configuration_pins_release_and_disables_strikes():
     assert mock_settings(provider_rpm=5).model_bundle_version != settings.model_bundle_version
 
 
+def test_laptop_preparation_budgets_are_bounded_and_change_release():
+    settings = mock_settings(
+        provider_timeout_seconds=15,
+        provider_connect_timeout_seconds=3,
+        provider_wrapper_timeout_seconds=30,
+        inference_timeout_seconds=35,
+    )
+    assert settings.provider_timeout_seconds == 15
+    assert settings.provider_wrapper_timeout_seconds == 30
+    assert settings.inference_timeout_seconds == 35
+    assert settings.model_bundle_version != mock_settings().model_bundle_version
+    for overrides in (
+        {"provider_timeout_seconds": 31},
+        {"provider_connect_timeout_seconds": 6},
+        {"provider_wrapper_timeout_seconds": 46},
+        {"provider_wrapper_timeout_seconds": 16},  # Needs HTTP + finalization headroom.
+        {"inference_timeout_seconds": 31},  # Needs wrapper + DB finalization headroom.
+    ):
+        values = settings.model_dump(exclude={"model_bundle_version", "moderation_policy_version"})
+        values.update(overrides)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, **values)
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -194,6 +220,36 @@ async def test_confirmed_curse_is_deferred_so_support_never_becomes_a_strike(mon
     assert provider.begin_dispatch.await_count == provider.finish_dispatch.await_count == 1
     await run_submission(runtime, submission_id)
     assert runtime.analyzer.analyze_moderated.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "failure_kind,error_code,expected_code",
+    [
+        ("SAFETY", "TRANSIENT_DEPENDENCY", "PROVIDER_SAFETY_BLOCK"),
+        ("UNAVAILABLE", "TRANSIENT_DEPENDENCY", "TRANSIENT_DEPENDENCY"),
+        ("INVALID_OUTPUT", "INVALID_MODEL_OUTPUT", "INVALID_MODEL_OUTPUT"),
+    ],
+)
+async def test_provider_failure_kind_survives_finalization_without_replaying(
+    monkeypatch, failure_kind, error_code, expected_code
+):
+    provider = SimpleNamespace(begin_dispatch=AsyncMock(), finish_dispatch=AsyncMock())
+    runtime, now, submission_id = runtime_with_analysis(mock_settings(), provider)
+    runtime.analyzer.last_usage = None
+    runtime.analyzer.analyze_moderated.side_effect = ProviderModerationError(error_code, failure_kind=failure_kind)
+    monkeypatch.setattr("app.worker.db_time", AsyncMock(return_value=now))
+
+    await run_submission(runtime, submission_id)
+    await run_submission(runtime, submission_id)
+
+    assert runtime.service.finalize.call_args.args[1].error_code == expected_code
+    assert provider.finish_dispatch.call_args.kwargs["failure_kind"] == failure_kind
+    assert provider.finish_dispatch.call_args.kwargs["error_code"] == expected_code
+    assert provider.finish_dispatch.call_args.kwargs["usage"] is None
+    assert provider.finish_dispatch.call_args.kwargs["success"] is False
+    assert provider.begin_dispatch.await_count == provider.finish_dispatch.await_count == 1
+    runtime.analyzer.analyze_moderated.assert_called_once()
+    runtime.service.retry_before_model.assert_not_awaited()
 
 
 async def test_failed_or_uncertain_dispatch_ack_never_executes_analyzer(monkeypatch):
@@ -363,6 +419,158 @@ async def started_attempt(database, service):
             (run_token, submission_id),
         )
     return submission_id, run_token
+
+
+async def started_submission_attempt(database, service, *, age_seconds=20):
+    """Persist a realistic aged claim without sleeping or running inference."""
+    submission_id, run_token = await started_attempt(database, service)
+    participant_id = uuid4()
+    settings = service.settings
+    async with database.connection() as conn, conn.transaction():
+        now = await db_time(conn)
+        started_at = now - timedelta(seconds=age_seconds)
+        expires_at = min(started_at + timedelta(seconds=120), midnight_after(started_at))
+        lease_until = min(started_at + timedelta(seconds=settings.inference_timeout_seconds), expires_at)
+        if age_seconds < settings.inference_timeout_seconds and lease_until <= now:
+            pytest.skip("A live claim cannot span the Seoul business-day deadline")
+        await conn.execute(
+            "INSERT INTO board_runtime(id,name) VALUES(%s,'synthetic recovery board') ON CONFLICT DO NOTHING",
+            (settings.board_id,),
+        )
+        await conn.execute("INSERT INTO participants(id) VALUES(%s)", (participant_id,))
+        await conn.execute(
+            "INSERT INTO daily_usage(participant_id,business_date) VALUES(%s,%s)",
+            (participant_id, business_day(started_at)),
+        )
+        await conn.execute(
+            """INSERT INTO submissions(id,participant_id,business_date,board_id,idempotency_key,request_hash,
+            content,emoji_id,accepted_at,expires_at,moderation_status,processing_run_token,processing_started_at,
+            processing_lease_until,attempt_count,moderation_policy_version,lexicon_version)
+            VALUES(%s,%s,%s,%s,%s,%s,'합성 복구 테스트','cloud',%s,%s,'PROCESSING',%s,%s,%s,1,%s,%s)""",
+            (
+                submission_id,
+                participant_id,
+                business_day(started_at),
+                settings.board_id,
+                uuid4(),
+                bytes(32),
+                started_at,
+                expires_at,
+                run_token,
+                started_at,
+                lease_until,
+                settings.moderation_policy_version,
+                settings.lexicon_version,
+            ),
+        )
+        await conn.execute(
+            "UPDATE moderation_provider_attempts SET reserved_at=%s,started_at=%s WHERE submission_id=%s",
+            (started_at, started_at, submission_id),
+        )
+    return {
+        "id": submission_id,
+        "processing_run_token": run_token,
+        "model_bundle_version": settings.model_bundle_version,
+        "inference_policy_version": settings.inference_policy_version,
+    }
+
+
+@pytest.mark.integration
+async def test_recover_stale_preserves_live_55_second_claim_and_successful_finalization(database):
+    settings = mock_settings(provider_wrapper_timeout_seconds=45, inference_timeout_seconds=55)
+    service = ProviderControlService(database, settings)
+    claim = await started_submission_attempt(database, service)
+
+    assert await service.recover_stale() == 0
+    await service.finish_dispatch(
+        claim["id"], claim["processing_run_token"], usage={"input_tokens": 10, "output_tokens": 10}, success=True
+    )
+    await ModerationService(database, settings).finalize(
+        claim,
+        ModelAnalyzed(
+            analysis=AnalysisResult(
+                model_bundle_version=settings.model_bundle_version,
+                inference_policy_version=settings.inference_policy_version,
+                safety=SafetyResult(verdict="ALLOW"),
+                emotion=EmotionResult(label="NEUTRAL", source="FALLBACK"),
+            )
+        ),
+    )
+    async with database.connection() as conn:
+        source = await one(conn, "SELECT moderation_status,error_code FROM submissions WHERE id=%s", (claim["id"],))
+        attempt = await one(
+            conn, "SELECT status,outcome_code FROM moderation_provider_attempts WHERE submission_id=%s", (claim["id"],)
+        )
+    assert source == {"moderation_status": "APPROVED", "error_code": None}
+    assert attempt == {"status": "COMPLETED", "outcome_code": "OK"}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("condition", ["lease_expired", "submission_expired", "token_changed", "terminal"])
+async def test_recover_stale_settles_lost_source_claim_once(database, condition):
+    settings = mock_settings(provider_wrapper_timeout_seconds=45, inference_timeout_seconds=55)
+    service = ProviderControlService(database, settings)
+    claim = await started_submission_attempt(
+        database, service, age_seconds={"lease_expired": 56, "submission_expired": 121}.get(condition, 20)
+    )
+    async with database.connection() as conn:
+        if condition == "token_changed":
+            await conn.execute("UPDATE submissions SET processing_run_token=%s WHERE id=%s", (uuid4(), claim["id"]))
+        elif condition == "terminal":
+            await conn.execute(
+                """UPDATE submissions SET moderation_status='FAILED',finalized_at=clock_timestamp(),
+                processing_run_token=NULL,processing_started_at=NULL,processing_lease_until=NULL WHERE id=%s""",
+                (claim["id"],),
+            )
+
+    assert await service.recover_stale() == 1
+    assert await service.recover_stale() == 0
+    await service.finish_dispatch(
+        claim["id"], claim["processing_run_token"], usage={"input_tokens": 1, "output_tokens": 1}, success=True
+    )
+    async with database.connection() as conn:
+        attempt = await one(
+            conn,
+            "SELECT status,outcome_code,charged_micro_usd,reserved_micro_usd FROM moderation_provider_attempts WHERE submission_id=%s",
+            (claim["id"],),
+        )
+    assert attempt["status"] == "UNKNOWN" and attempt["outcome_code"] == "WORKER_LOST"
+    assert attempt["charged_micro_usd"] == attempt["reserved_micro_usd"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("source_deleted", [False, True], ids=["probe", "purged_submission"])
+async def test_recover_stale_bounds_source_less_calls_without_shortening_probe_window(database, source_deleted):
+    settings = mock_settings(provider_wrapper_timeout_seconds=45, inference_timeout_seconds=55)
+    service = ProviderControlService(database, settings)
+    if source_deleted:
+        claim = await started_submission_attempt(database, service)
+        submission_id = claim["id"]
+        async with database.connection() as conn:
+            await conn.execute("DELETE FROM submissions WHERE id=%s", (submission_id,))
+    else:
+        submission_id, _token = await started_attempt(database, service)
+        async with database.connection() as conn:
+            await conn.execute(
+                "UPDATE moderation_provider_attempts SET started_at=clock_timestamp()-interval '20 seconds' WHERE submission_id=%s",
+                (submission_id,),
+            )
+
+    assert await service.recover_stale() == 0
+    async with database.connection() as conn:
+        await conn.execute(
+            "UPDATE moderation_provider_attempts SET started_at=clock_timestamp()-interval '56 seconds' WHERE submission_id=%s",
+            (submission_id,),
+        )
+    assert await service.recover_stale() == 1
+    assert await service.recover_stale() == 0
+    async with database.connection() as conn:
+        attempt = await one(
+            conn,
+            "SELECT status,outcome_code FROM moderation_provider_attempts WHERE submission_id=%s",
+            (submission_id,),
+        )
+    assert attempt == {"status": "UNKNOWN", "outcome_code": "WORKER_LOST"}
 
 
 @pytest.mark.integration

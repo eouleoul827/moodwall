@@ -14,7 +14,7 @@ AI 담당에게 보낼 짧은 요청문, 작업별 담당·완료 조건과 인�
 
 ## Gemini 검수 프로필 추가 설계
 
-Gemini를 서버 검수에 사용하는 목표 구조는 [전체 설계·프롬프트·스키마](gemini-moderation-design.md)를 따른다. 아래 로컬 모델 계약을 그대로 외부 API에 보내지 않는다. 별도 provider DTO의 `SUPPORT`를 내부 `BLOCK + SELF_CRISIS`, 학생 영수증 `SUPPORT_AVAILABLE`로 변환하고, 새 프로필에서는 자동 벌점을 끈다. 규칙 결과는 위기 지원 판정 뒤 확정하며 감정만 로컬 모델 또는 중립 fallback을 사용한다. [Gemini 연결 구현](gemini-moderation-implementation.md)은 개발용 mock·provider 원장·학생 지원 화면을 포함한다. 실제 키·합성 문장의 검수와 승인 후 로컬 감정 연결은 [2026-11-09 부분 확인](checks/gemini-live-connection-2026-11-09.json)을 마쳤고 전체 앱 연결·독립 품질 평가는 남아 있다. 아래 enum·예시는 기존 로컬 계약이며 추가 사유 SELF_CRISIS의 실제 계약은 실행 코드와 구현 가이드를 함께 확인한다.
+Gemini를 서버 검수에 사용하는 구조는 [전체 설계·프롬프트·스키마](gemini-moderation-design.md)를 따른다. 아래 로컬 모델 계약을 그대로 외부 API에 보내지 않는다. 2026-11-10부터 새 provider 결정은 `ALLOW/BLOCK/UNCERTAIN`이며, 구체적인 위해 계획·방법·권유 등 별도 위반이 없는 자기 감정·두려움·도움 요청은 ALLOW 뒤 로컬 감정 분석 또는 중립 fallback으로 처리한다. SUPPORT·SELF_CRISIS·CP08은 새 요청에서 제외한다. 과거 provider SUPPORT를 내부 `BLOCK + SELF_CRISIS`, 영수증 `SUPPORT_AVAILABLE`로 읽는 호환 계약은 유지하되 원문 없이 중립적 미표시 문구만 표시하고 도움 안내는 제공하지 않는다. 새 프로필은 자동 벌점이 없다. [Gemini 연결 구현](gemini-moderation-implementation.md)은 개발용 mock·provider 원장·학생 화면 연결을 포함한다. [2026-11-09 부분 확인](checks/gemini-live-connection-2026-11-09.json)은 이전 정책의 실측 기록이며 새 정책의 품질·전체 앱·현장 수락을 대신하지 않는다. 감정 라벨 SUPPORT는 응원이므로 계속 사용한다.
 
 ## 1. 책임과 첫 번째 납품
 
@@ -192,6 +192,7 @@ class ModelAnalyzed(ContractModel):
 class RunFailed(ContractModel):
     kind: Literal["RUN_FAILED"] = "RUN_FAILED"
     error_code: Literal[
+        "PROVIDER_SAFETY_BLOCK",
         "INPUT_INVALID", "MODEL_NOT_READY", "TRANSIENT_DEPENDENCY",
         "INFERENCE_TIMEOUT", "INVALID_MODEL_OUTPUT", "WORKER_LOST",
         "POLICY_VERSION_MISMATCH", "LEXICON_ERROR", "INTERNAL_ERROR",

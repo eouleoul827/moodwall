@@ -63,6 +63,27 @@ def runtime_for(database, settings, system):
     return Runtime(database, settings, system.state.moderation, load_analyzer(settings), ProfanityFilter())
 
 
+def legacy_support_runtime(database, settings, system):
+    """Exercise retained SUPPORT receipts without making it a current policy fixture."""
+    runtime = runtime_for(database, settings, system)
+
+    class SyntheticLegacySupportTransport:
+        def respond(self, _request):
+            result = {
+                "schema_version": "1",
+                "decision": "SUPPORT",
+                "reason_codes": ["OTHER_UNSAFE", "SELF_CRISIS"],
+                "policy_rule_ids": ["CP06", "CP08"],
+            }
+            return {
+                "status": "completed",
+                "steps": [{"type": "model_output", "content": [{"type": "text", "text": json.dumps(result)}]}],
+            }
+
+    runtime.analyzer._transport = SyntheticLegacySupportTransport()
+    return runtime
+
+
 async def assert_private_and_released(clients, database, identifier, *, reason):
     response = await clients["student"].get(f"/api/v2/submissions/{identifier}")
     assert response.status_code == 200, response.text
@@ -84,13 +105,13 @@ async def assert_private_and_released(clients, database, identifier, *, reason):
     return receipt
 
 
-async def test_crisis_with_confirmed_profanity_is_private_support_without_strikes(
+async def test_legacy_support_with_confirmed_profanity_remains_private_without_strikes(
     feature_clients, database, settings, system
 ):
     clients = feature_clients
     await player(clients)
     identifier = await submit(clients, content=CRISIS)
-    runtime = runtime_for(database, settings, system)
+    runtime = legacy_support_runtime(database, settings, system)
     assert runtime.filter.scan(CRISIS).decision == "CONFIRMED"
     await run_submission(runtime, identifier)
     receipt = await assert_private_and_released(clients, database, identifier, reason="SUPPORT_AVAILABLE")
@@ -103,14 +124,14 @@ async def test_crisis_with_confirmed_profanity_is_private_support_without_strike
         assert attempt == {"status": "COMPLETED", "outcome_code": "OK"}
 
 
-async def test_support_snapshot_survives_profile_change_and_same_key_recovery(
+async def test_legacy_support_snapshot_survives_profile_change_and_same_key_recovery(
     feature_clients, database, settings, system
 ):
     clients = feature_clients
     await player(clients)
     key = uuid4()
     identifier = await submit(clients, content=CRISIS, key=key)
-    await run_submission(runtime_for(database, settings, system), identifier)
+    await run_submission(legacy_support_runtime(database, settings, system), identifier)
     settings.moderation_profile = "legacy"
     clients["student"].headers.pop(FEATURE_HEADER)
     paths = [
@@ -145,14 +166,14 @@ async def test_old_client_is_rejected_before_any_quota_or_provider_reservation(c
             assert (await one(conn, f"SELECT count(*) AS n FROM {table}"))["n"] == 0
 
 
-async def test_stranger_cannot_discover_support_receipts_even_without_feature_header(
+async def test_stranger_cannot_discover_legacy_support_receipts_even_without_feature_header(
     feature_clients, database, settings, system
 ):
     clients = feature_clients
     await player(clients)
     key = uuid4()
     identifier = await submit(clients, content=CRISIS, key=key)
-    await run_submission(runtime_for(database, settings, system), identifier)
+    await run_submission(legacy_support_runtime(database, settings, system), identifier)
     clients["stranger"].headers.pop(FEATURE_HEADER)
     foreign = await clients["stranger"].get(f"/api/v2/submissions/{identifier}")
     lookup = await clients["stranger"].post("/api/v2/submission-receipts/lookup", json={"idempotencyKey": str(key)})

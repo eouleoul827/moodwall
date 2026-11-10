@@ -33,8 +33,12 @@ describe('student composition and receipts', () => {
   it('connects the QR entry, submits text only, and keeps a single normal completion card', async () => {
     const { api, client } = setup();
     expect(await screen.findByRole('heading', { name: '지금 기분이 어때요?' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '도움이 필요해요' })).toBeNull();
+    expect(document.querySelector('.student-help-entry')).toBeNull();
     await submit();
     expect(await screen.findByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '도움이 필요해요' })).toBeNull();
+    expect(screen.getByRole('button', { name: '문제 있는 글 알리기' })).toBeTruthy();
     expect(api.connect).toHaveBeenCalledWith('test-ticket', expect.any(AbortSignal));
     expect(client.begin).toHaveBeenCalledExactlyOnceWith('오늘도 좋은 하루!');
     expect(screen.queryByText('배경 이모지 고르기')).toBeNull();
@@ -154,26 +158,29 @@ describe('student composition and receipts', () => {
     expect(input.value).toBe('남겨 둔 초안');
   });
 
-  it('shows a private support card without repeating the crisis text or asking for a rewrite', async () => {
+  it('shows a neutral nonpublication result without crisis guidance or the original preview', async () => {
     const { studentReceiptView } = await import('@clients/student/submission-client.mjs');
     const receipt = { userStatus: 'NEEDS_REWRITE', reasonCode: 'SUPPORT_AVAILABLE', contentStatus: 'PURGED' };
     setup({ sendResult: { state: 'ACCEPTED', receipt, view: studentReceiptView(receipt) } });
     await submit('너무 힘들어 도와줘');
-    await screen.findByRole('heading', { name: '혼자 감당하지 않아도 괜찮아요' });
+    await screen.findByRole('heading', { name: '전광판에 표시되지 않았어요' });
     expect(screen.queryByText('너무 힘들어 도와줘')).toBeNull();
     expect(screen.queryByRole('button', { name: '수정하기' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '도움받는 방법 보기' }));
-    expect(screen.getByRole('region', { name: '도움받는 방법' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '작성 화면으로' }));
+    expect(screen.queryByRole('button', { name: '도움받는 방법 보기' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '도움받는 방법' })).toBeNull();
+    expect(screen.queryByText(/혼자 감당|가까운 선생님|믿을 수 있는 어른|도움이 필요/)).toBeNull();
+    expect(document.querySelector('.student-result-mark.is-support')).toBeNull();
+    expect(document.querySelector('.student-result-mark.is-neutral')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '다시 쓰기' }));
     expect(screen.getByRole('textbox', { name: '멘션 입력' }).value).toBe('');
   });
 
-  it('keeps help accessible during technical uncertainty', async () => {
+  it('keeps an uncertain submission read-only without an optional help entry', async () => {
     setup({ sendResult: { state: 'UNKNOWN' } });
     await submit();
     await screen.findByRole('button', { name: '다시 확인' });
-    fireEvent.click(screen.getByRole('button', { name: '도움이 필요해요' }));
-    expect(screen.getByRole('heading', { name: '도움이 필요할 때' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '도움이 필요해요' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '도움받는 방법' })).toBeNull();
     expect(screen.getByRole('textbox', { name: '멘션 입력' }).readOnly).toBe(true);
   });
 
@@ -196,6 +203,9 @@ describe('student composition and receipts', () => {
     api.request.mockRejectedValueOnce(Object.assign(Error('synthetic'), { code: 'NETWORK_ERROR' }));
     await submit('비공개 원문');
     fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
+    expect(screen.getByRole('region', { name: '문제 있는 글 알리기' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: '도움받는 방법' })).toBeNull();
+    expect(screen.queryByText(/가까운 선생님|믿을 수 있는 어른|도움이 필요/)).toBeNull();
     fireEvent.change(screen.getByLabelText('어떤 문제인가요?'), { target: { value: 'PRIVACY' } });
     fireEvent.click(screen.getByRole('button', { name: '알리기' }));
     const retry = await screen.findByRole('button', { name: '같은 신고 다시 보내기' });
@@ -302,7 +312,7 @@ describe('student composition and receipts', () => {
     await screen.findByText('접속을 확인하지 못했어요. 잠시 후 같은 신고로 다시 확인해 주세요.');
     expect(api.session).toHaveBeenCalledTimes(1);
     expect(api.request).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByRole('button', { name: '안내 닫기' }));
+    fireEvent.click(screen.getByRole('button', { name: '신고 닫기' }));
     fireEvent.click(screen.getByRole('button', { name: '문제 있는 글 알리기' }));
     expect(screen.getByLabelText('어떤 문제인가요?').disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '같은 신고 다시 보내기' }));
@@ -334,7 +344,7 @@ describe('student composition and receipts', () => {
     fireEvent.change(screen.getByLabelText('어떤 문제인가요?'), { target: { value: 'PRIVACY' } });
     fireEvent.click(screen.getByRole('button', { name: '알리기' }));
     await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
-    fireEvent.click(screen.getByRole('button', { name: '안내 닫기' }));
+    fireEvent.click(screen.getByRole('button', { name: '신고 닫기' }));
     fireEvent.click(screen.getByRole('button', { name: '문제 있는 글 알리기' }));
     expect(screen.getByLabelText('어떤 문제인가요?').value).toBe('HARASSMENT');
     expect(screen.getByLabelText('어떤 문제인가요?').disabled).toBe(false);

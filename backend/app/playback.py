@@ -65,6 +65,10 @@ def receipt_payload(row, now=None):
         "CANCELLED": "이 글의 표시가 취소됐어요.",
         "HIDDEN": "이 글은 전광판에서 내려갔어요.",
     }
+    reason_messages = {
+        "SUPPORT_AVAILABLE": "이 글은 전광판에 표시되지 않았어요. 다른 내용으로 다시 작성할 수 있어요.",
+        "CONTENT_REVIEW_UNAVAILABLE": "이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요.",
+    }
     content_status = row["content_status"]
     if now and row["content_delete_at"] and now >= row["content_delete_at"]:
         content_status = "PURGED"
@@ -84,9 +88,7 @@ def receipt_payload(row, now=None):
         "completedAt": row["completed_at"],
         "revision": str(row["revision"]),
         "statusUrl": "/api/v2/submissions/" + str(row["id"]),
-        "message": "많이 힘들었겠어요. 이 글은 전광판에 표시하지 않았어요. 가까운 선생님이나 믿을 수 있는 어른에게 알려주세요."
-        if row["reason_code"] == "SUPPORT_AVAILABLE"
-        else messages.get(status, "메시지를 보냈어요!"),
+        "message": reason_messages.get(row["reason_code"], messages.get(status, "메시지를 보냈어요!")),
     }
 
 
@@ -418,9 +420,10 @@ class PlaybackService:
                 "CANCELLED": "DISPLAY_CANCELLED",
             }.get(
                 status,
-                "INVALID_ANALYSIS_RESULT"
-                if source["error_code"] == "INVALID_MODEL_OUTPUT"
-                else "PREPARATION_UNAVAILABLE",
+                {
+                    "INVALID_MODEL_OUTPUT": "INVALID_ANALYSIS_RESULT",
+                    "PROVIDER_SAFETY_BLOCK": "CONTENT_REVIEW_UNAVAILABLE",
+                }.get(source["error_code"], "PREPARATION_UNAVAILABLE"),
             )
             if status == "NEEDS_REWRITE" and "SELF_CRISIS" in source["reason_codes"]:
                 reason = "SUPPORT_AVAILABLE"

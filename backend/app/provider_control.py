@@ -383,20 +383,31 @@ class ProviderControlService:
             }
 
     async def recover_stale(self):
-        """Cancel unstarted expired reservations; unknown started calls stay charged."""
+        """Recover lost claims without shortening a live worker's durable lease."""
         if not self.enabled:
             return 0
         async with self.db.connection() as conn, conn.transaction():
             await self.lock_control(conn)
             now = await db_time(conn)
+            # Synthetic probes have no submission row. Give those calls the
+            # full bounded execution window before recovering an orphan; a
+            # submission-backed call instead owns its persisted claim lease.
+            orphan_cutoff = now - timedelta(seconds=self.settings.inference_timeout_seconds)
             rows = await all_rows(
                 conn,
                 """SELECT a.* FROM moderation_provider_attempts a
                 LEFT JOIN submissions s ON s.id=a.submission_id WHERE a.status IN ('RESERVED','STARTED')
-                AND ((s.id IS NULL AND a.status='RESERVED') OR s.moderation_status NOT IN ('PENDING','PROCESSING') OR s.expires_at<=%s
-                    OR (a.status='STARTED' AND a.started_at<=%s-interval '15 seconds'))
+                AND ((a.status='RESERVED' AND (s.id IS NULL
+                        OR s.moderation_status NOT IN ('PENDING','PROCESSING') OR s.expires_at<=%s))
+                    OR (a.status='STARTED' AND (
+                        (s.id IS NULL AND a.started_at<=%s)
+                        OR (s.id IS NOT NULL AND (
+                            s.moderation_status<>'PROCESSING'
+                            OR s.processing_run_token IS DISTINCT FROM a.run_token
+                            OR s.processing_lease_until IS NULL
+                            OR s.processing_lease_until<=%s OR s.expires_at<=%s)))))
                 ORDER BY a.reserved_at LIMIT 100 FOR UPDATE OF a""",
-                (now, now),
+                (now, orphan_cutoff, now, now),
             )
             for row in rows:
                 if row["status"] == "STARTED":

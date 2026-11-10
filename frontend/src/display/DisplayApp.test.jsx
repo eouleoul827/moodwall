@@ -51,7 +51,10 @@ describe('public display', () => {
     expect(app.factory).toHaveBeenCalledTimes(1); expect(app.runtime.start).toHaveBeenCalledTimes(1);
     expect(app.wiring.boardId).toBe(session.boardId); expect(app.wiring.csrfToken()).toBe('display-csrf');
     expect(app.fetcher.mock.calls[0][1].credentials).toBe('same-origin');
-    expect(screen.getByText('30자 · 1시간에 3번')).toBeTruthy(); expectQuiet();
+    expect(screen.getByText('카메라로 찍어주세요')).toBeTruthy();
+    expect(screen.getByText('첫번째 구름을 남겨볼까요')).toBeTruthy();
+    expect(screen.queryByText(/이 벽의|QR을 찍으면 내 한 줄이 화면 가득 떠요/)).toBeNull();
+    expect(screen.queryByText(/폰|30자|1시간에 3번/)).toBeNull(); expectQuiet();
     app.unmount(); expect(app.runtime.stop).toHaveBeenCalledTimes(1); expect(events[0].close).toHaveBeenCalledTimes(1);
   });
   it('does not publish a QR, count or forecast before synchronized authority', async () => {
@@ -82,11 +85,11 @@ describe('public display', () => {
     act(() => app.wiring.renderBubbles({ visible: false, bubbles: [], totalCount: 0 }));
     expect(screen.queryByText(bubble.content)).toBeNull(); expectQuiet();
   });
-  it('renders the new cloud artwork and labels statistics with the visible cache scope', async () => {
+  it('renders cloud artwork and cache counts without the removed helper labels', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     act(() => app.wiring.renderBubbles({ visible: true, bubbles: [{ ...item, content: '오늘도 수고했어' }], totalCount: 450 }));
     expect(screen.getByRole('heading', { name: /지금 1개의 구름이\s*머물고 있어요/ })).toBeTruthy();
-    expect(screen.getAllByText('이 화면에 남은 기분 기준')).toHaveLength(2);
+    expect(screen.queryByText('이 화면에 남은 기분 기준')).toBeNull();
     expect(screen.queryByText(/450|°C|약 1분|3회 경고|5회 정지/)).toBeNull();
     expect(screen.getByText('오늘도 수고했어').closest('.mw-bubble').dataset.cloudShape).toMatch(/^cloud-\d{2}\.svg$/);
     act(() => app.wiring.renderer.show(item));

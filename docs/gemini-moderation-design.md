@@ -27,11 +27,11 @@
 | wire API | Interactions REST `POST /v1beta/interactions`, `Api-Revision: 2026-05-20` |
 | 실행 | 제출마다 검수 workflow 최대 1회: countTokens 사전 확인 뒤 생성 최대 1회. 대화 이력·검색·도구·파일·명시적 캐시 없음 |
 | 요청 저장 | `store=false`, `background=false`, streaming 없음 |
-| 모델 역할 | `ALLOW / BLOCK / UNCERTAIN / SUPPORT`와 정해진 사유 코드만 반환 |
+| 모델 역할 | 새 요청은 `ALLOW / BLOCK / UNCERTAIN`과 정해진 사유 코드만 반환. SUPPORT는 과거 결과 호환용 |
 | 최종 게시 권한 | 서버. 모델 출력에는 SQL·게시 명령·제재·HTML·답변 생성 권한 없음 |
 | 제재 | 새 Gemini 프로필 전체에서 `auto_strikes=false`. 비공개 판정으로 자동 벌점·정지를 만들지 않음 |
 | 실패 | 비공개 기술 실패. 욕설 필터만으로 승인하거나 다른 모델로 자동 우회하지 않음 |
-| 학생 화면 | v2와 지원 안내를 이해하는 클라이언트만 새 Gemini 제출 허용 |
+| 학생 화면 | 자기 감정은 일반 완료 흐름. 과거 비공개 영수증·원문 제거 계약을 이해하는 v2 클라이언트 사용 |
 
 선정 모델은 구조화 출력을 지원하는 stable ID다. 더 최신 모델로 자동 교체하지 않고 같은 평가를 거쳐 교체한다. 원격 stable ID가 가중치의 영구 불변을 보장한다고 해석하지 않는다. [모델 설명](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash)
 
@@ -48,7 +48,7 @@ flowchart TD
     E --> F[토큰 사전 확인·Gemini 생성 최대 1회]
     F --> G{완료 응답·JSON·의미 검증}
     G -->|실패| H[FAILED 또는 EXPIRED·공개 금지]
-    G -->|SUPPORT| I[NEEDS_REWRITE·비공개 지원 안내]
+    G -->|과거 SUPPORT 호환| I[NEEDS_REWRITE·원문 없는 중립 안내]
     G -->|BLOCK 또는 UNCERTAIN| J[NEEDS_REWRITE·고정 안내]
     G -->|ALLOW| K{로컬 확정 차단 존재?}
     K -->|있음| J
@@ -60,9 +60,9 @@ flowchart TD
 1. 같은 멱등 키의 재요청은 기존 영수증을 먼저 반환한다. 새 예약·모델 호출·게시 횟수를 만들지 않는다.
 2. 서버는 기존 NFC·1~30 grapheme cluster·UTF-8 2,048byte·제어 문자 검사를 유지한다. 입력을 잘라서 통과시키지 않는다. 접수 자체가 불가능한 입력은 외부로 보내지 않는다.
 3. 신규 접수는 작업자·provider 회로·전광판·쿼터·예산이 준비됐을 때만 원자적으로 커밋한다. 수락 뒤 실패해도 그 글이 게시됐다고 표시하지 않는다. 기존 완료 카드의 접수 의미는 유지한다.
-4. worker가 claim을 획득한 뒤 로컬 규칙을 검사하되 **즉시 거절·벌점 확정을 하지 않는다.** 욕설이 섞인 자기 위기를 먼저 지원 경로로 보내기 위해서다. 문법상 유효하게 수락한 모든 글은 예산·기한이 허용하면 동일 검수 경로를 거친다.
+4. worker가 claim을 획득한 뒤 로컬 규칙을 검사하되 **즉시 거절·벌점 확정을 하지 않는다.** 기존 규칙 검사·외부 검수·최종화 순서를 유지하고 실제 욕설·식별 정보 등 확정 근거는 최종 판정에 병합한다. 문법상 유효하게 수락한 모든 글은 예산·기한이 허용하면 동일 검수 경로를 거친다.
 5. 신뢰된 전처리가 강한 개인정보 패턴만 메모리에서 치환하고, 치환 문장과 boolean 플래그를 Gemini에 보낸다. 원문은 기존 보관 경계를 유지한다.
-6. 단일 응답을 엄격하게 검사한다. `SUPPORT`를 먼저 처리하고, 다른 결과에는 로컬 확정 차단을 병합한다. 로컬 차단이 있으면 모델 `ALLOW/UNCERTAIN`을 공개로 쓰지 않는다.
+6. 단일 응답을 엄격하게 검사하고 로컬 확정 차단을 병합한다. 로컬 차단이 있으면 모델 `ALLOW/UNCERTAIN`을 공개로 쓰지 않는다. 신규 요청에서 SUPPORT·SELF_CRISIS·CP08이 반환되면 요청 스키마에 맞지 않는 결과로 거절하며 자동 ALLOW 변환은 하지 않는다.
 7. 최종 `ALLOW`에만 로컬 감정을 붙인다. 감정 모듈이 없거나 실패하면 `NEUTRAL / score:null / source:FALLBACK`으로 간다. 안전성 오류는 감정 fallback으로 복구하지 않는다.
 8. 현재 run token·DB lease·전체 기한·릴리스·전광판 상태를 다시 확인해 최종화한다. 늦은 응답·이전 세대·취소된 글은 승인할 수 없다. 승인 이후는 기존 v2 재생 규칙을 따른다.
 9. 비공개 결과는 영수증에 학생용 사유를 먼저 저장한 뒤 원문을 즉시 제거하고 게시 사용량을 반환한다. provider 과금은 별도로 정산한다.
@@ -114,7 +114,7 @@ API key는 서버 비밀 설정에서 읽고 `x-goog-api-key` 헤더로만 전�
 
 입력 예약 상한은 16,384토큰이다. 전송할 정책·학생 입력·출력 스키마를 countTokens로 확인하고 1,024토큰 여유를 더한 값이 상한을 넘으면 생성하지 않는다. 이 사전 확인과 생성 사이의 API 표현 차이를 여유값으로 흡수하는 **보수적 추정**이며 정확한 청구 토큰·과금 상한을 입증한 것은 아니다. 실제 usage가 예약을 넘으면 정산한 뒤 추가 접수를 중단한다. 두 HTTP 요청은 한 검수 workflow로 원장에 연결하고 자체 RPM/RPD/TPM에는 모두 포함한다.
 
-초기 safety 설정은 `hate_speech / dangerous_content / harassment / sexually_explicit / jailbreak` 각각 `block_medium_and_above`, `method=probability`로 고정한다. 지원하지 않는 설정이면 시작을 실패시키며 자동 제거·완화하지 않는다. 이 설정을 포함해 동일 조건으로 평가한다. provider의 안전 차단은 무드월 자체의 의미 판정과 별도로 기록한다. `generateContent`의 `generationConfig/candidates/finishReason` 문법을 이 어댑터와 섞지 않는다. [Interactions API 계약](https://ai.google.dev/api/interactions-api)
+2026-11-10부터 safety 설정은 `hate_speech / dangerous_content / harassment / sexually_explicit / jailbreak` 각각 `block_only_high`, `method=probability`로 고정한다. 일상 감정 표현의 오차단을 줄이기 위해 기존 `block_medium_and_above`에서 변경했으며, 문장에 없는 위해를 추측하지 않는 문맥 검수 지침을 함께 적용한다. 지원하지 않는 설정이면 시작을 실패시키며 자동 제거·완화하지 않는다. 이 설정을 포함해 동일 조건으로 평가한다. provider의 안전 차단은 무드월 자체의 의미 판정과 별도로 기록한다. `generateContent`의 `generationConfig/candidates/finishReason` 문법을 이 어댑터와 섞지 않는다. [Interactions API 계약](https://ai.google.dev/api/interactions-api)
 
 512는 내부 생각 token을 포함한 전체 생성 상한이다. 잘린 응답을 파싱해 일부 허용 판정을 얻지 않는다. 정확도·완료율이 수락 기준을 못 넘으면 상한·thinking 설정을 바꾼 **새 릴리스**를 다시 평가한다. temperature를 0으로 만들면 결정적이 된다고 가정하지 않는다. [생각·생성 상한 설명](https://ai.google.dev/gemini-api/docs/thinking#token-limits)
 
@@ -129,9 +129,9 @@ wire 응답의 `status`는 `completed`여야 한다. 요청 이력용 `user_inpu
 | ALLOW | 빈 배열 | 빈 배열 | 로컬 확정 차단이 없을 때만 공개 후보 |
 | BLOCK | 안전 위반 코드 1~5개 | 해당 차단 CP ID 1~5개 | 비공개 수정 안내 |
 | UNCERTAIN | `INSUFFICIENT_CONTEXT`, `OUT_OF_DOMAIN` 중 정확히 1개 | `CP10`만 | 비공개 명확화 안내 |
-| SUPPORT | `SELF_CRISIS` 필수, 다른 안전 위반 코드 추가 가능 | `CP08` 필수, 다른 해당 CP 추가 가능 | 비공개 지원 안내 우선 |
+| SUPPORT (과거 결과만) | `SELF_CRISIS` 필수, 다른 안전 위반 코드 추가 가능 | `CP08` 필수, 다른 해당 CP 추가 가능 | 신규 요청에서 금지. 과거 결과만 비공개·원문 없는 중립 안내 |
 
-`BLOCK`의 허용 사유는 `HARASSMENT/HATE/SEXUAL_CONTENT/THREAT/PERSONAL_INFORMATION/OTHER_UNSAFE`다. `SELF_CRISIS`를 BLOCK·UNCERTAIN에 넣을 수 없다. SUPPORT에는 문맥 부족 코드를 섞지 않는다. CP별 사유 매핑이 맞아야 한다. 규칙이 5개를 넘으면 CP08 → trusted 플래그의 CP05 → trusted 플래그의 CP06 → CP04 → CP03 → CP02 → CP07 → CP09 → CP01 → 나머지 CP05·06 순으로 최대 5개를 고르고, 선택된 규칙의 고유 사유만 반환한다. 서버 병합에도 같은 우선순위를 적용한다. 점수·설명·학생에게 보일 문장·모델이 만든 버전은 받지 않는다. 안전성 score는 서버에서 항상 `null`이다.
+`BLOCK`의 허용 사유는 `HARASSMENT/HATE/SEXUAL_CONTENT/THREAT/PERSONAL_INFORMATION/OTHER_UNSAFE`다. 새 요청 스키마는 SUPPORT·SELF_CRISIS·CP08을 허용하지 않는다. 과거 결과 디코더의 SUPPORT·CP08 매핑은 기존 결과를 안전하게 읽기 위한 호환 계약이다. 새 규칙이 5개를 넘으면 trusted 플래그의 CP05 → trusted 플래그의 CP06 → CP04 → CP03 → CP02 → CP07 → CP09 → CP01 → 나머지 CP05·06 순으로 최대 5개를 고르고, 선택된 규칙의 고유 사유만 반환한다. 과거 SUPPORT 병합만 CP08을 먼저 보존한다. 점수·설명·학생에게 보일 문장·모델이 만든 버전은 받지 않는다. 안전성 score는 서버에서 항상 `null`이다.
 
 | 규칙 | 범위 | 사유 코드 |
 | --- | --- | --- |
@@ -142,47 +142,47 @@ wire 응답의 `status`는 `completed`여야 한다. 요청 이력용 `user_inpu
 | CP05 | 개인 학번·개별 반번호·연락처·비밀·민감 사생활. 실명·별명 단순 언급 제외 | PERSONAL_INFORMATION |
 | CP06 | 확정된 강한 욕설·성적 비속어 | OTHER_UNSAFE |
 | CP07 | 자해 권유·미화·실행 방법·계획 전파 | OTHER_UNSAFE |
-| CP08 | 작성자 자신의 현재 위기·도움 요청 | SELF_CRISIS |
+| CP08 | 과거 자기 위기 결과의 호환 코드. 새 분류에서 사용하지 않음 | SELF_CRISIS (과거 결과만) |
 | CP09 | 그 밖의 명확한 위험 행동·범죄 실행 조장 | OTHER_UNSAFE |
 | CP10 | 허용과 위해를 가르는 핵심 의미의 누락·지원 범위 밖. 일상적 대명사·설명 생략 제외 | INSUFFICIENT_CONTEXT 또는 OUT_OF_DOMAIN |
 
 사유와 규칙은 순서 없는 집합으로 비교한다. `OTHER_UNSAFE`에 CP06·07·09가 여러 개 연결될 수 있으므로 두 배열의 길이가 같아야 한다고 강제하지 않는다. 각 CP의 매핑 사유가 존재하고 각 사유에 대응 CP가 있어야 한다. 서버 플래그 병합에도 같은 제약을 적용한다.
 
-최종 우선순위는 **유효한 자기 위기 SUPPORT → 명확한 공개 금지 → 판단 부족 → ALLOW**다. SUPPORT에는 다른 위해 사유도 유지하지만 공개·벌점은 없다. 명백한 차단 사유가 있으면 다른 맥락이 부족하다는 이유로 UNCERTAIN으로 낮추지 않는다. 위기 여부까지 확정할 수 없는 글은 UNCERTAIN으로 보내되 도움 안내 링크를 항상 볼 수 있게 한다. provider 실패에서도 같은 정적 도움 진입점을 유지한다.
+새 검수 우선순위는 **명확한 공개 금지 → 판단에 필요한 문맥 부족 → ALLOW**다. ‘살기 싫다’, ‘죽고 싶다’ 같은 자기 감정·두려움·충동·도움 요청은 독립적인 위반이 없다면 ALLOW로 감정 분석에 넘긴다. 구체적인 실행 계획·위해 방법·자해 권유·미화는 CP07, 실제 욕설·개인정보·타인 위협 등은 해당 규칙으로 차단한다. 감정 표현에서 실행 계획이나 숨은 위해를 만들어 내지 않는다. provider 실패는 별도 기술 실패로 처리하며 도움 안내 UI를 제공하지 않는다.
 
-허용하는 경계는 자기 외모 고민, 스타일 취향·공개 의상 비평, 부정 감정·학교 불만, 이름을 포함한 감사·칭찬·응원·일상 의견, 구체적 행동에 대한 가벼운 비판·비하 없는 농담, 강요 없는 자신의 비노골적 호감 표현, 구체적 방법 없는 회복·예방 이야기다. `민수 오늘 발표 너무 빨랐어`, `민수야 나 너 좋아해`, `오늘 걔 안 와서 좋다`, `그 애랑은 알아서 하자`는 다른 차단 사유가 없다면 허용한다. 특정 학생의 외모 모욕, 타인의 연애 소문·성적 사생활, 개인 학번·개별 반번호, 인용 속 연락처·강한 욕설 등 별도 금지 사유는 공개하지 않는다. 게임·창작·예방·부정문을 실제 위해로 오독하지 않고, 일상적 대명사·설명 생략만으로 나쁜 맥락을 추정해 보류하지 않는다. `그 별명으로 다들 처리하자`처럼 집단 행동을 부르지만 핵심 의미가 빠져 위해 여부가 달라지는 글은 CP10으로 구분한다. `ㅋㅋ`·`장난인데`라는 선언만으로 표적 모욕을 허용하지 않는다. CP06과 SUPPORT의 우선순위는 유지한다.
+허용하는 경계는 자기 외모 고민, 스타일 취향·공개 의상 비평, 부정 감정·학교 불만, 이름을 포함한 감사·칭찬·응원·일상 의견, 구체적 행동에 대한 가벼운 비판·비하 없는 농담, 강요 없는 자신의 비노골적 호감 표현, 구체적 방법 없는 회복·예방 이야기다. `민수 오늘 발표 너무 빨랐어`, `민수야 나 너 좋아해`, `오늘 걔 안 와서 좋다`, `그 애랑은 알아서 하자`는 다른 차단 사유가 없다면 허용한다. 특정 학생의 외모 모욕, 타인의 연애 소문·성적 사생활, 개인 학번·개별 반번호, 인용 속 연락처·강한 욕설 등 별도 금지 사유는 공개하지 않는다. 게임·창작·예방·부정문을 실제 위해로 오독하지 않고, 일상적 대명사·설명 생략만으로 나쁜 맥락을 추정해 보류하지 않는다. `그 별명으로 다들 처리하자`처럼 집단 행동을 부르지만 핵심 의미가 빠져 위해 여부가 달라지는 글은 CP10으로 구분한다. `ㅋㅋ`·`장난인데`라는 선언만으로 표적 모욕을 허용하지 않는다. CP06 등 실제 위반은 자기 감정과 무관하게 적용하고, SUPPORT 우선 처리는 과거 결과 호환에만 남긴다.
 
 ## 6. 기존 내부 계약과 영수증에 연결
 
-외부 `decision`을 기존 `AnalysisResult`에 그대로 넣지 않는다. 별도 `ProviderModerationResult`로 검증하고 어댑터에서 아래처럼 변환한다. 현재 감정 라벨의 `SUPPORT`는 응원 배경이고, 검수의 SUPPORT는 자기 위기 지원이다.
+외부 `decision`을 기존 `AnalysisResult`에 그대로 넣지 않는다. 별도 `ProviderModerationResult`로 검증하고 어댑터에서 아래처럼 변환한다. 감정 라벨의 `SUPPORT`는 응원 배경이며 계속 사용한다. 검수 SUPPORT는 과거 결과 호환용으로만 남고 새 요청에는 없다.
 
 | 최종 검수 | 내부 SafetyResult | emotion | moderation_status | v2 영수증 사유 |
 | --- | --- | --- | --- | --- |
 | ALLOW | ALLOW, 사유 없음, score null | 로컬 결과 또는 NEUTRAL fallback | APPROVED | 기존 승인 경로 |
 | BLOCK | BLOCK, 병합한 위해 사유 | null | NEEDS_REWRITE | 기존 CONTENT_REQUIRES_REWRITE |
 | UNCERTAIN | UNCERTAIN, 문맥/범위 사유 | null | NEEDS_REWRITE | 기존 CONTENT_REVIEW_UNCERTAIN |
-| SUPPORT | BLOCK, SELF_CRISIS 및 다른 위해 사유 | null | NEEDS_REWRITE | **새 SUPPORT_AVAILABLE** |
+| SUPPORT (과거 결과만) | BLOCK, SELF_CRISIS 및 다른 위해 사유 | null | NEEDS_REWRITE | SUPPORT_AVAILABLE (호환 유지) |
 | 기술 실패 | AnalysisResult를 만들지 않음 | 없음 | FAILED 또는 EXPIRED | 기존 안전한 기술 오류 사유 |
 
-필요한 내부 enum 변경은 `ReasonCode`에 `SELF_CRISIS`를 추가하는 것이다. DB `moderation_status`와 SafetyVerdict에 SUPPORT를 추가하지 않는다. Gemini 프로필의 규칙 차단도 `ModelAnalyzed(BLOCK)` 계열로 최종화하고, 규칙 전용 `RuleRejected`·`REJECTED` 경로를 사용하지 않는다. 현재 DB는 `REJECTED`와 strike·rule evidence를 결합하므로 자동 제재를 끄면서 그 상태를 그대로 쓰면 모순이다. 상세 regex 매치 원문은 별도 저장하지 않는다.
+내부 `ReasonCode.SELF_CRISIS`와 과거 SUPPORT 디코더는 호환용으로 유지한다. 새 Gemini 요청은 세 결정만 허용하고 DB `moderation_status`와 SafetyVerdict에 SUPPORT를 추가하지 않는다. Gemini 프로필의 규칙 차단도 `ModelAnalyzed(BLOCK)` 계열로 최종화하고, 규칙 전용 `RuleRejected`·`REJECTED` 경로를 사용하지 않는다. 현재 DB는 `REJECTED`와 strike·rule evidence를 결합하므로 자동 제재를 끄면서 그 상태를 그대로 쓰면 모순이다. 상세 regex 매치 원문은 별도 저장하지 않는다.
 
-provider 내부 오류는 기존 `RunFailed`로 축약한다. timeout→`INFERENCE_TIMEOUT`, 응답/스키마 이상→`INVALID_MODEL_OUTPUT`, 429/5xx/연결/안전 차단→`TRANSIENT_DEPENDENCY`, 인증/설정→`MODEL_NOT_READY`, 릴리스 불일치→`POLICY_VERSION_MISMATCH`. 운영 원장에는 더 자세한 오류 코드를 남기되 학생에게 공급자 본문을 반환하지 않는다. 안전 차단도 유해 글이 실제로 판별됐다는 통계로 합치지 않는다.
+provider 내부 오류는 `RunFailed`로 축약한다. timeout→`INFERENCE_TIMEOUT`, 응답/스키마 이상→`INVALID_MODEL_OUTPUT`, 429/5xx/연결→`TRANSIENT_DEPENDENCY`, 공급자 안전 차단→`PROVIDER_SAFETY_BLOCK`, 인증/설정→`MODEL_NOT_READY`, 릴리스 불일치→`POLICY_VERSION_MISMATCH`. 공급자 안전 차단은 영수증의 `CONTENT_REVIEW_UNAVAILABLE`과 중립 안내로 연결한다. 운영 원장에는 더 자세한 오류 코드를 남기되 학생에게 공급자 본문을 반환하지 않는다. 안전 차단도 유해 글이 실제로 판별됐다는 통계로 합치지 않는다.
 
-v2의 비승인 동기화는 원문 source를 즉시 purge한다. 따라서 `SELF_CRISIS`를 나중에 원문 행에서 찾는 방식은 실패한다. **지원 사유를 owner receipt에 저장 → 사용량 해제 → 원문 purge**를 같은 유효 최종화 흐름에서 보장한다. 영수증은 기존 24시간 동안 소유자에게만 조회 가능하고 원문은 포함하지 않는다. provider 원장 정산은 이 단기 원문 행에 cascade되어 사라지면 안 된다.
+v2의 비승인 동기화는 원문 source를 즉시 purge한다. 과거 `SELF_CRISIS` 결과도 **사유를 owner receipt에 저장 → 사용량 해제 → 원문 purge**를 같은 유효 최종화 흐름에서 보장한다. 영수증은 기존 24시간 동안 소유자에게만 조회 가능하고 원문은 포함하지 않는다. provider 원장 정산은 이 단기 원문 행에 cascade되어 사라지면 안 된다.
 
-지원 영수증은 기존 v2 필드를 유지하고 `processingStatus=NEEDS_REWRITE`, `userStatus=NEEDS_REWRITE`, `presentationStatus=null`, `contentStatus=PURGED`, `reasonCode=SUPPORT_AVAILABLE`로 반환한다. API가 임의 `support` 문장 객체를 만드는 대신 클라이언트가 고정 문구를 선택하도록 구현했다.
+과거 SUPPORT 영수증은 기존 v2 필드를 유지하고 `processingStatus=NEEDS_REWRITE`, `userStatus=NEEDS_REWRITE`, `presentationStatus=null`, `contentStatus=PURGED`, `reasonCode=SUPPORT_AVAILABLE`로 반환한다. 이 값을 새 도움 안내로 해석하지 않고 아래 고정 문구만 표시한다.
 
-> 많이 힘들었겠어요. 이 글은 전광판에 표시하지 않았어요. 지금 도움이 필요하다면 가까운 선생님이나 믿을 수 있는 어른에게 알려주세요.
+> 이 글은 전광판에 표시되지 않았어요. 다른 내용으로 다시 작성할 수 있어요.
 
-버튼은 `도움받는 방법 보기`, `작성 화면으로`다. 첫 버튼은 앱에 포함된 정적 안내 페이지로 열고, 비공개 안내·믿을 수 있는 어른에게 도움 요청하기·직접 이용할 수 있는 검증된 지원 경로를 보여준다. 연락처는 배포 지역의 공식 출처로 확인해 정적 리소스로 관리한다. 모델이 상담·진단·전화번호·링크를 생성하지 않는다. 자동 신고·교사 연락·위치 추적·즉시 응답을 약속하지 않는다. 이 화면에서 원문을 재인쇄하거나 단순히 “표현을 바꾸세요”라고 제재하지 않는다.
+도움 안내 페이지·상담 문구·도움 버튼·하트 안내 카드는 제거한다. 작성 화면으로 돌아가는 기존 동작과 별도의 신고 기능은 유지한다. 과거 비공개 원문을 미리보기나 새 초안으로 복원하지 않으며, 자동 상담·교사 연락·즉시 응답을 약속하지 않는다.
 
-학생 연결 모듈과 React 화면은 `reasonCode` 지원 분기를 `userStatus` 일반 분기보다 먼저 적용한다. 서버 문구만 바꾸는 방식에 의존하지 않으며, 늦게 도착한 과거 결과가 새 초안을 덮지 않도록 기존 intent fencing을 유지한다.
+학생 연결 모듈과 React 화면은 과거 `reasonCode=SUPPORT_AVAILABLE`를 `userStatus` 일반 분기보다 먼저 확인해 원문을 지우고 중립 안내를 표시한다. 서버 문구만 바꾸는 방식에 의존하지 않으며, 늦게 도착한 과거 결과가 새 초안을 덮지 않도록 기존 intent fencing을 유지한다.
 
 ### 구버전 화면의 오안내 방지
 
-Gemini 프로필 신규 접수는 `/api/v2/submissions`에서만 받는다. 지원 화면을 구현한 학생 클라이언트는 `X-Moodwall-Client-Features: support-v1` 헤더를 보낸다. Gemini 프로필에서 신규 접수와 소유자 결과/멱등 조회에 이 기능이 없으면 원문·지원 사유를 일반 수정으로 돌려주지 않고 `409 CLIENT_UPDATE_REQUIRED` 고정 안내로 새로고침을 유도한다. 이 헤더는 인증 수단이 아니며 세션·CSRF·소유권 검사를 대신하지 않는다. 신규 접수의 본문 저장·예산 예약 전에 검사하며, 기존 결과 조회는 소유권 확인 뒤 검사해 타인의 지원 결과 존재를 노출하지 않는다.
+Gemini 프로필 신규 접수는 `/api/v2/submissions`에서만 받는다. 과거 비공개 영수증·원문 제거 계약을 구현한 학생 클라이언트는 기존 `X-Moodwall-Client-Features: support-v1` 헤더를 보낸다. 이름은 호환용으로 유지하며 도움 안내 UI를 의미하지 않는다. 신규 접수와 소유자 결과/멱등 조회에 이 기능이 없으면 `409 CLIENT_UPDATE_REQUIRED` 고정 안내로 새로고침을 유도한다. 이 헤더는 인증 수단이 아니며 세션·CSRF·소유권 검사를 대신하지 않는다. 신규 접수의 본문 저장·예산 예약 전에 검사하며, 기존 결과 조회는 소유권 확인 뒤 검사해 타인의 결과 존재를 노출하지 않는다.
 
-v1 새 접수는 Gemini 활성 전광판에서 같은 업데이트 오류로 닫는다. 기존 v1 영수증·기존 프로필은 보관 기한까지 원래 계약을 따른다. v2 영수증에 `required_client_features` 메타데이터를 수락 시 저장하고, 조회·멱등 복구에서는 현재 전광판 설정 대신 이 값을 사용한다. 프로필을 되돌려도 이미 생긴 지원 결과의 표시 계약을 잃지 않는다. 이 필드는 원문·진단을 담지 않으며 학생 DTO에 새 필드로 반환할 필요는 없다. 새 HTML은 `no-cache`, 자산은 해시 파일명으로 배포한다. 이미 열린 구버전 탭까지 서버 capability 검사로 다룬다. OpenAPI·오류 enum·모의 서버·클라이언트·실제 UI를 같은 릴리스로 배포해야 한다.
+v1 새 접수는 Gemini 활성 전광판에서 같은 업데이트 오류로 닫는다. 기존 v1 영수증·기존 프로필은 보관 기한까지 원래 계약을 따른다. v2 영수증에 `required_client_features` 메타데이터를 수락 시 저장하고, 조회·멱등 복구에서는 현재 전광판 설정 대신 이 값을 사용한다. 프로필을 되돌려도 이미 생긴 비공개 결과의 원문 제거·중립 안내 계약을 잃지 않는다. 이 필드는 원문·진단을 담지 않으며 학생 DTO에 새 필드로 반환할 필요는 없다. 새 HTML은 `no-cache`, 자산은 해시 파일명으로 배포한다. 이미 열린 구버전 탭까지 서버 capability 검사로 다룬다. OpenAPI·오류 enum·모의 서버·클라이언트·실제 UI를 같은 릴리스로 배포해야 한다.
 
 ## 7. 릴리스·동시성·재호출 경계
 
@@ -202,7 +202,7 @@ claim 15초, provider 두 요청 전체 8초, 연결 2초, 감정을 포함한 w
 
 피해 신고는 모델 재판정과 분리한다. 구현할 `POST /api/v2/reports`는 학생 세션·CSRF·board 범위·UUID 멱등 키를 검사하고 `{category, submissionId?}`만 받는다. category는 `HARASSMENT/PRIVACY/THREAT/OTHER` 고정값, 본문·타인 이름·스크린샷 업로드는 받지 않는다. ID가 없으면 서버 수신 시각과 현재 재생/말풍선 ID 메타데이터를 연결한다. 참여자당 10분 3회 제한, 같은 키 재전송은 기존 신고 ID를 반환한다. 다른 사용자의 ID·원문을 조회하는 API로 쓰지 않는다.
 
-새 신고는 202 `{reportId,status:RECEIVED}`, 같은 키·같은 내용은 200, 같은 키·다른 내용은 409, 입력 오류는 422, 한도 초과는 429다. `submissionId`가 있으면 같은 전광판의 공개 이력이 있는 ID만 허용하고, 존재하지 않거나 타 전광판의 ID는 동일한 404를 반환한다. 신고 ID 자체로 원문 접근 권한을 만들지 않는다. ID 없는 신고는 특정 글을 확정한 것으로 취급하지 않는다. 학생 화면의 정적 신고 진입점은 작성 완료 카드와 도움말에 두며 검수 원문을 다시 입력받지 않는다.
+새 신고는 202 `{reportId,status:RECEIVED}`, 같은 키·같은 내용은 200, 같은 키·다른 내용은 409, 입력 오류는 422, 한도 초과는 429다. `submissionId`가 있으면 같은 전광판의 공개 이력이 있는 ID만 허용하고, 존재하지 않거나 타 전광판의 ID는 동일한 404를 반환한다. 신고 ID 자체로 원문 접근 권한을 만들지 않는다. ID 없는 신고는 특정 글을 확정한 것으로 취급하지 않는다. 학생 화면의 기존 신고 진입점을 유지하며 검수 원문을 다시 입력받지 않는다.
 
 신고는 자동 벌점·자동 공개 삭제로 연결하지 않는다. 악의적인 집단 신고가 글을 마음대로 지우게 하지 않기 위해서다. 인증된 운영자는 신고 큐와 메타데이터를 확인하고 기존 숨김·전체 송출 중단 기능으로 대응한다. 원문 보관 기한이 끝났으면 내용을 복구할 수 없다고 표시한다. 원문 보관을 늘려 증거를 몰래 수집하지 않는다. 신고 응답·운영 조회·처리 결과의 OpenAPI와 권한을 구현 단계에서 추가한다.
 
@@ -220,9 +220,9 @@ claim 15초, provider 두 요청 전체 8초, 연결 2초, 감정을 포함한 w
 | 2 | `backend/inference/provider_moderation.py`, `backend/inference/gemini_http.py`, request compiler·redactor·HTTP transport | 기록된 합성 wire fixture로 completed·refusal·truncation·공격·timeout 재현. 실제 key 없는 테스트 가능 |
 | 3 | `backend/inference/loader.py`, manifest·선택 감정 로딩·명시적 합성 probe | artifact 불일치·key 누락·감정 실패·provider 실패의 readiness 분리 |
 | 4 | DB migration, `backend/app/config.py`, provider 원장·예산·회로 모듈 | 동시 접수·자정·프로세스 종료·UNKNOWN 정산·역순 잠금 방지 시험 |
-| 5 | `backend/app/worker.py`, `backend/app/moderation.py` | 로컬 규칙 즉시 확정 제거, SUPPORT 우선, 벌점 0, 동일 제출 dispatch≤1, 늦은 응답 비승인 |
+| 5 | `backend/app/worker.py`, `backend/app/moderation.py` | 기존 처리 순서 유지, 신규 3결정·로컬 확정 차단 병합, 벌점 0, 동일 제출 dispatch≤1, 늦은 응답 비승인 |
 | 6 | `backend/app/playback.py`, v2 접수·조회·영수증 serializer·required_client_features migration | SUPPORT_AVAILABLE 저장 후 purge, 소유자 재조회·멱등 복구·프로필 rollback·24시간 만료 |
-| 7 | `clients/student/submission-client.mjs`, `frontend/src/student/StudentApp.jsx`, 정적 도움 안내 | 지원 화면·업데이트 헤더·구버전 업데이트 요구·과거 응답 격리·원문 미노출 |
+| 7 | `clients/student/submission-client.mjs`, `frontend/src/student/StudentApp.jsx` | 도움 안내 제거·과거 비공개 결과 중립 안내·업데이트 헤더·구버전 업데이트 요구·과거 응답 격리·원문 미노출 |
 | 8 | 신고 API·운영 큐·기존 숨김/중단 연결, 관련 OpenAPI·클라이언트 | 악의적 신고 한도·권한·원문 만료·말풍선 캐시 숨김 현장 시험 |
 | 9 | 독립 정책 평가·부하/비용/장애·개인정보 흐름 검사 | [평가 설계](gemini-moderation-evaluation.md)의 수락 보고서와 고정 release hash |
 | 10 | 제한된 전광판 canary·단계 확대·복구 훈련 | [운영 설계](gemini-moderation-operations.md)의 관측·중단·rollback 기록 |
