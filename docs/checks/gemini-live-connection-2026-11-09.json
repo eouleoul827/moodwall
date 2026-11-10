@@ -1,0 +1,90 @@
+{
+  "date": "2026-11-09",
+  "baseCommit": "5baccd9",
+  "status": "PARTIAL",
+  "scope": "Real Gemini authentication, moderation and the approved-text local emotion path; not full application acceptance",
+  "realCredentialsUsed": true,
+  "credentialsIncludedInReport": false,
+  "realStudentDataUsed": false,
+  "configuration": {
+    "dotenvKeyFormatValid": true,
+    "dotenvIgnoredByGit": true,
+    "moderationProfile": "gemini",
+    "localEmotionBundleSelected": true,
+    "frontendBuildFilesScanned": 913,
+    "keyFoundInFrontendBuild": false,
+    "keyValidationChange": "Accept a period in addition to the existing ASCII key alphabet; retain length and control-character restrictions",
+    "quotedDotenvValueAccepted": true
+  },
+  "liveProvider": {
+    "model": "gemini-3.6-flash",
+    "workflowsAttempted": 5,
+    "httpRequestsStarted": 10,
+    "http200Responses": 9,
+    "http400SafetyResponses": 1,
+    "automaticRetries": 0,
+    "cases": [
+      {"case": "initial_connection", "observedVerdict": "ALLOW", "httpStatuses": [200, 200], "usage": {"input_tokens": 3782, "output_tokens": 23}},
+      {"case": "joy_with_local_emotion", "observedVerdict": "ALLOW", "httpStatuses": [200, 200], "emotion": "JOY", "emotionSource": "MODEL", "localEmotionCalls": 1, "analysisSeconds": 2.703, "usage": {"input_tokens": 3786, "output_tokens": 23}},
+      {"case": "targeted_attack", "observedVerdict": null, "httpStatuses": [200, 400], "failureCode": "TRANSIENT_DEPENDENCY", "failureKind": "SAFETY", "expectedModelBlockObserved": false, "usage": null},
+      {"case": "named_thanks", "observedVerdict": "ALLOW", "httpStatuses": [200, 200], "usage": {"input_tokens": 3785, "output_tokens": 23}},
+      {"case": "masked_synthetic_contact", "observedVerdict": "BLOCK", "reasonCodes": ["PERSONAL_INFORMATION"], "verdictIncludesLocalFindings": true, "rawModelVerdictVerified": false, "httpStatuses": [200, 200], "usage": {"input_tokens": 3787, "output_tokens": 29}}
+    ],
+    "localEmotionLoadSeconds": 59.985,
+    "hostEmotionProbeExitCode": 1,
+    "hostEmotionProbeNote": "The JOY/MODEL case passed. The attack was refused by provider safety rather than returning the expected model BLOCK; preserve this failed strict expectation.",
+    "policyProbeExitCode": 0,
+    "policyProbeNote": "Named thanks and masked contact were tested through real moderation without loading an emotion model. Contact BLOCK is the final analyzer decision after merging trusted local findings; it does not prove the raw Gemini model returned BLOCK.",
+    "billingLedgerUsedForExplicitProbes": false,
+    "billingInvoiceReconciled": false,
+    "timingNote": "Single local measurements, not performance guarantees or classifier quality metrics"
+  },
+  "safetyRefusalCodeReview": {
+    "scope": "Static review of existing HTTP, worker, moderation, provider accounting and playback paths; not a new DB runtime test",
+    "normalModelBlockClaimed": false,
+    "terminalProcessingStatus": "FAILED",
+    "publicReason": "PREPARATION_UNAVAILABLE",
+    "presentationCreated": false,
+    "originalContentDeleted": true,
+    "quotaReservationReleased": true,
+    "automaticStrikeApplied": false,
+    "availabilityFailureIncremented": false,
+    "unknownUsageAccounting": "UNKNOWN / PROVIDER_SAFETY_BLOCK; conservative reserved cost, not verified invoice usage"
+  },
+  "otherChecks": {
+    "setupUnitPassed": 18,
+    "httpUnitPassed": 58,
+    "providerAndContractFocusedPassed": 192,
+    "additionalEmotionHttpProfanityContractFocusedPassed": 113,
+    "testGroupsOverlapDoNotSum": true,
+    "designFixtureCases": 95,
+    "designPromptExamples": 12,
+    "designLocalLinksVerified": 174,
+    "designFixtureCheckIsNotLiveModelQualityEvaluation": true,
+    "gitDiffCheckPassed": true,
+    "frontendProductionBuildPassed": true,
+    "wholeBackendRegressionRun": false
+  },
+  "isolatedDockerAttempt": {
+    "project": "moodwall-connection-20261109",
+    "existingApplicationDatabaseChanged": false,
+    "isolatedDatabaseMigrationPassed": true,
+    "isolatedBoardInitializationPassed": true,
+    "apiInitiallyHealthy": true,
+    "emotionWorkerImageBuildCompleted": false,
+    "failure": "C drive exhausted during model image export/unpack; Docker engine stopped responding and build ended with EOF",
+    "recovery": "Cleared only regenerable workspace npm download cache, attempted restart, then stopped Docker Desktop; existing Python environment used for live AI probes",
+    "lastObservedDiskFreeBytes": 296259584,
+    "lastObservedAvailableMemoryBytes": 549593088,
+    "testProjectCleanupPendingDockerRecovery": true
+  },
+  "notVerified": [
+    "Actual QR admission, registration, durable queue and display playback together with the live Gemini worker",
+    "Actual 15-second display, receipt and one-hour retention through the live full stack",
+    "Windows Docker/Linux supervisor restart and kill behavior in the current resource-constrained environment",
+    "School phone, laptop and HDMI panel acceptance",
+    "Broader moderation and student emotion classification quality",
+    "Account-level provider quotas and invoice reconciliation",
+    "Public HTTPS hosting and production deployment"
+  ]
+}

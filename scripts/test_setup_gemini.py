@@ -11,7 +11,7 @@ from unittest.mock import patch
 import setup_gemini as setup
 
 
-FAKE_KEY = "not-a-real-provider-key-0123456789"
+FAKE_KEY = "AQ.not-a-real-provider-key-0123456789"
 EXISTING = (
     "# Keep this comment\r\n"
     "POSTGRES_PASSWORD=existing-owner\r\n"
@@ -49,6 +49,17 @@ class SetupTests(unittest.TestCase):
                 setup.validate_key(key)
         setup.validate_key("A" * 20)
         setup.validate_key("A" * 256)
+
+    def test_auth_key_dotenv_round_trip_does_not_expose_key(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {}, clear=True):
+            destination = Path(folder) / "synthetic.env"
+            destination.write_text(f"{setup.KEY_NAME}='{FAKE_KEY}'\n", encoding="utf-8")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout), patch.object(setup.getpass, "getpass", side_effect=AssertionError("must reuse saved key")):
+                self.assertEqual(setup.main(["--env-file", str(destination)]), 0)
+            found = setup.entries(destination.read_text(encoding="utf-8"))
+            self.assertEqual(setup._literal_value(found[setup.KEY_NAME][3]), FAKE_KEY)
+            self.assertNotIn(FAKE_KEY, stdout.getvalue())
 
     def test_injection_invalid_keys_are_rejected(self):
         for key in ("short", "A" * 16 + "\nINJECT=yes", "A" * 16 + "\r", "A" * 16 + "'", "A" * 16 + '"', "A" * 16 + "`", "A" * 16 + "\x00"):

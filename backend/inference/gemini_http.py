@@ -122,7 +122,7 @@ class GeminiHTTPTransport:
     ):
         if (
             not isinstance(api_key, SecretStr)
-            or not re.fullmatch(r"[A-Za-z0-9_\-]{20,256}", api_key.get_secret_value())
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]{20,256}", api_key.get_secret_value())
             or not 0 < timeout_seconds <= 8
             or not 0 < connect_timeout_seconds <= 2
             or not 1 <= max_input_tokens <= MAX_REAL_INPUT_TOKENS

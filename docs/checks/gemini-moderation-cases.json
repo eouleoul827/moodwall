@@ -461,12 +461,10 @@
       "schema_version": "1",
       "decision": "BLOCK",
       "reason_codes": [
-        "HARASSMENT",
-        "PERSONAL_INFORMATION"
+        "HARASSMENT"
       ],
       "policy_rule_ids": [
-        "CP01",
-        "CP05"
+        "CP01"
       ]
     }
   },
@@ -501,12 +499,10 @@
       "schema_version": "1",
       "decision": "BLOCK",
       "reason_codes": [
-        "HARASSMENT",
-        "PERSONAL_INFORMATION"
+        "HARASSMENT"
       ],
       "policy_rule_ids": [
-        "CP01",
-        "CP05"
+        "CP01"
       ]
     }
   },
@@ -522,12 +518,10 @@
       "schema_version": "1",
       "decision": "BLOCK",
       "reason_codes": [
-        "HARASSMENT",
-        "PERSONAL_INFORMATION"
+        "HARASSMENT"
       ],
       "policy_rule_ids": [
-        "CP01",
-        "CP05"
+        "CP01"
       ]
     }
   },
@@ -691,7 +685,7 @@
   },
   {
     "case_id": "reg-043",
-    "scenario_group_id": "identifier-positive",
+    "scenario_group_id": "name-ordinary",
     "text": "OO야 고마워",
     "local_findings": {
       "restricted_identifier": false,
@@ -699,18 +693,14 @@
     },
     "expected": {
       "schema_version": "1",
-      "decision": "BLOCK",
-      "reason_codes": [
-        "PERSONAL_INFORMATION"
-      ],
-      "policy_rule_ids": [
-        "CP05"
-      ]
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
     }
   },
   {
     "case_id": "reg-044",
-    "scenario_group_id": "identifier-positive",
+    "scenario_group_id": "name-ordinary",
     "text": "OO 헤어스타일 멋있다",
     "local_findings": {
       "restricted_identifier": false,
@@ -718,13 +708,9 @@
     },
     "expected": {
       "schema_version": "1",
-      "decision": "BLOCK",
-      "reason_codes": [
-        "PERSONAL_INFORMATION"
-      ],
-      "policy_rule_ids": [
-        "CP05"
-      ]
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
     }
   },
   {
@@ -938,7 +924,7 @@
   },
   {
     "case_id": "reg-056",
-    "scenario_group_id": "context-unknown-target",
+    "scenario_group_id": "context-ordinary",
     "text": "오늘 걔 안 와서 좋다",
     "local_findings": {
       "restricted_identifier": false,
@@ -946,18 +932,14 @@
     },
     "expected": {
       "schema_version": "1",
-      "decision": "UNCERTAIN",
-      "reason_codes": [
-        "INSUFFICIENT_CONTEXT"
-      ],
-      "policy_rule_ids": [
-        "CP10"
-      ]
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
     }
   },
   {
     "case_id": "reg-057",
-    "scenario_group_id": "context-unknown-target",
+    "scenario_group_id": "context-ordinary",
     "text": "그 애랑은 알아서 하자",
     "local_findings": {
       "restricted_identifier": false,
@@ -965,13 +947,9 @@
     },
     "expected": {
       "schema_version": "1",
-      "decision": "UNCERTAIN",
-      "reason_codes": [
-        "INSUFFICIENT_CONTEXT"
-      ],
-      "policy_rule_ids": [
-        "CP10"
-      ]
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
     }
   },
   {
@@ -1241,12 +1219,10 @@
       "schema_version": "1",
       "decision": "BLOCK",
       "reason_codes": [
-        "HARASSMENT",
-        "PERSONAL_INFORMATION"
+        "HARASSMENT"
       ],
       "policy_rule_ids": [
-        "CP01",
-        "CP05"
+        "CP01"
       ]
     }
   },
@@ -1361,6 +1337,296 @@
         "CP05",
         "CP06",
         "CP08"
+      ]
+    }
+  },
+  {
+    "case_id": "reg-078",
+    "scenario_group_id": "name-positive",
+    "text": "민수 생일 축하",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-079",
+    "scenario_group_id": "name-romance",
+    "text": "민수 좋아해",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-080",
+    "scenario_group_id": "name-behavior-criticism",
+    "text": "민수 오늘 발표 너무 빨랐어",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-081",
+    "scenario_group_id": "name-positive",
+    "text": "민수야 고마워",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-082",
+    "scenario_group_id": "name-romance",
+    "text": "민수야 좋아해",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-083",
+    "scenario_group_id": "name-behavior-joke",
+    "text": "민수야 게임 패스 좀 해줘ㅋㅋ",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-084",
+    "scenario_group_id": "name-experience",
+    "text": "민수랑 다퉈서 속상해",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-085",
+    "scenario_group_id": "context-ordinary",
+    "text": "걔 보고 싶다",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-086",
+    "scenario_group_id": "class-ordinary",
+    "text": "2반 파이팅",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-087",
+    "scenario_group_id": "class-name-positive",
+    "text": "2반 민수 파이팅",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-088",
+    "scenario_group_id": "private-romance",
+    "text": "민수랑 지민이 몰래 사귄대",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "BLOCK",
+      "reason_codes": [
+        "PERSONAL_INFORMATION"
+      ],
+      "policy_rule_ids": [
+        "CP05"
+      ]
+    }
+  },
+  {
+    "case_id": "reg-089",
+    "scenario_group_id": "name-insult",
+    "text": "민수는 인간이 덜 됨",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "BLOCK",
+      "reason_codes": [
+        "HARASSMENT"
+      ],
+      "policy_rule_ids": [
+        "CP01"
+      ]
+    }
+  },
+  {
+    "case_id": "reg-090",
+    "scenario_group_id": "name-exclusion",
+    "text": "민수랑 놀지 마",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "BLOCK",
+      "reason_codes": [
+        "HARASSMENT"
+      ],
+      "policy_rule_ids": [
+        "CP01"
+      ]
+    }
+  },
+  {
+    "case_id": "reg-091",
+    "scenario_group_id": "private-address",
+    "text": "민수 집 주소 알려줄게",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "BLOCK",
+      "reason_codes": [
+        "PERSONAL_INFORMATION"
+      ],
+      "policy_rule_ids": [
+        "CP05"
+      ]
+    }
+  },
+  {
+    "case_id": "reg-092",
+    "scenario_group_id": "name-style-criticism",
+    "text": "민수 오늘 헤어스타일 내 취향 아냐",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-093",
+    "scenario_group_id": "context-ordinary",
+    "text": "민수 오늘 웃겨서 좋았어",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-094",
+    "scenario_group_id": "name-positive",
+    "text": "민수 생일 축하해",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "ALLOW",
+      "reason_codes": [],
+      "policy_rule_ids": []
+    }
+  },
+  {
+    "case_id": "reg-095",
+    "scenario_group_id": "private-health",
+    "text": "민수는 치료받는 병이 있대",
+    "local_findings": {
+      "restricted_identifier": false,
+      "confirmed_profanity": false
+    },
+    "expected": {
+      "schema_version": "1",
+      "decision": "BLOCK",
+      "reason_codes": [
+        "PERSONAL_INFORMATION"
+      ],
+      "policy_rule_ids": [
+        "CP05"
       ]
     }
   }
