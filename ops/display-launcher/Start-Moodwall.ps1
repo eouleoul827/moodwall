@@ -2,8 +2,8 @@
 param()
 
 # "무드월 켜기" for library staff. The laptop is the server: start Docker Desktop if
-# needed, start the Moodwall containers (DB, API, worker, tunnel), wait until the
-# public HTTPS address answers, then open the wall full screen on the LED panel.
+# needed, start the Moodwall containers (DB, API, worker), check that Tailscale publishes
+# the laptop's fixed HTTPS address, then open the wall full screen on the LED panel.
 # Staff only double-click; every wait is shown on a full-screen status card.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -12,6 +12,7 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
 $script:Form = $null
 $script:Status = $null
+$script:FailureText = $null
 
 function Show-PowerOnCard {
     param([object]$Screen)
@@ -85,11 +86,27 @@ try {
 
     Set-PowerOnStatus '서버를 준비하고 있어요. 잠시만 기다려 주세요.'
     # Containers were stopped by "무드월 끄기"; restart policies alone would not bring them back.
-    if (-not (Invoke-Docker $docker (Get-MoodwallComposeArguments $server @('up', '-d', '--no-build', 'api', 'worker', 'cloudflared')) 300)) {
+    if (-not (Invoke-Docker $docker (Get-MoodwallComposeArguments $server @('up', '-d', '--no-build', 'api', 'worker')) 300)) {
         Write-MoodwallLauncherEvent $PSScriptRoot SERVER_FAILED; throw 'docker compose up failed'
     }
 
     Set-PowerOnStatus '인터넷 주소에 연결하고 있어요.'
+    $origin = ([Uri]$config.displayUrl).GetLeftPart([UriPartial]::Authority)
+    if (Test-MoodwallTailscaleOrigin $origin) {
+        # Tailscale runs as a Windows service and reconnects by itself after boot; give it a minute.
+        $tailscale = Resolve-MoodwallTailscale
+        $published = $false
+        for ($attempt = 0; $attempt -lt 20 -and -not $published; $attempt++) {
+            $tailscaleState = Read-MoodwallTailscaleState -Tailscale $tailscale
+            $published = $tailscaleState.Running -and $tailscaleState.FunnelReady -and $tailscaleState.Origin -eq $origin.ToLowerInvariant()
+            if (-not $published) { Wait-Responsive 3 }
+        }
+        if (-not $published) {
+            Write-MoodwallLauncherEvent $PSScriptRoot TUNNEL_UNAVAILABLE
+            $script:FailureText = "무드월을 켜지 못했어요. 인터넷 주소 연결 프로그램(Tailscale)이 꺼져 있어요.`r`n화면 오른쪽 아래 Tailscale 아이콘을 눌러 Connect를 누른 뒤 '무드월 켜기'를 한 번 더 눌러 주세요.`r`n그래도 안 되면 담당 선생님께 알려 주세요."
+            throw 'Tailscale is not publishing the wall address'
+        }
+    }
     $ready = $false
     for ($attempt = 0; $attempt -lt 60 -and -not $ready; $attempt++) {
         $ready = Test-MoodwallEndpoint -DisplayUrl $config.displayUrl
@@ -104,7 +121,8 @@ try {
     Write-MoodwallLauncherEvent $PSScriptRoot POWER_ON_FAILED
     try {
         if (-not $script:Form) { Show-PowerOnCard $null }
-        Set-PowerOnStatus ("무드월을 켜지 못했어요.`r`n인터넷 연결을 확인하고, 노트북을 다시 시작한 뒤 '무드월 켜기'를 한 번 더 눌러 주세요.`r`n그래도 안 되면 담당 선생님께 알려 주세요.")
+        if ($script:FailureText) { Set-PowerOnStatus $script:FailureText }
+        else { Set-PowerOnStatus ("무드월을 켜지 못했어요.`r`n인터넷 연결을 확인하고, 노트북을 다시 시작한 뒤 '무드월 켜기'를 한 번 더 눌러 주세요.`r`n그래도 안 되면 담당 선생님께 알려 주세요.") }
         $close = New-Object Windows.Forms.Button
         $close.Text = '닫기'; $close.Dock = 'Bottom'; $close.Height = 70
         $close.Font = New-Object Drawing.Font('Malgun Gothic', [single]22, [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)

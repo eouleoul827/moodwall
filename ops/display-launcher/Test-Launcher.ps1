@@ -284,6 +284,50 @@ Export-ModuleMember -Function *
     Assert-Equal ($LASTEXITCODE -ne 0) $true 'missing frontend build is refused'
     Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
     Assert-Equal ($LASTEXITCODE -ne 0) $true 'neither URL nor server root is refused'
+
+    # Tailscale Funnel: free fixed https://<machine>.<tailnet>.ts.net address.
+    $tsOrigin = 'https://moodwall-library.tail1234.ts.net'
+    Assert-Equal (Test-MoodwallTailscaleOrigin $tsOrigin) $true 'ts.net origin uses Tailscale checks'
+    Assert-Equal (Test-MoodwallTailscaleOrigin 'https://moodwall.school.edu') $false 'own domain skips Tailscale checks'
+    Assert-Equal (Test-MoodwallTailscaleOrigin 'https://moodwall-library.tail1234.ts.net:8443') $false 'only the default HTTPS port is published'
+    Assert-Equal (Test-MoodwallTailscaleOrigin 'https://evil-ts.net') $false 'look-alike host is not Tailscale'
+    $statusJson = '{"BackendState":"Running","Self":{"DNSName":"Moodwall-Library.tail1234.ts.net."}}'
+    $serveJson = '{"TCP":{"443":{"HTTPS":true}},"Web":{"moodwall-library.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8000"}}}},"AllowFunnel":{"moodwall-library.tail1234.ts.net:443":true}}'
+    $tsState = Get-MoodwallTailscaleState -StatusJson $statusJson -ServeJson $serveJson
+    Assert-Equal $tsState.Origin $tsOrigin 'Tailscale DNS name becomes the lowercase origin without the trailing dot'
+    Assert-Equal $tsState.Running $true 'running Tailscale detected'
+    Assert-Equal $tsState.FunnelReady $true 'funnel to the local API detected'
+    Assert-Equal (Get-MoodwallTailscaleState -StatusJson $statusJson -ServeJson $serveJson.Replace('"AllowFunnel":{"moodwall-library.tail1234.ts.net:443":true}', '"AllowFunnel":{}')).FunnelReady $false 'tailnet-only serve is not public'
+    Assert-Equal (Get-MoodwallTailscaleState -StatusJson $statusJson -ServeJson $serveJson.Replace('127.0.0.1:8000', '127.0.0.1:5173')).FunnelReady $false 'funnel to another port is not the API'
+    Assert-Equal (Get-MoodwallTailscaleState -StatusJson $statusJson -ServeJson '{}').FunnelReady $false 'no serve config means no funnel'
+    Assert-Equal (Get-MoodwallTailscaleState -StatusJson $statusJson -ServeJson '').FunnelReady $false 'missing serve output means no funnel'
+    Assert-Equal (Get-MoodwallTailscaleState -StatusJson $statusJson.Replace('Running', 'Stopped') -ServeJson $serveJson).Running $false 'disconnected Tailscale detected'
+    Assert-Equal (Get-MoodwallTailscaleState -StatusJson 'failed to connect to local tailscaled' -ServeJson '').Running $false 'stopped service output is not trusted'
+    Assert-Throws { Assert-MoodwallTailscaleReady -Origin $tsOrigin -State (Get-MoodwallTailscaleState -StatusJson $statusJson.Replace('Running', 'NeedsLogin') -ServeJson $serveJson) } 'logged-out Tailscale is refused'
+    Assert-Throws { Assert-MoodwallTailscaleReady -Origin 'https://other.tail1234.ts.net' -State $tsState } 'PUBLIC_ORIGIN for another machine is refused'
+    Assert-Throws { Assert-MoodwallTailscaleReady -Origin $tsOrigin -State (Get-MoodwallTailscaleState -StatusJson $statusJson -ServeJson '{}') } 'missing funnel is refused'
+    Assert-MoodwallTailscaleReady -Origin ($tsOrigin + '/') -State $tsState
+    $script:Passed++
+
+    $fakeTailscaleDir = [IO.Path]::Combine($testRoot, 'Fake Tailscale')
+    [void][IO.Directory]::CreateDirectory($fakeTailscaleDir)
+    $fakeTailscale = [IO.Path]::Combine($fakeTailscaleDir, 'tailscale.cmd')
+    [IO.File]::WriteAllText($fakeTailscale, "@echo off`r`nif `"%1`"==`"status`" type `"%~dp0status.json`"& exit /b 0`r`nif `"%1`"==`"serve`" type `"%~dp0serve.json`"& exit /b 0`r`nexit /b 1`r`n")
+    [IO.File]::WriteAllText([IO.Path]::Combine($fakeTailscaleDir, 'status.json'), $statusJson)
+    [IO.File]::WriteAllText([IO.Path]::Combine($fakeTailscaleDir, 'serve.json'), $serveJson)
+    Assert-Equal (Read-MoodwallTailscaleState -Tailscale $fakeTailscale).FunnelReady $true 'CLI output is read'
+    [IO.File]::WriteAllText([IO.Path]::Combine($repo, 'frontend', 'dist', 'index.html'), '<!doctype html>')
+    [IO.File]::WriteAllText($envPath, "MOODWALL_PUBLIC_ORIGIN=$tsOrigin`r`n")
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -TailscalePath $fakeTailscale -PlanOnly
+    Assert-Equal $LASTEXITCODE 0 'Tailscale Funnel address installs'
+    Assert-Equal (($output -join "`n") | ConvertFrom-Json).DisplayUrl ($tsOrigin + '/display') 'wall opens at the Funnel address'
+    [IO.File]::WriteAllText([IO.Path]::Combine($fakeTailscaleDir, 'serve.json'), '{}')
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -TailscalePath $fakeTailscale -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'installer refuses a ts.net address without Funnel'
+    [IO.File]::WriteAllText([IO.Path]::Combine($fakeTailscaleDir, 'serve.json'), $serveJson)
+    [IO.File]::WriteAllText($envPath, "MOODWALL_PUBLIC_ORIGIN=https://another-laptop.tail1234.ts.net`r`n")
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -TailscalePath $fakeTailscale -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'installer refuses another machine''s ts.net address'
     $profileProcesses = @(Select-MoodwallProfileProcesses -ProfileDirectory $plan.ProfileDirectory -BrowserPath $plan.BrowserPath -Processes @($displayProcess, $personalProcess))
     Assert-Equal $profileProcesses.Count 1 'power-off closes only the dedicated Moodwall profile'
     # The last checks deliberately run failing installers; CI's dot-sourced shell exits with $LASTEXITCODE.

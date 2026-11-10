@@ -9,7 +9,9 @@ param(
     [string[]]$ComposeFiles = @('compose.yaml', 'compose.frontend.yaml', 'compose.gemini.yaml', 'compose.library.yaml'),
     # Also start Moodwall right after the staff Windows login.
     [switch]$AutoStart,
-    [string]$StartupDirectory = [Environment]::GetFolderPath('Startup')
+    [string]$StartupDirectory = [Environment]::GetFolderPath('Startup'),
+    # Defaults to the installed tailscale.exe; checked only for a *.ts.net PUBLIC_ORIGIN.
+    [string]$TailscalePath
 )
 
 Set-StrictMode -Version Latest
@@ -27,6 +29,11 @@ try {
         if (([Uri]$expected).Scheme -ne 'https') { throw '.env의 MOODWALL_PUBLIC_ORIGIN을 학생 휴대폰이 접속할 HTTPS 공개 주소로 먼저 설정해 주세요.' }
         if (-not $DisplayUrl) { $DisplayUrl = $envOrigin }
         if ((ConvertTo-MoodwallDisplayUrl $DisplayUrl) -ne $expected) { throw ('전광판 주소가 .env의 MOODWALL_PUBLIC_ORIGIN(' + $envOrigin + ')과 다릅니다.') }
+        if (Test-MoodwallTailscaleOrigin $envOrigin) {
+            # Tailscale Funnel: this laptop's own name, logged in, and published to the internet.
+            if (-not $TailscalePath) { $TailscalePath = Resolve-MoodwallTailscale }
+            Assert-MoodwallTailscaleReady -Origin $envOrigin -State (Read-MoodwallTailscaleState -Tailscale $TailscalePath)
+        }
         if (-not [IO.File]::Exists([IO.Path]::Combine($server.serverRoot, 'frontend', 'dist', 'index.html'))) {
             throw 'frontend/dist가 없습니다. 먼저 npm --prefix frontend ci 와 npm --prefix frontend run build를 실행해 주세요.'
         }

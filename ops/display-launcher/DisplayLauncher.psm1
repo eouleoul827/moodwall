@@ -294,6 +294,76 @@ function Resolve-MoodwallDocker {
     throw 'Docker Desktop이 설치되어 있지 않습니다.'
 }
 
+function Test-MoodwallTailscaleOrigin {
+    param([Parameter(Mandatory = $true)][string]$Origin)
+    # Tailscale Funnel hands out https://<machine>.<tailnet>.ts.net; other origins (own domain) skip these checks.
+    $uri = $null
+    if (-not [Uri]::TryCreate($Origin, [UriKind]::Absolute, [ref]$uri)) { return $false }
+    return $uri.Scheme -eq 'https' -and $uri.IsDefaultPort -and $uri.Host.EndsWith('.ts.net', [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Resolve-MoodwallTailscale {
+    $command = Get-Command tailscale.exe -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    $fallback = [IO.Path]::Combine($env:ProgramFiles, 'Tailscale', 'tailscale.exe')
+    if ([IO.File]::Exists($fallback)) { return $fallback }
+    throw 'Tailscale이 설치되어 있지 않습니다.'
+}
+
+function Get-MoodwallJsonValue {
+    param([AllowNull()][object]$Object, [Parameter(Mandatory = $true)][string]$Name)
+    # StrictMode-safe, case-insensitive lookup on ConvertFrom-Json objects.
+    if ($Object -isnot [Management.Automation.PSCustomObject]) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
+function Get-MoodwallTailscaleState {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$StatusJson, [AllowEmptyString()][string]$ServeJson)
+    # Pure parser for `tailscale status --json` and `tailscale serve status --json`.
+    $state = [ordered]@{ Running = $false; DnsName = $null; Origin = $null; FunnelReady = $false }
+    $status = $null
+    try { $status = $StatusJson | ConvertFrom-Json -ErrorAction Stop } catch { }
+    $state.Running = (Get-MoodwallJsonValue $status 'BackendState') -eq 'Running'
+    $dnsName = Get-MoodwallJsonValue (Get-MoodwallJsonValue $status 'Self') 'DNSName'
+    if ($dnsName -is [string] -and $dnsName) {
+        $state.DnsName = $dnsName.TrimEnd('.').ToLowerInvariant()
+        $state.Origin = 'https://' + $state.DnsName
+    }
+    if (-not $state.DnsName -or -not $ServeJson) { return [pscustomobject]$state }
+    $serve = $null
+    try { $serve = $ServeJson | ConvertFrom-Json -ErrorAction Stop } catch { }
+    $key = $state.DnsName + ':443'
+    $public = (Get-MoodwallJsonValue (Get-MoodwallJsonValue $serve 'AllowFunnel') $key) -eq $true
+    $handlers = Get-MoodwallJsonValue (Get-MoodwallJsonValue (Get-MoodwallJsonValue $serve 'Web') $key) 'Handlers'
+    $proxy = [string](Get-MoodwallJsonValue (Get-MoodwallJsonValue $handlers '/') 'Proxy')
+    # The API publishes only on 127.0.0.1:8000 (compose.yaml).
+    $state.FunnelReady = [bool]($public -and $proxy -match '^(http://)?(127\.0\.0\.1|localhost):8000/?$')
+    return [pscustomobject]$state
+}
+
+function Read-MoodwallTailscaleState {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Tailscale)
+    # Windows PowerShell 5.1 turns native stderr into a terminating error under Stop.
+    $ErrorActionPreference = 'Continue'
+    $status = (& $Tailscale status --json 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0) { $status = '' }
+    $serve = (& $Tailscale serve status --json 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0) { $serve = '' }
+    return Get-MoodwallTailscaleState -StatusJson $status -ServeJson $serve
+}
+
+function Assert-MoodwallTailscaleReady {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Origin, [Parameter(Mandatory = $true)][object]$State)
+    if (-not $State.Running) { throw 'Tailscale이 로그인·연결되어 있지 않습니다. 작업 표시줄의 Tailscale에서 로그인하고, Preferences의 Run unattended를 켜 주세요.' }
+    if ($State.Origin -ne $Origin.TrimEnd('/').ToLowerInvariant()) { throw ('.env의 MOODWALL_PUBLIC_ORIGIN을 이 노트북의 Tailscale 주소 ' + $State.Origin + ' 로 설정해 주세요.') }
+    if (-not $State.FunnelReady) { throw '공개 주소(Funnel)가 꺼져 있습니다. 관리자 PowerShell에서 한 번 실행해 주세요: tailscale funnel --bg 8000' }
+}
+
 function Test-MoodwallEndpoint {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$DisplayUrl, [int]$TimeoutMilliseconds = 5000)
@@ -370,7 +440,7 @@ function Write-MoodwallLauncherEvent {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$InstallRoot,
-        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED', 'POWER_ON', 'DOCKER_STARTING', 'DOCKER_UNAVAILABLE', 'SERVER_FAILED', 'SERVER_UNAVAILABLE', 'POWER_ON_FAILED', 'POWER_OFF', 'POWER_OFF_FAILED')][string]$Code
+        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED', 'POWER_ON', 'DOCKER_STARTING', 'DOCKER_UNAVAILABLE', 'SERVER_FAILED', 'SERVER_UNAVAILABLE', 'POWER_ON_FAILED', 'POWER_OFF', 'POWER_OFF_FAILED', 'TUNNEL_UNAVAILABLE')][string]$Code
     )
     try {
         $logRoot = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'Logs')
@@ -399,4 +469,4 @@ function Get-MoodwallLauncherEvents {
     return @(Get-Content -LiteralPath $path -Encoding UTF8 -Tail 12 | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z [A-Z_]+$' })
 }
 
-Export-ModuleMember -Function Select-MoodwallProfileProcesses, Select-MoodwallTargetScreen, Get-MoodwallScreens, Get-MoodwallWindowArguments, Add-MoodwallWindowArguments, Get-MoodwallEnvOrigin, Get-MoodwallServerConfiguration, Read-MoodwallServerConfiguration, Get-MoodwallComposeArguments, Resolve-MoodwallDocker, ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents
+Export-ModuleMember -Function Select-MoodwallProfileProcesses, Select-MoodwallTargetScreen, Get-MoodwallScreens, Get-MoodwallWindowArguments, Add-MoodwallWindowArguments, Get-MoodwallEnvOrigin, Get-MoodwallServerConfiguration, Read-MoodwallServerConfiguration, Get-MoodwallComposeArguments, Resolve-MoodwallDocker, Test-MoodwallTailscaleOrigin, Resolve-MoodwallTailscale, Get-MoodwallTailscaleState, Read-MoodwallTailscaleState, Assert-MoodwallTailscaleReady, ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents
