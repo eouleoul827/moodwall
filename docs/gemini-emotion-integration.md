@@ -44,3 +44,5 @@ Compose 없이 실행할 때에는 API와 worker 양쪽에 같은 bundle의 mani
 ## 확인 방법
 
 `backend/tests/test_local_emotion.py`는 합성 bundle과 전송 대역으로 감정 매핑, 중립 처리, Gemini 결정 보존, ALLOW 뒤 호출, 변조 차단, 캐시, 단독 v0 production 금지를 확인한다. 실제 bundle을 사용하는 검사는 외부 네트워크 없이 합성 문구로 실행할 수 있다. 이 확인은 실제 Gemini 호출이나 학생 감정 분류 정확도 평가를 대신하지 않는다.
+
+2026-11-09에는 실제 Gemini와 기존 감정 bundle을 함께 사용해 합성 기쁨 문장의 `ALLOW → JOY/MODEL`을 확인했다. 감정 함수 실제 호출은 1회였고 이번 호스트의 적재는 59.985초, 해당 검수·감정 분석은 2.703초였다. 공격 문장은 공급자의 HTTP 400 `SAFETY`로 거절되어 기대한 모델 BLOCK 검증은 실패한 상태로 남겼다. 이 결과는 분류 품질 평가나 실제 앱의 15초 재생 수락이 아니다. Docker 전체 연결은 디스크 공간 소진으로 완료하지 못했다. [부분 연결 결과와 한계](checks/gemini-live-connection-2026-11-09.json)를 따른다.
