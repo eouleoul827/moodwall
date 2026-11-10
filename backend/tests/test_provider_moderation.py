@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
+from app.profanity import ProfanityFilter
 from inference.contracts import AnalysisInput, EmotionResult, SafetyResult
 from inference.loader import load_analyzer
 from inference.provider_moderation import (
@@ -224,12 +225,85 @@ def test_flags_and_crisis_are_preserved_when_merging_more_than_five_rules():
 
 
 def test_adapter_support_is_private_and_has_no_emotion_or_score():
-    analyzer = GeminiModerationAnalyzer("mock-release", "policy")
-    result = analyzer.analyze_moderated(AnalysisInput(text="씨발 죽고 싶다"), confirmed_profanity=True)
+    calls = []
+    text = "씨발 죽고 싶다"
+    scan = ProfanityFilter().scan(text)
+    assert scan.decision == "CONFIRMED"
+    analyzer = GeminiModerationAnalyzer("mock-release", "policy", emotion_predictor=calls.append)
+    result = analyzer.analyze_moderated(AnalysisInput(text=text), confirmed_profanity=scan.decision == "CONFIRMED")
     assert result.safety.verdict == "BLOCK"
     assert set(result.safety.reason_codes) == {"SELF_CRISIS", "OTHER_UNSAFE"}
     assert result.safety.score is None and result.emotion is None
+    assert not calls
     assert analyzer.last_usage["input_tokens"] <= 6144
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "OO야 고마워",
+        "OO 헤어스타일 멋있다",
+        "민수 생일 축하",
+        "민수 좋아해",
+        "민수 오늘 발표 너무 빨랐어",
+        "오늘 걔 안 와서 좋다",
+    ],
+)
+def test_permitted_names_and_ordinary_context_reach_emotion_after_reviewed_allow(text):
+    redacted = redact_input(text)
+    assert redacted.text == text
+    assert not redacted.local_findings.restricted_identifier
+    calls = []
+    emotion = EmotionResult(label="JOY", score=0.9, source="MODEL")
+
+    def predict(value):
+        calls.append(value)
+        return emotion
+
+    analyzer = GeminiModerationAnalyzer("mock", "policy", emotion_predictor=predict)
+    value = AnalysisInput(text=text)
+    result = analyzer.analyze(value)
+    assert result.safety.verdict == "ALLOW"
+    assert result.safety.reason_codes == []
+    assert calls == [value]
+    assert result.emotion == emotion
+
+
+@pytest.mark.parametrize("case_id", ["reg-031", "reg-033", "reg-034", "reg-071"])
+def test_named_target_humiliation_still_blocks_without_a_name_privacy_reason(case_id):
+    case = next(case for case in CASES if case["case_id"] == case_id)
+    calls = []
+    analyzer = GeminiModerationAnalyzer("mock", "policy", emotion_predictor=calls.append)
+    result = analyzer.analyze(AnalysisInput(text=case["text"]))
+    assert result.safety.verdict == "BLOCK"
+    assert result.safety.reason_codes == ["HARASSMENT"]
+    assert result.emotion is None and not calls
+
+
+def test_individual_class_and_roll_number_stays_private_even_for_a_positive_message():
+    case = next(case for case in CASES if case["case_id"] == "reg-045")
+    calls = []
+    analyzer = GeminiModerationAnalyzer("mock", "policy", emotion_predictor=calls.append)
+    result = analyzer.analyze(AnalysisInput(text=case["text"]))
+    assert result.safety.verdict == "BLOCK"
+    assert result.safety.reason_codes == ["PERSONAL_INFORMATION"]
+    assert result.emotion is None and not calls
+
+
+@pytest.mark.parametrize("text", ["씨발 시험 망했다", "씨%발 시험 망했다", "'씨발'이라고 욕 들어서 힘들어"])
+def test_confirmed_profanity_and_direct_quotes_block_even_when_the_model_allows(text):
+    class AllowingTransport:
+        def respond(self, _request):
+            return wire()
+
+    scan = ProfanityFilter().scan(text)
+    assert scan.decision == "CONFIRMED"
+    calls = []
+    analyzer = GeminiModerationAnalyzer("mock", "policy", transport=AllowingTransport(), emotion_predictor=calls.append)
+    result = analyzer.analyze_moderated(AnalysisInput(text=text), confirmed_profanity=scan.decision == "CONFIRMED")
+    assert result.safety.verdict == "BLOCK"
+    assert result.safety.reason_codes == ["OTHER_UNSAFE"]
+    assert result.emotion is None and not calls
 
 
 def test_unknown_mock_sentence_is_uncertain_even_if_instructed_to_allow():
@@ -262,21 +336,30 @@ def test_invalid_output_never_calls_emotion_and_remote_transport_is_unavailable(
         analyzer.analyze(AnalysisInput(text="오늘 기뻐"))
 
 
-def test_original_identifiers_never_reach_transport_or_become_public():
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        ("민수 연락처 010-1234-5678", "민수 연락처 [연락처]"),
+        ("민수 이메일 student@example.com", "민수 이메일 [이메일]"),
+        ("민수 비밀번호: Test!123", "민수 비밀번호: [비밀정보]"),
+    ],
+)
+def test_original_identifiers_never_reach_transport_or_become_public(text, masked):
     seen = []
+    calls = []
 
     class AllowingTransport:
         def respond(self, request):
             seen.append(json.loads(request["input"]))
             return wire()
 
-    analyzer = GeminiModerationAnalyzer("mock", "policy", transport=AllowingTransport())
-    result = analyzer.analyze(AnalysisInput(text="010-1234-5678로 전화해"))
-    assert seen[0]["text"] == "[연락처]로 전화해"
+    analyzer = GeminiModerationAnalyzer("mock", "policy", transport=AllowingTransport(), emotion_predictor=calls.append)
+    result = analyzer.analyze(AnalysisInput(text=text))
+    assert seen[0]["text"] == masked
     assert seen[0]["local_findings"]["restricted_identifier"] is True
     assert result.safety.verdict == "BLOCK"
     assert result.safety.reason_codes == ["PERSONAL_INFORMATION"]
-    assert result.emotion is None
+    assert result.emotion is None and not calls
 
 
 def test_loaded_prompt_and_schema_are_frozen_for_the_analyzer(monkeypatch):
