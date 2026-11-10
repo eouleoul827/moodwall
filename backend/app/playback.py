@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from psycopg import errors
 
+from app.auth import AuthService
 from app.db import all_rows, db_time, one, schema_ready
 from app.display import BubbleCursorCodec, effective_mode
 from app.domain import ANIMATIONS, business_day, midnight_after, normalize_content, playback_duration_ms
@@ -543,6 +544,7 @@ class PlaybackService:
             await self._authorize(actor, conn, display_only=True)
             now = await db_time(conn)
             await self._settle_locked(conn, board, now)
+            await AuthService.renew_display_credential(conn, board, now)
             lease = await self._own_locked(conn, board, instance, board["device_token_version"], now, acquire=True)
             await conn.execute(
                 "UPDATE board_runtime SET last_heartbeat_at=%s,heartbeat_lease_until=%s,state_version=state_version+1 WHERE id=%s",

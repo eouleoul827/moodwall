@@ -18,7 +18,7 @@ from psycopg_pool import PoolTimeout
 from starlette.exceptions import HTTPException
 
 from app import dto
-from app.auth import AuthService
+from app.auth import DISPLAY_LIFETIME, AuthService
 from app.config import get_settings
 from app.db import Database, db_time, one, schema_ready
 from app.diagnostics import DisplayDiagnosticsService
@@ -174,7 +174,8 @@ async def bootstrap(request, role):
 
 def cookie_response(request, value, token, role):
     response = respond(value)
-    seconds = 8 * 3600 if role == "operator" else 30 * 86400
+    lifetimes = {"operator": 8 * 3600, "display": int(DISPLAY_LIFETIME.total_seconds())}
+    seconds = lifetimes.get(role, 30 * 86400)
     response.set_cookie(
         request.app.state.settings.cookie_name(role),
         token,
@@ -415,7 +416,9 @@ def create_app(settings=None):
 
     @app.get("/api/display/session", operation_id="getDisplaySession")
     async def display_session(request: Request):
-        return respond(await request.app.state.auth.session(await actor(request, "display")))
+        # Each wall start re-issues the same cookie, so the browser's copy follows the sliding expiry.
+        current = await actor(request, "display")
+        return cookie_response(request, await request.app.state.auth.session(current), current.token, "display")
 
     @app.post("/api/display/diagnostics", operation_id="recordDisplayDiagnostic")
     async def display_diagnostic(request: Request):
