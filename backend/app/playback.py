@@ -20,7 +20,7 @@ from psycopg import errors
 from app.auth import AuthService
 from app.db import all_rows, db_time, one, schema_ready
 from app.display import BubbleCursorCodec, effective_mode
-from app.domain import ANIMATIONS, business_day, midnight_after, normalize_content, playback_duration_ms
+from app.domain import ANIMATIONS, PLAYBACK_DURATION_MS, business_day, midnight_after, normalize_content
 from app.errors import Problem
 from app.security import derive_key
 
@@ -765,17 +765,6 @@ class PlaybackService:
                     now,
                 )
                 return None
-            behind = await one(
-                conn,
-                "SELECT count(*) AS n FROM presentation_items WHERE board_id=%s AND status IN ('READY','INTERRUPTED') AND id<>%s",
-                (board["id"], item["id"]),
-            )
-            duration_ms = playback_duration_ms(
-                behind["n"],
-                maximum=self.settings.playback_max_seconds,
-                minimum=self.settings.playback_min_seconds,
-                relaxed=self.settings.playback_relaxed_backlog,
-            )
             board["playback_epoch"] += 1
             board["playback_current_item_id"] = item["id"]
             await conn.execute(
@@ -799,7 +788,7 @@ class PlaybackService:
                     item["attempt_count"] + 1,
                     now,
                     min(now + timedelta(seconds=10), board["device_token_expires_at"]),
-                    duration_ms,
+                    PLAYBACK_DURATION_MS,
                 ),
             )
             await conn.execute(
@@ -914,6 +903,8 @@ class PlaybackService:
             elif action == "complete":
                 if attempt["status"] != "PLAYING":
                     raise Problem(409, "PLAYBACK_NOT_READY")
+                # A pre-update attempt keeps the duration already sent to its
+                # player. Every new attempt, including replays, is fifteen seconds.
                 complete_after = attempt["first_frame_at"] + timedelta(milliseconds=attempt["duration_ms"])
                 if now < complete_after:
                     raise Problem(

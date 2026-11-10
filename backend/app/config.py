@@ -61,12 +61,8 @@ class Settings(BaseSettings):
     worker_warmup_seconds: int = Field(default=180, ge=1, le=600)
     inference_timeout_seconds: int = Field(default=60, ge=1, le=60)
     db_pool_size: int = Field(default=5, ge=1, le=10)
-    # Full-screen time per message, chosen by the server at claim from the backlog:
-    # max while at most `playback_relaxed_backlog` others wait, then 1 s shorter per
-    # extra waiting message down to min. The display follows the attempt's durationMs.
-    playback_max_seconds: int = Field(default=15, ge=5, le=15)
-    playback_min_seconds: int = Field(default=8, ge=5, le=15)
-    playback_relaxed_backlog: int = Field(default=2, ge=0, le=100)
+    # Playback is fixed at fifteen seconds. Removed PLAYBACK_* environment
+    # variables remain harmless because obsolete settings are ignored.
     maintenance_enabled: bool = True
     moderation_backlog_limit: int = Field(default=8, ge=1, le=8)
     moderation_p95_seconds: float = Field(default=10, gt=0, le=60)
@@ -107,8 +103,6 @@ class Settings(BaseSettings):
             raise ValueError("PUBLIC_ORIGIN must be an http(s) origin")
         if origin.path or origin.query or origin.fragment or origin.username or origin.password:
             raise ValueError("PUBLIC_ORIGIN must contain only scheme, host and optional port")
-        if self.playback_min_seconds > self.playback_max_seconds:
-            raise ValueError("PLAYBACK_MIN_SECONDS must not exceed PLAYBACK_MAX_SECONDS")
         if self.secret_key == self.qr_key:
             raise ValueError("Session and QR keys must be different")
         if self.qr_kid in self.qr_previous_keys or any(len(v) < 32 for v in self.qr_previous_keys.values()):

@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Moodwall HTTP API",
-    "version": "0.12.0",
-    "description": "Moodwall API: legacy v1 floating bubbles remain compatible. V2 accepts content only, stores a text-free owner receipt for 24 hours, and orders completed preparation by committed READY sequence. A fenced display instance claims one message, obtains a five-second start authorization, reports the first frame, then reports completion after the server-chosen durationMs (15 seconds, down to 8 when a queue builds up). New arrivals wait. Source text expires one hour after the first start authorization; local transparent bubbles remain until KST midnight. Predisplay waiting is separately bounded at ten minutes. Admission reservations are atomic and rolling-hour post quotas remain distinct from endpoint request limits. All POST requests require the exact Origin and JSON object body within 4096 bytes. Authenticated writes require CSRF; command and submission keys use raw UUID headers. Authentication, owner scopes, request limits and RFC 9457 errors apply to both versions. Model safety policy remains unchanged; this contract does not authorize model deployment. Provider moderation adds support-aware receipts and private reports. Gemini transport is server-only, with durable accounting, readiness probes and circuit controls; the mock profile performs no external calls."
+    "version": "0.12.1",
+    "description": "Moodwall API: legacy v1 floating bubbles remain compatible. V2 accepts content only, stores a text-free owner receipt for 24 hours, and orders completed preparation by committed READY sequence. A fenced display instance claims one message, obtains a five-second start authorization, reports the first frame, then reports completion after at least 15 seconds. New arrivals wait. Source text expires one hour after the first start authorization; local transparent bubbles remain until KST midnight. Predisplay waiting is separately bounded at ten minutes. Admission reservations are atomic and rolling-hour post quotas remain distinct from endpoint request limits. All POST requests require the exact Origin and JSON object body within 4096 bytes. Authenticated writes require CSRF; command and submission keys use raw UUID headers. Authentication, owner scopes, request limits and RFC 9457 errors apply to both versions. Model safety policy remains unchanged; this contract does not authorize model deployment. Provider moderation adds support-aware receipts and private reports. Gemini transport is server-only, with durable accounting, readiness probes and circuit controls; the mock profile performs no external calls."
   },
   "servers": [
     {
@@ -6658,7 +6658,7 @@
             "type": "integer",
             "minimum": 5000,
             "maximum": 15000,
-            "description": "Full-screen milliseconds chosen by the server at claim from the READY backlog: PLAYBACK_MAX_SECONDS while at most PLAYBACK_RELAXED_BACKLOG others wait, then one second shorter per extra waiting message down to PLAYBACK_MIN_SECONDS. complete is accepted only after firstFrameAt + durationMs."
+            "description": "Full-screen milliseconds. Every new attempt is fixed at 15000 regardless of queue length or deployment settings. Attempts created before this policy change retain their recorded duration (5000-15000), including idempotent command replay. complete is accepted only after firstFrameAt + durationMs."
           },
           "completedAt": {
             "anyOf": [

@@ -6,8 +6,10 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 
+from app.config import Settings
 from app.db import db_time, one
 from inference.contracts import AnalysisInput, ModelAnalyzed, RuleEvidence, RuleRejected
 from inference.fake import FakeAnalyzer
@@ -136,23 +138,39 @@ async def test_full_fifteen_seconds_and_same_complete_key_recovers(clients, syst
         assert (await one(conn, "SELECT reserved_count FROM board_admission_counters"))["reserved_count"] == 0
 
 
-async def test_backlog_shortens_the_server_chosen_duration_and_complete_enforces_it(
+async def test_backlog_and_legacy_settings_cannot_shorten_fifteen_second_playback(
     clients, system, database, monkeypatch
 ):
-    settings = system.state.playback.settings
-    monkeypatch.setattr(settings, "playback_relaxed_backlog", 0)
+    for name, value in {"MAX_SECONDS": "8", "MIN_SECONDS": "5", "RELAXED_BACKLOG": "0"}.items():
+        monkeypatch.setenv(f"MOODWALL_PLAYBACK_{name}", value)
+    system.state.playback.settings = Settings(_env_file=None, **system.state.playback.settings.model_dump())
     identity = await player(clients)
     first = await submit(clients)
     second = await submit(clients, who="stranger")
     await approve(system, first)
     await approve(system, second)
+    # Three students wait behind the first, enough to shorten the old default
+    # policy even if obsolete environment settings were merely left unused.
+    qr = await clients["display"].get("/api/display/qr")
+    assert qr.status_code == 200, qr.text
+    ticket = qr.json()["joinUrl"].split("ticket=", 1)[1]
+    for _ in range(2):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=system),
+            base_url=system.state.playback.settings.public_origin,
+            headers={"Origin": system.state.playback.settings.public_origin},
+        ) as student:
+            joined = await student.post("/api/admissions/exchange", json={"ticket": ticket})
+            assert joined.status_code == 200, joined.text
+            student.headers["X-CSRF-Token"] = joined.json()["csrfToken"]
+            await approve(system, await submit({"student": student}))
     state, identity = await claim_player(clients, identity)
-    assert state["attempt"]["durationMs"] == 14000  # one message waits behind it
+    assert state["attempt"]["durationMs"] == 15000
     async with database.connection() as conn:
         stored = await one(
             conn, "SELECT duration_ms FROM playback_attempts WHERE id=%s", (state["attempt"]["attemptId"],)
         )
-    assert stored["duration_ms"] == 14000
+    assert stored["duration_ms"] == 15000
     assert (await command(clients, state, identity, "start")).status_code == 200
     framed = await command(clients, state, identity, "frame")
     assert framed.status_code == 200, framed.text
@@ -164,13 +182,66 @@ async def test_backlog_shortens_the_server_chosen_duration_and_complete_enforces
 
         return clock
 
-    monkeypatch.setattr("app.playback.db_time", await at(timedelta(seconds=13, milliseconds=900)))
+    monkeypatch.setattr("app.playback.db_time", await at(timedelta(seconds=14, milliseconds=999)))
     early = await command(clients, state, identity, "complete")
     assert early.status_code == 409 and early.json()["code"] == "PLAYBACK_TOO_EARLY"
-    monkeypatch.setattr("app.playback.db_time", await at(timedelta(seconds=14)))
+    monkeypatch.setattr("app.playback.db_time", await at(timedelta(seconds=15)))
     done = await command(clients, state, identity, "complete")
     assert done.status_code == 200, done.text
-    assert done.json()["attempt"]["status"] == "DONE" and done.json()["attempt"]["durationMs"] == 14000
+    assert done.json()["attempt"]["status"] == "DONE" and done.json()["attempt"]["durationMs"] == 15000
+
+
+async def test_inflight_attempt_keeps_its_pre_update_duration(clients, system, database, monkeypatch):
+    identity = await player(clients)
+    await approve(system, await submit(clients))
+    state, identity = await claim_player(clients, identity)
+    # Represent an attempt that was already claimed by the previous server.
+    async with database.connection() as conn:
+        await conn.execute(
+            "UPDATE playback_attempts SET duration_ms=8000 WHERE id=%s", (state["attempt"]["attemptId"],)
+        )
+    started = await command(clients, state, identity, "start")
+    assert started.status_code == 200, started.text
+    assert started.json()["attempt"]["durationMs"] == 8000
+    framed = await command(clients, state, identity, "frame")
+    assert framed.status_code == 200, framed.text
+    first_frame = datetime.fromisoformat(framed.json()["attempt"]["firstFrameAt"].replace("Z", "+00:00"))
+    offset = timedelta(milliseconds=7999)
+
+    async def clock(conn):
+        return first_frame + offset
+
+    monkeypatch.setattr("app.playback.db_time", clock)
+    early = await command(clients, state, identity, "complete")
+    assert early.status_code == 409 and early.json()["code"] == "PLAYBACK_TOO_EARLY"
+    offset = timedelta(seconds=8)
+    key = uuid4()
+    done = await command(clients, state, identity, "complete", key)
+    assert done.status_code == 200, done.text
+    assert done.json()["attempt"]["status"] == "DONE" and done.json()["attempt"]["durationMs"] == 8000
+    duplicate = await command(clients, state, identity, "complete", key)
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json()["attempt"]["durationMs"] == 8000
+
+
+async def test_replay_of_pre_update_attempt_gets_fifteen_seconds(clients, system, database):
+    identity = await player(clients)
+    await approve(system, await submit(clients))
+    state, identity = await claim_player(clients, identity)
+    async with database.connection() as conn:
+        await conn.execute(
+            "UPDATE playback_attempts SET duration_ms=8000 WHERE id=%s", (state["attempt"]["attemptId"],)
+        )
+    interrupted = await command(clients, state, identity, "interrupt", reason="RELOAD")
+    assert interrupted.status_code == 200, interrupted.text
+    retry, identity = await claim_player(clients, identity)
+    assert retry["attempt"]["attemptNumber"] == 2
+    assert retry["attempt"]["durationMs"] == 15000
+    async with database.connection() as conn:
+        previous = await one(
+            conn, "SELECT duration_ms FROM playback_attempts WHERE id=%s", (state["attempt"]["attemptId"],)
+        )
+    assert previous["duration_ms"] == 8000
 
 
 async def test_start_retry_does_not_extend_authorization_or_retention(clients, system, database, monkeypatch):

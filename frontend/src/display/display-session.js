@@ -47,12 +47,13 @@ export async function displayRequest(path, { signal, body, csrfToken, fetcher = 
 }
 
 function sameCredential(a, b) {
-  return a && b && a.boardId === b.boardId && a.csrfToken === b.csrfToken && a.credentialExpiresAt === b.credentialExpiresAt;
+  return a && b && a.boardId === b.boardId && a.csrfToken === b.csrfToken;
 }
 
-/** Serial GET recovery. A same-credential lookup never replaces a live runtime's session object. */
+/** Serial GET recovery. Keep current metadata separate from the runtime's startup session. */
 export function useDisplaySession(fetcher = fetch) {
-  const [session, setSession] = useState(null), [boot, setBoot] = useState('LOADING');
+  const [{ session, runtimeSession }, setSessions] = useState({ session: null, runtimeSession: null });
+  const [boot, setBoot] = useState('LOADING');
   const [problem, setProblem] = useState(''), [busy, setBusy] = useState(false);
   const actions = useRef(null), csrfRef = useRef('');
   const check = useCallback(() => actions.current?.check(), []);
@@ -62,12 +63,15 @@ export function useDisplaySession(fetcher = fetch) {
     let active = true, pending = false, timer = null, request = null, epoch = 0, retry = 5000, notBefore = 0;
     const apply = value => {
       csrfRef.current = value.csrfToken;
-      setSession(previous => sameCredential(previous, value) ? previous : value);
+      // Renewal changes expiry and server metadata, but not the device identity.
+      // Staff views receive fresh metadata without interrupting a live playback.
+      setSessions(previous => ({ session: value,
+        runtimeSession: sameCredential(previous.runtimeSession, value) ? previous.runtimeSession : value }));
       setBoot('READY'); setProblem(''); retry = 5000; notBefore = 0;
     };
     const invalidateSession = () => {
       epoch++; request?.abort(); clearTimeout(timer); csrfRef.current = ''; notBefore = 0;
-      setSession(null); setBoot('PAIR'); setProblem('');
+      setSessions({ session: null, runtimeSession: null }); setBoot('PAIR'); setProblem('');
     };
     const verify = async () => {
       if (!active || pending) return;
@@ -105,7 +109,7 @@ export function useDisplaySession(fetcher = fetch) {
       window.removeEventListener('focus', wake); document.removeEventListener('visibilitychange', wake);
     };
   }, [fetcher]);
-  return { session, boot, problem, busy, csrfRef, check, invalidate, accept };
+  return { session, runtimeSession, boot, problem, busy, csrfRef, check, invalidate, accept };
 }
 
 export function notifyDisplaySession() {

@@ -1,6 +1,6 @@
 # 전광판 재생과 당일 말풍선 캐시
 
-2026-11-09: 전체 화면 시간은 **서버가 claim 때 정한다**. 뒤에 대기하는 글이 2개 이하면 15초, 그보다 많으면 1개당 1초씩 줄여 최소 8초(`PLAYBACK_MAX_SECONDS`·`PLAYBACK_MIN_SECONDS`·`PLAYBACK_RELAXED_BACKLOG`). 시도 응답의 `durationMs`(5000~15000)를 전광판이 따르고 서버 complete와 DB 제약도 같은 값으로 검증한다. 아래 모듈 설명의 “15초”는 이 기본값이다. OpenAPI 0.12.0, DB head `0009_playback_duration`.
+2026-11-10: 전체 화면 시간은 **대기량과 관계없이 15초 고정**이다. 새 claim과 재시도는 `durationMs=15000`으로 생성한다. 업데이트 전에 생성된 시도만 저장된 `durationMs`(5000~15000)를 그대로 따르며 서버 complete와 DB 제약도 같은 값으로 검증한다. 기존 시간 조절 환경변수는 무시한다. OpenAPI 0.12.1, DB head `0009_playback_duration`.
 
 **현재 v2 연결 모듈:** `playback-controller.mjs`, `playback-bubble-cache.mjs`, `playback-browser.mjs`를 새 API 0.8.0과 함께 사용한다. [로컬 구현 가이드](../../docs/playback-local-implementation.md)와 [15초 재생 설계](../../docs/playback-design.md)를 따른다. 아래 별도 v1 설명의 `bubble-cache.mjs`는 이전 호환 모듈이다.
 
