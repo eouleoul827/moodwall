@@ -36,8 +36,8 @@ class SafeParser(argparse.ArgumentParser):
 
 
 def validate_key(value: str) -> str:
-    if re.fullmatch(r"[A-Za-z0-9_\-]{20,256}", value) is None:
-        raise SetupError("The API key must contain 20..256 ASCII letters, digits, underscores or hyphens.")
+    if re.fullmatch(r"[A-Za-z0-9_.\-]{20,256}", value) is None:
+        raise SetupError("The API key must contain 20..256 ASCII letters, digits, periods, underscores or hyphens.")
     return value
 
 

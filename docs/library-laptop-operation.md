@@ -73,7 +73,8 @@ flowchart LR
 1. **노트북 확인:** 위 전제 조건, Edge 또는 Chrome, 전원 어댑터 상시 연결.
 2. **Docker Desktop:** 설치 후 설정에서 *Start Docker Desktop when you sign in*을 켠다.
 3. **저장소와 비밀값:** 저장소를 예를 들어 `C:\moodwall`에 받는다. 개발 PC의 `.env`를 복사하지 않는다. 그 파일에는 개발용 Gemini 키와 DB 비밀번호가 들어 있다.
-   - 노트북에서 `python scripts/setup_gemini.py --start --create-operator --operator-name admin`을 실행한다([Gemini 실행 가이드](gemini-moderation-implementation.md)).
+   - 개발 PC의 `models/student-v0` 폴더 전체(약 512 MB, manifest와 모델 파일 4개)를 `C:\moodwall\models\student-v0`에 별도로 복사한다. Git clone에는 포함되지 않는다. [설치 체크리스트](11.10-노트북-세팅.md)의 4.0에서 체크섬을 확인한다.
+   - 노트북에서 `python scripts/setup_gemini.py --emotion-model "C:\moodwall\models\student-v0" --start --create-operator --operator-name admin`을 실행한다([Gemini 실행 가이드](gemini-moderation-implementation.md)).
 4. **Tailscale (한 번만 하면 이후 손댈 일이 없다):**
    1. [tailscale.com/download](https://tailscale.com/download)에서 Windows용을 설치하고 무료 계정으로 로그인한다. 계정 주인은 운영 책임자(담당 교수) 또는 인수인계할 수 있는 사람으로 정한다.
    2. 작업 표시줄의 Tailscale 아이콘 → Preferences → **Run unattended**를 켠다. 어느 Windows 계정으로 로그인하든, 로그인 전에도 연결된다.
@@ -93,11 +94,12 @@ flowchart LR
       ```
 5. **빌드와 실행:**
    ```powershell
-   npm --prefix frontend ci; npm --prefix frontend run build
-   docker compose -f compose.yaml -f compose.frontend.yaml -f compose.gemini.yaml -f compose.library.yaml up -d --build api worker
+   npm --prefix frontend ci
+   npm --prefix frontend run build
+   docker compose -f compose.yaml -f compose.frontend.yaml -f compose.gemini.yaml -f compose.gemini-emotion.yaml -f compose.library.yaml up -d --build api worker
    ```
    LTE 휴대폰으로 `https://…ts.net/operator`가 열리고 로그인되면 공개 주소가 정상이다.
-   감정 색 모델을 쓰면 `compose.library.yaml` 앞에 `-f compose.gemini-emotion.yaml`을 넣는다. 런처 설치 때도 `-ComposeFiles`에 같은 목록을 준다.
+   이 설치는 감정 색 모델을 함께 사용한다. 런처에도 아래 `-WithEmotionModel`로 같은 구성을 저장한다. 접수 재개 전 운영자 화면의 **자동 검수 → 검수 가능**과 [설치 체크리스트](11.10-노트북-세팅.md) 4.4의 상세 준비 조건을 확인한다. 컨테이너 실행·웹 응답만으로 검수와 감정 모델 준비를 판정하지 않는다.
 6. **Windows 설정** (직원 계정):
    - 전원 연결 시 절전 "안 함", 화면 끄기 "안 함"
    - 덮개를 닫을 때 "아무것도 안 함"
@@ -107,14 +109,15 @@ flowchart LR
    - 화면이 보이는 동안에는 웹페이지도 Wake Lock으로 절전을 막는다. 다만 OS 설정이 먼저 맞아야 한다.
 7. **아이콘 설치** (직원 Windows 계정에서):
    ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ops\display-launcher\Install.ps1" -ServerRoot "C:\moodwall" -AutoStart
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ops\display-launcher\Install.ps1" -ServerRoot "C:\moodwall" -WithEmotionModel -PlanOnly
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ops\display-launcher\Install.ps1" -ServerRoot "C:\moodwall" -WithEmotionModel -AutoStart
    ```
    바탕화면에 **무드월 켜기**, **무드월 끄기**, **무드월 직원 설정·점검**이 생긴다. `-AutoStart`를 주면 Windows 로그인 직후 켜기가 자동으로 실행된다. 주소는 `.env`에서 읽는다. Tailscale 설정이 빠졌으면 무엇을 해야 하는지 알려 주며 설치를 거부한다.
 8. **전광판 등록:**
    - **무드월 켜기**를 누른 뒤, 로고만 보이면 창을 `Alt+F4`로 닫는다.
    - **직원 설정·점검 → 등록·설정 열기**를 누른다.
    - 휴대폰에서 `https://…ts.net/operator`에 로그인해 등록 코드를 발급하고, 노트북에 입력한다.
-   - 운영자 화면에서 **접수 재개·송출 재개**를 누른다.
+   - AI 준비 확인을 통과한 뒤 운영자 화면에서 **접수 재개·송출 재개**를 누른다.
    - 설정 창을 닫고 **무드월 켜기**를 다시 누른다.
    - 장치 등록은 전광판을 쓰는 동안 자동으로 연장된다. **180일 동안 한 번도 켜지 않았거나** 운영자가 장치를 해지했을 때만 같은 방법으로 다시 등록한다.
 
@@ -159,7 +162,7 @@ flowchart LR
 같은 노트북·케이블·전광판·학교망에서 실행하고 날짜와 확인자를 기록한다.
 
 1. 휴대폰 LTE로 QR → 제출 → 15초 재생 → 구름까지 확인한다. QR은 3m, 6m, 10m 거리에서 각각 인식되는지 본다.
-2. 출근 동작: 전원 → 로그인 → 자동 또는 **무드월 켜기** → 전광판 표시까지 걸린 시간.
+2. 출근 동작: 전원 → 로그인 → 자동 또는 **무드월 켜기** → 전광판 표시 및 AI 준비까지 걸린 시간. 감정 모델은 시작할 때 수분이 걸릴 수 있다. 재부팅 뒤 합성 글을 다시 보내 감정 색까지 확인한다.
 3. **무드월 끄기** 뒤 학생 접수가 막히는지, 다음 날 **켜기** 뒤 전날 구름이 남지 않는지 확인한다.
 4. 인터넷 10분 단절 뒤 자동 복구, Windows 재부팅 뒤 장치 등록 유지.
 5. 6시간 연속 표시 중 발열과 끊김. 구름 30개를 채운 상태로 본다.

@@ -7,6 +7,8 @@ param(
     # Library laptop as the server: the repository folder holding .env and compose files.
     [string]$ServerRoot,
     [string[]]$ComposeFiles = @('compose.yaml', 'compose.frontend.yaml', 'compose.gemini.yaml', 'compose.library.yaml'),
+    # Boolean flag also works with powershell.exe -File (unlike a string-array argument).
+    [switch]$WithEmotionModel,
     # Also start Moodwall right after the staff Windows login.
     [switch]$AutoStart,
     [string]$StartupDirectory = [Environment]::GetFolderPath('Startup'),
@@ -19,6 +21,11 @@ $ErrorActionPreference = 'Stop'
 Import-Module ([IO.Path]::Combine($PSScriptRoot, 'DisplayLauncher.psm1')) -Force -DisableNameChecking
 
 try {
+    if ($WithEmotionModel) {
+        if (-not $ServerRoot) { throw '-WithEmotionModel은 -ServerRoot와 함께 사용해 주세요.' }
+        if ($PSBoundParameters.ContainsKey('ComposeFiles')) { throw '-WithEmotionModel과 -ComposeFiles 중 하나만 사용해 주세요.' }
+        $ComposeFiles = @('compose.yaml', 'compose.frontend.yaml', 'compose.gemini.yaml', 'compose.gemini-emotion.yaml', 'compose.library.yaml')
+    }
     $server = $null
     if ($ServerRoot) {
         $server = Get-MoodwallServerConfiguration -ServerRoot $ServerRoot -ComposeFiles $ComposeFiles

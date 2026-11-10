@@ -8,6 +8,15 @@ Windows 직원 계정에 **무드월 전광판 시작**과 **무드월 직원 �
 
 노트북이 서버까지 맡는 도서관 구성에서는 `-ServerRoot <저장소 폴더>`로 설치한다. 직원 아이콘은 **무드월 켜기**와 **무드월 끄기** 두 개가 된다. 켜기는 Docker 시작, 컨테이너 시작, 공개 주소 응답 확인, 전광판 화면 열기를 상태 화면과 함께 처리한다. 끄기는 전용 창을 닫고 컨테이너를 멈춘다. 주소는 `.env`의 `MOODWALL_PUBLIC_ORIGIN`에서 읽고, 다르면 설치를 거부한다. 그 주소가 Tailscale Funnel(`https://…ts.net`)이면 설치와 켜기 때 Tailscale 로그인, 이 노트북의 주소인지, Funnel이 `127.0.0.1:8000`으로 공개되어 있는지를 `tailscale status --json`·`tailscale serve status --json`으로 확인한다. 꺼져 있으면 켜기는 1분 동안 재연결을 기다린 뒤 직원에게 Tailscale **Connect**를 안내한다(`TUNNEL_UNAVAILABLE`). 시험용으로 `-TailscalePath`에 다른 실행 파일을 줄 수 있다. 전체 절차는 [도서관 노트북 운영](../../docs/library-laptop-operation.md)을 따른다. 시작 창은 연결된 화면 가운데 2046×768 전광판 비율에 가장 가까운 화면에 연다.
 
+로컬 감정 모델을 함께 사용하는 설치는 다음과 같이 실행한다. 먼저 [노트북 설치 체크리스트](../../docs/11.10-노트북-세팅.md)에 따라 모델 복사·서버 빌드·AI 준비 확인을 마친다.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ops\display-launcher\Install.ps1" -ServerRoot "C:\moodwall" -WithEmotionModel -PlanOnly
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ops\display-launcher\Install.ps1" -ServerRoot "C:\moodwall" -WithEmotionModel -AutoStart
+```
+
+`-WithEmotionModel`은 `compose.yaml`, `compose.frontend.yaml`, `compose.gemini.yaml`, `compose.gemini-emotion.yaml`, `compose.library.yaml` 순서로 직원 런처에 저장한다. 매번 켜고 끌 때 같은 구성을 사용한다. 기존 모델 없는 설치의 기본 동작은 유지한다. 직접 목록을 주는 `-ComposeFiles`와는 함께 사용하지 않는다. 모델 복사·검증·빌드는 설치 옵션이 수행하지 않는다.
+
 ## 직원의 매일 사용 방법
 
 1. 노트북을 켜고 평소 사용하는 Windows 직원 계정으로 로그인한다. 시작 상태를 확인할 때는 전광판 패널을 꺼 둔다.
@@ -57,7 +66,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\ops\display-launcher\
 
 전용 브라우저 프로필에 쿠키를 유지한다. Edge·Chrome의 프로필은 서로 다른 폴더를 사용하며 일반 업무용 프로필과 섞지 않는다. 프로필 폴더를 지우거나 다른 Windows 계정으로 실행하면 전광판을 다시 등록해야 할 수 있다.
 
-현재 백엔드의 장치 자격은 발급 후 30일이다. 만료·관리자 해지·쿠키 삭제 때에는 관리자가 새 등록 코드를 발급한다. 아이콘 설치가 자격을 영구 연장하거나 등록을 우회하지 않는다.
+현재 백엔드의 장치 자격은 사용 시 마지막 사용 후 180일까지 연장된다. 180일 동안 사용하지 않았거나 관리자 해지·쿠키 삭제 때에는 관리자가 새 등록 코드를 발급한다. 아이콘 설치가 등록을 우회하지 않는다.
 
 노트북 브라우저를 닫으면 서버의 온라인 허가가 만료된 후 새 접수는 기존 `DISPLAY_OFFLINE` 규칙으로 막힐 수 있다. 전광판 패널만 끄고 브라우저를 계속 실행하면 서버에서 실제 패널 전원은 알 수 없다. [화면 운영 정책](../../docs/display-laptop.md)을 따른다.
 

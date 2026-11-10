@@ -273,6 +273,21 @@ Export-ModuleMember -Function *
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOnShortcutPath)) '무드월 켜기.lnk' 'power-on icon'
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOffShortcutPath)) '무드월 끄기.lnk' 'power-off icon'
     Assert-Equal ([IO.Directory]::Exists($serverInstall)) $false 'server-mode PlanOnly writes nothing'
+    # The emotion flag must preserve the override in the server configuration used on every staff restart.
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -WithEmotionModel -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'emotion flag refuses a missing override'
+    [IO.File]::WriteAllText([IO.Path]::Combine($repo, 'compose.gemini-emotion.yaml'), 'services: {}')
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -WithEmotionModel -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly
+    Assert-Equal $LASTEXITCODE 0 'emotion flag works through powershell.exe -File'
+    $emotionPlan = ($output -join "`n") | ConvertFrom-Json
+    Assert-Equal ($emotionPlan.Server.composeFiles -join ',') 'compose.yaml,compose.frontend.yaml,compose.gemini.yaml,compose.gemini-emotion.yaml,compose.library.yaml' 'emotion override survives in installed server configuration'
+    $emotionArgs = @(Get-MoodwallComposeArguments $emotionPlan.Server @('up', '-d', '--no-build', 'api', 'worker'))
+    Assert-Equal ($emotionArgs -contains ([IO.Path]::Combine($repo, 'compose.gemini-emotion.yaml'))) $true 'staff restart includes emotion override'
+    Assert-Equal ([IO.Directory]::Exists($serverInstall)) $false 'emotion PlanOnly writes nothing'
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -DisplayUrl 'https://moodwall.school.edu' -WithEmotionModel -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'emotion flag requires server mode'
+    Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -WithEmotionModel -ComposeFiles compose.yaml -PlanOnly }
+    Assert-Equal ($LASTEXITCODE -ne 0) $true 'emotion flag refuses ambiguous custom compose configuration'
     Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -DisplayUrl 'https://other.school.edu' -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
     Assert-Equal ($LASTEXITCODE -ne 0) $true 'launcher URL different from PUBLIC_ORIGIN is refused'
     [IO.File]::WriteAllText($envPath, "MOODWALL_PUBLIC_ORIGIN=http://localhost:8000`r`n")
