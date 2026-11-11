@@ -272,6 +272,12 @@ Export-ModuleMember -Function *
     Assert-Equal ($serverPlan.Server.composeFiles -join ',') 'compose.yaml,compose.frontend.yaml,compose.gemini.yaml,compose.library.yaml' 'default library compose stack'
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOnShortcutPath)) '무드월 켜기.lnk' 'power-on icon'
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOffShortcutPath)) '무드월 끄기.lnk' 'power-off icon'
+    Assert-Equal ([IO.Path]::GetFileName($serverPlan.UpdateShortcutPath)) '무드월 업데이트.lnk' 'update icon'
+    Assert-Equal ($serverPlan.UpdateArguments -like '*Update-Moodwall.ps1"') $true 'update icon runs the installed updater'
+    # powershell.exe -File passes one comma-joined string; the installer splits it.
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -ComposeFiles 'compose.yaml,compose.library.yaml' -PlanOnly
+    Assert-Equal $LASTEXITCODE 0 'comma-joined compose files accepted'
+    Assert-Equal ((($output -join "`n") | ConvertFrom-Json).Server.composeFiles -join ',') 'compose.yaml,compose.library.yaml' 'comma-joined compose files split'
     Assert-Equal ([IO.Directory]::Exists($serverInstall)) $false 'server-mode PlanOnly writes nothing'
     Invoke-ExpectedInstallerFailure { & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -ServerRoot $repo -DisplayUrl 'https://other.school.edu' -InstallRoot $serverInstall -DesktopDirectory $desktopRoot -PlanOnly }
     Assert-Equal ($LASTEXITCODE -ne 0) $true 'launcher URL different from PUBLIC_ORIGIN is refused'
@@ -330,6 +336,37 @@ Export-ModuleMember -Function *
     Assert-Equal ($LASTEXITCODE -ne 0) $true 'installer refuses another machine''s ts.net address'
     $profileProcesses = @(Select-MoodwallProfileProcesses -ProfileDirectory $plan.ProfileDirectory -BrowserPath $plan.BrowserPath -Processes @($displayProcess, $personalProcess))
     Assert-Equal $profileProcesses.Count 1 'power-off closes only the dedicated Moodwall profile'
+    # Update planning: rebuild only what changed, everything when the built commit is unknown.
+    $c1 = '1' * 40; $c2 = '2' * 40
+    $known = [pscustomobject]@{ frontendCommit = $c1; backendCommit = $c1 }
+    $p = Get-MoodwallUpdatePlan -ChangedFiles @('clients/display/playback-controller.mjs') -PreviousCommit $c1 -State $known
+    Assert-Equal "$($p.BuildFrontend),$($p.RebuildServer),$($p.RefreshLauncher)" 'True,False,False' 'screen-only update builds only the screen'
+    $p = Get-MoodwallUpdatePlan -ChangedFiles @('docs/x.md') -PreviousCommit $c1 -State $known
+    Assert-Equal "$($p.BuildFrontend),$($p.RebuildServer),$($p.RefreshLauncher)" 'False,False,False' 'docs-only update rebuilds nothing'
+    $p = Get-MoodwallUpdatePlan -ChangedFiles @('backend/app/migrations/versions/0010.sql', 'compose.library.yaml') -PreviousCommit $c1 -State $known
+    Assert-Equal "$($p.BuildFrontend),$($p.RebuildServer)" 'False,True' 'backend/compose change rebuilds the server'
+    $p = Get-MoodwallUpdatePlan -ChangedFiles @('ops\display-launcher\Start-Moodwall.ps1') -PreviousCommit $c1 -State $known
+    Assert-Equal $p.RefreshLauncher $true 'launcher change refreshes installed scripts'
+    $p = Get-MoodwallUpdatePlan -ChangedFiles @() -PreviousCommit $c1 -State $null
+    Assert-Equal "$($p.BuildFrontend),$($p.RebuildServer)" 'True,True' 'first update rebuilds everything'
+    $p = Get-MoodwallUpdatePlan -ChangedFiles @('docs/x.md') -PreviousCommit $c2 -State $known
+    Assert-Equal "$($p.BuildFrontend),$($p.RebuildServer)" 'True,True' 'a manual pull since the last build rebuilds everything'
+    $stateRoot = [IO.Path]::Combine($testRoot, 'update-state')
+    [void][IO.Directory]::CreateDirectory($stateRoot)
+    Assert-Equal (Read-MoodwallUpdateState -InstallRoot $stateRoot) $null 'missing update state'
+    Write-MoodwallUpdateState -InstallRoot $stateRoot -FrontendCommit $c2 -BackendCommit ''
+    $saved = Read-MoodwallUpdateState -InstallRoot $stateRoot
+    Assert-Equal "$($saved.frontendCommit),$($saved.backendCommit)" "$c2," 'update state round trip'
+    Assert-Throws { Write-MoodwallUpdateState -InstallRoot $stateRoot -FrontendCommit 'HEAD; rm' -BackendCommit '' } 'update state accepts only commit hashes'
+    [IO.File]::WriteAllText([IO.Path]::Combine($stateRoot, 'update-state.json'), '{broken')
+    Assert-Equal (Read-MoodwallUpdateState -InstallRoot $stateRoot) $null 'corrupt update state means rebuild everything'
+    Assert-Equal ((Get-MoodwallLauncherFiles) -contains 'Update-Moodwall.ps1') $true 'installer copies the updater'
+    foreach ($file in (Get-MoodwallLauncherFiles)) {
+        Assert-Equal ([IO.File]::Exists([IO.Path]::Combine($PSScriptRoot, $file))) $true ('launcher file exists: ' + $file)
+    }
+    $tokens = $null; $parseErrors = $null
+    [void][Management.Automation.Language.Parser]::ParseFile([IO.Path]::Combine($PSScriptRoot, 'Update-Moodwall.ps1'), [ref]$tokens, [ref]$parseErrors)
+    Assert-Equal @($parseErrors).Count 0 'updater parses'
     # The last checks deliberately run failing installers; CI's dot-sourced shell exits with $LASTEXITCODE.
     $global:LASTEXITCODE = 0
     Write-Output ("PASS: $script:Passed launcher checks; no UI, network or real installation performed.")
