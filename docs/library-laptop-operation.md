@@ -145,6 +145,40 @@ flowchart LR
 | 전광판 장치 재등록 | 담당자 | 보통 없음. 켤 때마다 자동 연장되고, 180일 넘게 안 켰거나 해지했을 때만(4절 8단계) |
 | Gemini 키·결제 | 담당 교수 | 키를 바꿀 때만 |
 | Tailscale 계정 인수인계 | 담당자 | 담당자가 바뀔 때. 계정이 바뀌면 주소가 바뀌어 `.env` 수정과 아이콘 재설치가 필요하다(화면 QR은 자동으로 바뀐다) |
+| 코드 업데이트 | 담당자 | `main`에 수정이 병합될 때마다(아래 절차) |
+
+### 코드 업데이트 (`main` 병합 뒤)
+
+`main`에 병합한 수정은 노트북에서 직접 받아 빌드해야 전광판에 반영된다. 자동 업데이트는 없다. 폐관 뒤, 또는 **무드월 끄기**로 전광판을 끈 상태에서 진행한다. 재생 중에 바꾸면 그 글은 끊기고 한 번 다시 재생된다.
+
+1. 저장소 폴더(예: `C:\moodwall`)에서 PowerShell을 연다. 현장에서 고친 파일이 없는지 확인한다. 출력이 비어 있어야 한다(`frontend/dist`는 `.gitignore` 대상이라 나오지 않는다).
+   ```powershell
+   git status --short
+   ```
+2. 새 코드를 받는다. 무엇이 바뀌었는지도 확인한다.
+   ```powershell
+   git pull --ff-only origin main
+   git diff --stat "HEAD@{1}" HEAD
+   ```
+3. 화면을 다시 빌드한다. 화면(`frontend/`·`clients/`)만 바뀐 업데이트는 이것으로 끝이다. `frontend/dist`가 컨테이너에 직접 연결돼 있으므로 서버를 다시 시작할 필요가 없다.
+   ```powershell
+   npm --prefix frontend ci; npm --prefix frontend run build
+   ```
+4. **`backend/`가 바뀐 경우에만** 서버를 다시 빌드한다. 최초 설치(4절 5단계)와 같은 compose 파일 목록을 쓴다. 감정 모델을 쓰면 `compose.library.yaml` 앞에 `-f compose.gemini-emotion.yaml`을 넣는다. 2단계 목록에 `backend/app/migrations/`가 있으면 DB 마이그레이션도 실행한다.
+   ```powershell
+   $c = "-f","compose.yaml","-f","compose.frontend.yaml","-f","compose.gemini.yaml","-f","compose.library.yaml"
+   docker compose @c build api worker migrate
+   docker compose @c run --rm migrate   # backend/app/migrations/ 가 바뀐 경우에만
+   docker compose @c up -d api worker
+   ```
+5. **무드월 켜기**를 누른다. 화면 HTML은 캐시하지 않으므로(`Cache-Control: no-store`) 새로 연 창은 새 코드를 쓴다. 이미 열려 있던 창은 끄고 다시 켠다.
+6. 확인한다. 휴대폰으로 글을 하나 보내 15초 동안 표시된 뒤 구름으로 남는지 본다.
+
+문제가 생기면 이전 버전으로 되돌린다. 3단계를 다시 실행하면 화면도 이전 버전으로 돌아간다.
+```powershell
+git checkout "HEAD@{1}"; npm --prefix frontend run build
+```
+되돌린 뒤 `main`으로 돌아가려면 `git checkout main`을 실행한다.
 
 ## 6. 자정·운영 시간
 
