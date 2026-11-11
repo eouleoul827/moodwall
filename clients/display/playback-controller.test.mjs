@@ -322,14 +322,83 @@ test("one-second frame gap interrupts rather than counting suspension as display
   assert.ok(!calls.some(row => row.action === "complete"));
 });
 
-test("late first-frame acknowledgement interrupts even when server processed it", async () => {
+test("a slow first-frame acknowledgement the server accepted keeps playing", async () => {
+  // The frame was painted before the request left, and the server accepted it before its
+  // own startNotAfter; a late response (slow network) must not discard a valid play.
   const { player, calls } = harness({ request: async (command, standard) => {
     const data = await standard(command);
     if (command.action === "frame") data.serverNow = iso(BASE + 5001);
     return data;
   } });
+  assert.equal((await player.runOnce()).status, "DONE");
+  assert.ok(calls.some(row => row.action === "complete"));
+});
+
+test("a first frame the server rejected as too late interrupts without completing", async () => {
+  const { player, calls } = harness({ request: async (command, standard) => {
+    if (command.action === "frame") throw error("START_AUTHORIZATION_EXPIRED", 409);
+    return standard(command);
+  } });
   assert.equal((await player.runOnce()).code, "START_AUTHORIZATION_EXPIRED");
   assert.ok(!calls.some(row => row.action === "complete"));
+  assert.equal(calls.at(-1).action, "interrupt");
+});
+
+test("a frame response lost past the start window recovers through the same-key replay", async () => {
+  let count = 0;
+  const { player, calls } = harness({ request: async (command, standard, ctx) => {
+    const result = await standard(command);
+    if (command.action === "frame" && count++ === 0) { ctx.advance(5100); throw error("NETWORK"); }
+    return result;
+  } });
+  assert.equal((await player.runOnce()).status, "DONE");
+  const frames = calls.filter(row => row.action === "frame");
+  assert.equal(frames.length, 2);
+  assert.equal(frames[0].idempotencyKey, frames[1].idempotencyKey);
+});
+
+test("a lost start response is replayed inside its five-second authorization window", async () => {
+  let saved = null, retried = false, starts = 0;
+  const { player, calls } = harness({ request: async (command, standard, ctx) => {
+    if (command.action !== "start") return standard(command);
+    if (++starts === 1) {
+      saved = await standard(command);
+      // The response never arrives; time keeps passing until the client gives up waiting.
+      return new Promise(() => {
+        const step = () => { if (retried) return; ctx.advance(100); setImmediate(step); };
+        setImmediate(step);
+      });
+    }
+    retried = true;
+    return { ...structuredClone(saved), serverNow: ctx.snapshot().serverNow };
+  } });
+  assert.equal((await player.runOnce()).status, "DONE");
+  const keys = calls.filter(row => row.action === "start").map(row => row.idempotencyKey);
+  assert.equal(keys.length, 2);
+  assert.equal(keys[0], keys[1]);
+});
+
+test("a replayed claim whose attempt already ended is abandoned, not replayed forever", async () => {
+  let claims = 0;
+  const { player, calls } = harness({ request: async (command, standard, ctx) => {
+    if (command.action === "claim") claims++;
+    if (command.action === "claim" && claims <= 3) { await standard(command); throw error("NETWORK"); }
+    if (command.action === "claim" && claims === 4) {
+      // Claim lease expired while every response was lost; the server failed and purged it.
+      ctx.active.status = "INTERRUPTED";
+      const data = ctx.snapshot();
+      data.attempt = { ...data.attempt, presentationStatus: "FAILED", item: null };
+      return data;
+    }
+    return standard(command);
+  } });
+  assert.equal((await player.runOnce()).status, "UNKNOWN");
+  assert.equal((await player.runOnce()).status, "IDLE");
+  assert.equal((await player.runOnce()).status, "DONE");
+  const keys = calls.filter(row => row.action === "claim").map(row => row.idempotencyKey);
+  assert.equal(keys.length, 5);
+  assert.equal(new Set(keys.slice(0, 4)).size, 1);
+  assert.notEqual(keys[4], keys[0]);
 });
 
 test("operator hiding during playback stops current item", async () => {

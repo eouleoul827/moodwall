@@ -169,8 +169,18 @@ export class DisplayPlaybackController {
     this.operation = 0;
   }
 
+  // A start authorization lasts only five seconds. With the generic 5 s timeout a lost
+  // start response could never be replayed (same key) inside that window, wasting the
+  // attempt. Start therefore times out sooner, scaled to the observed round trip; a false
+  // timeout only costs one idempotent replay.
+  #timeoutFor(command) {
+    if (command.action !== "start") return 5000;
+    return Math.min(5000, Math.max(1500, Math.round(3 * (this.rttEstimate ?? 1000))));
+  }
+
   async #request(command, signal) {
     const started = this.clock.now();
+    const limit = this.#timeoutFor(command);
     const requestController = new AbortController();
     const cancel = () => requestController.abort(signal.reason);
     signal?.addEventListener("abort", cancel, { once: true });
@@ -181,7 +191,7 @@ export class DisplayPlaybackController {
         const error = failure("DISPLAY_REQUEST_TIMEOUT");
         requestController.abort(error);
         reject(error);
-      }, 5000);
+      }, limit);
     });
     const aborted = new Promise((_, reject) => {
       requestController.signal.addEventListener("abort", () => reject(requestController.signal.reason), { once: true });
@@ -193,9 +203,12 @@ export class DisplayPlaybackController {
         timeout, aborted,
       ]);
       const received = this.clock.now();
-      if (received < started || received - started >= 5000) throw failure("DISPLAY_REQUEST_TIMEOUT");
+      if (received < started || received - started >= limit) throw failure("DISPLAY_REQUEST_TIMEOUT");
       if (signal?.aborted) throw signal.reason;
-      return { data, received, rtt: received - started };
+      const rtt = received - started;
+      // Rise immediately on a slow sample, decay slowly, so start never times out on a merely slow link.
+      this.rttEstimate = this.rttEstimate === undefined ? rtt : Math.max(rtt, 0.8 * this.rttEstimate + 0.2 * rtt);
+      return { data, received, rtt };
     } finally {
       this.clock.clearTimer(timer);
       signal?.removeEventListener("abort", cancel);
@@ -255,12 +268,20 @@ export class DisplayPlaybackController {
     }
   }
 
-  async #send(command, { retryUntil = null } = {}) {
+  async #send(command) {
     this.pending = command;
     for (let tries = 0; tries < 3; tries++) {
       try {
         const sample = await this.#request(command, this.controller.signal);
         if (sample.data === null && command.action === "claim") { this.pending = null; return null; }
+        // A claim whose response was lost is replayed by key. If its attempt ended meanwhile
+        // (claim lease expired, item failed or purged), that replay can never become playable:
+        // abandon it so the next tick claims afresh instead of replaying a dead attempt forever.
+        if (command.action === "claim" && sample.data?.attempt?.status !== "CLAIMED") {
+          this.pending = null;
+          this.current = null;
+          return null;
+        }
         const completedReceipt = command.action === "complete" && sample.data?.attempt?.status === "DONE" &&
           sample.data.attempt.attemptId === command.attemptId;
         const data = this.#accept(sample, completedReceipt);
@@ -278,7 +299,7 @@ export class DisplayPlaybackController {
         if (this.controller.signal.aborted) throw error;
         const early = command.action === "complete" && error?.code === "PLAYBACK_TOO_EARLY";
         if (!early && !transient(error)) { this.pending = null; throw error; }
-        if (tries === 2 || retryUntil !== null && this.#serverNow() + 250 >= retryUntil) throw error;
+        if (tries === 2) throw error;
         await this.clock.sleep(early ? Math.min(1000, Math.max(250, error.retryAfterMs || 250)) :
           Math.min(1000, 250 * 2 ** tries), this.controller.signal);
       }
@@ -420,11 +441,14 @@ export class DisplayPlaybackController {
       if (this.clock.now() - committedAt >= 1000) throw failure("FRAME_GAP");
       const firstFrame = this.clock.now();
       this.status = "PLAYING";
-      const deadline = parseTime(this.current.startNotAfter);
-      const framed = await this.#send(this.#command("frame"), { retryUntil: deadline });
-      if (framed.attempt.status !== "PLAYING" || this.#serverNow() >= deadline) {
-        throw failure("START_AUTHORIZATION_EXPIRED", 409);
-      }
+      // The server alone judges the start deadline. It accepts a first frame only before
+      // startNotAfter, and this frame was painted before the request was sent, so an
+      // accepted PLAYING proves the paint was in time. Re-checking with the conservative
+      // (serverNow + full RTT) estimate only discarded valid plays on slow networks. A lost
+      // response is retried with the same key even past the deadline: the server replays
+      // the recorded PLAYING, or rejects a frame that never arrived (non-transient 409).
+      const framed = await this.#send(this.#command("frame"));
+      if (framed.attempt.status !== "PLAYING") throw failure("START_AUTHORIZATION_EXPIRED", 409);
       let lastFrame = this.clock.now(), lastPoll = lastFrame, lastHeartbeat = lastFrame;
       let observing = false, heartbeating = false;
       while (this.clock.now() - firstFrame < duration) {
