@@ -6,6 +6,9 @@ $script:ShortcutName = '무드월 전광판 시작.lnk'
 $script:StaffShortcutName = '무드월 직원 설정·점검.lnk'
 $script:PowerOnShortcutName = '무드월 켜기.lnk'
 $script:PowerOffShortcutName = '무드월 끄기.lnk'
+$script:UpdateShortcutName = '무드월 업데이트.lnk'
+# Every script the installer copies into the launcher folder (and an update refreshes).
+$script:LauncherFiles = @('DisplayLauncher.psm1', 'Start-Display.ps1', 'Start-Staff.ps1', 'Start-Moodwall.ps1', 'Stop-Moodwall.ps1', 'Update-Moodwall.ps1')
 # Library LED wall: 2046 x 768 px (8000 x 3000 mm, P4). Used to find it among screens.
 $script:PanelAspect = 2046 / 768
 
@@ -124,6 +127,8 @@ function Get-MoodwallLaunchPlan {
         PowerOnArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + [IO.Path]::Combine($rootPath, 'Start-Moodwall.ps1') + '"'
         PowerOffShortcutPath = [IO.Path]::Combine($desktopPath, $script:PowerOffShortcutName)
         PowerOffArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + [IO.Path]::Combine($rootPath, 'Stop-Moodwall.ps1') + '"'
+        UpdateShortcutPath = [IO.Path]::Combine($desktopPath, $script:UpdateShortcutName)
+        UpdateArguments = '-NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + [IO.Path]::Combine($rootPath, 'Update-Moodwall.ps1') + '"'
         Configuration = [ordered]@{ schemaVersion = 1; displayUrl = $url }
     }
 }
@@ -286,6 +291,62 @@ function Get-MoodwallComposeArguments {
     return $arguments + $Command
 }
 
+function Get-MoodwallLauncherFiles { return @($script:LauncherFiles) }
+
+function Get-MoodwallUpdatePlan {
+    # Decide what a code update must rebuild. A stale or missing state (first update on this
+    # laptop, or someone pulled by hand) rebuilds everything so the wall never runs code that
+    # differs from the checked-out commit.
+    [CmdletBinding()]
+    param(
+        [string[]]$ChangedFiles = @(),
+        [Parameter(Mandatory = $true)][string]$PreviousCommit,
+        [object]$State
+    )
+    $paths = @($ChangedFiles | Where-Object { $_ } | ForEach-Object { $_.Replace('\', '/') })
+    $frontend = @($paths | Where-Object { $_ -match '^(frontend|clients)/' }).Count -gt 0
+    $backend = @($paths | Where-Object { $_ -match '^(backend|infra)/' -or $_ -cmatch '^compose(\.[a-z0-9-]+)?\.yaml$' }).Count -gt 0
+    $launcher = @($paths | Where-Object { $_ -match '^ops/display-launcher/' }).Count -gt 0
+    $frontendStale = -not $State -or $State.frontendCommit -cne $PreviousCommit
+    $backendStale = -not $State -or $State.backendCommit -cne $PreviousCommit
+    return [pscustomobject]@{
+        BuildFrontend = [bool]($frontend -or $frontendStale)
+        RebuildServer = [bool]($backend -or $backendStale)
+        RefreshLauncher = [bool]$launcher
+    }
+}
+
+function Read-MoodwallUpdateState {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+    $path = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'update-state.json')
+    if (-not [IO.File]::Exists($path)) { return $null }
+    try {
+        $raw = [IO.File]::ReadAllText($path)
+        if ($raw.Length -gt 1024) { return $null }
+        $state = $raw | ConvertFrom-Json -ErrorAction Stop
+        if ($state.schemaVersion -ne 1) { return $null }
+        foreach ($name in @('frontendCommit', 'backendCommit')) {
+            if ($state.$name -isnot [string] -or $state.$name -cnotmatch '^[0-9a-f]{40}$') { $state.$name = '' }
+        }
+        return $state
+    } catch { return $null } # An unreadable state only means "rebuild everything".
+}
+
+function Write-MoodwallUpdateState {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$FrontendCommit,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$BackendCommit
+    )
+    foreach ($commit in @($FrontendCommit, $BackendCommit)) {
+        if ($commit -and $commit -cnotmatch '^[0-9a-f]{40}$') { throw '커밋 형식이 올바르지 않습니다.' }
+    }
+    $path = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'update-state.json')
+    Assert-MoodwallLocalPath $path
+    $value = [ordered]@{ schemaVersion = 1; frontendCommit = $FrontendCommit; backendCommit = $BackendCommit }
+    [IO.File]::WriteAllText($path, ($value | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+}
+
 function Resolve-MoodwallDocker {
     $command = Get-Command docker.exe -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
@@ -440,7 +501,7 @@ function Write-MoodwallLauncherEvent {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$InstallRoot,
-        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED', 'POWER_ON', 'DOCKER_STARTING', 'DOCKER_UNAVAILABLE', 'SERVER_FAILED', 'SERVER_UNAVAILABLE', 'POWER_ON_FAILED', 'POWER_OFF', 'POWER_OFF_FAILED', 'TUNNEL_UNAVAILABLE')][string]$Code
+        [Parameter(Mandatory = $true)][ValidateSet('STARTED', 'ACTIVATED', 'BUSY', 'PROFILE_RUNNING', 'STAFF_WINDOW_OPEN', 'ACTIVATE_FAILED', 'ENDPOINT_UNAVAILABLE', 'LAUNCH_FAILED', 'SETUP_STARTED', 'SETUP_CLOSE_REQUIRED', 'SETUP_FAILED', 'POWER_ON', 'DOCKER_STARTING', 'DOCKER_UNAVAILABLE', 'SERVER_FAILED', 'SERVER_UNAVAILABLE', 'POWER_ON_FAILED', 'POWER_OFF', 'POWER_OFF_FAILED', 'TUNNEL_UNAVAILABLE', 'UPDATE_STARTED', 'UPDATE_NONE', 'UPDATE_DONE', 'UPDATE_FAILED', 'UPDATE_ROLLED_BACK')][string]$Code
     )
     try {
         $logRoot = [IO.Path]::Combine((ConvertTo-MoodwallAbsolutePath $InstallRoot), 'Logs')
@@ -469,4 +530,4 @@ function Get-MoodwallLauncherEvents {
     return @(Get-Content -LiteralPath $path -Encoding UTF8 -Tail 12 | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z [A-Z_]+$' })
 }
 
-Export-ModuleMember -Function Select-MoodwallProfileProcesses, Select-MoodwallTargetScreen, Get-MoodwallScreens, Get-MoodwallWindowArguments, Add-MoodwallWindowArguments, Get-MoodwallEnvOrigin, Get-MoodwallServerConfiguration, Read-MoodwallServerConfiguration, Get-MoodwallComposeArguments, Resolve-MoodwallDocker, Test-MoodwallTailscaleOrigin, Resolve-MoodwallTailscale, Get-MoodwallTailscaleState, Read-MoodwallTailscaleState, Assert-MoodwallTailscaleReady, ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents
+Export-ModuleMember -Function Select-MoodwallProfileProcesses, Select-MoodwallTargetScreen, Get-MoodwallScreens, Get-MoodwallWindowArguments, Add-MoodwallWindowArguments, Get-MoodwallEnvOrigin, Get-MoodwallServerConfiguration, Read-MoodwallServerConfiguration, Get-MoodwallComposeArguments, Get-MoodwallLauncherFiles, Get-MoodwallUpdatePlan, Read-MoodwallUpdateState, Write-MoodwallUpdateState, Resolve-MoodwallDocker, Test-MoodwallTailscaleOrigin, Resolve-MoodwallTailscale, Get-MoodwallTailscaleState, Read-MoodwallTailscaleState, Assert-MoodwallTailscaleReady, ConvertTo-MoodwallDisplayUrl, ConvertTo-MoodwallAbsolutePath, Assert-MoodwallLocalPath, Assert-MoodwallDeploymentUrl, Get-MoodwallBrowserCandidates, Resolve-MoodwallBrowser, Get-MoodwallLaunchPlan, Assert-MoodwallInstallRoot, Read-MoodwallConfiguration, Get-MoodwallExistingDisplay, Test-MoodwallEndpoint, Wait-MoodwallEndpoint, Get-MoodwallLauncherMutexName, Get-MoodwallLaunchDecision, Get-MoodwallBrowserProcesses, Write-MoodwallLauncherEvent, Get-MoodwallLauncherEvents

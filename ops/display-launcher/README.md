@@ -6,7 +6,7 @@ Windows 직원 계정에 **무드월 전광판 시작**과 **무드월 직원 �
 
 ## 도서관 노트북이 서버인 경우
 
-노트북이 서버까지 맡는 도서관 구성에서는 `-ServerRoot <저장소 폴더>`로 설치한다. 직원 아이콘은 **무드월 켜기**와 **무드월 끄기** 두 개가 된다. 켜기는 Docker 시작, 컨테이너 시작, 공개 주소 응답 확인, 전광판 화면 열기를 상태 화면과 함께 처리한다. 끄기는 전용 창을 닫고 컨테이너를 멈춘다. 주소는 `.env`의 `MOODWALL_PUBLIC_ORIGIN`에서 읽고, 다르면 설치를 거부한다. 그 주소가 Tailscale Funnel(`https://…ts.net`)이면 설치와 켜기 때 Tailscale 로그인, 이 노트북의 주소인지, Funnel이 `127.0.0.1:8000`으로 공개되어 있는지를 `tailscale status --json`·`tailscale serve status --json`으로 확인한다. 꺼져 있으면 켜기는 1분 동안 재연결을 기다린 뒤 직원에게 Tailscale **Connect**를 안내한다(`TUNNEL_UNAVAILABLE`). 시험용으로 `-TailscalePath`에 다른 실행 파일을 줄 수 있다. 전체 절차는 [도서관 노트북 운영](../../docs/library-laptop-operation.md)을 따른다. 시작 창은 연결된 화면 가운데 2046×768 전광판 비율에 가장 가까운 화면에 연다.
+노트북이 서버까지 맡는 도서관 구성에서는 `-ServerRoot <저장소 폴더>`로 설치한다. 직원 아이콘은 **무드월 켜기**와 **무드월 끄기** 두 개가 된다. 켜기는 Docker 시작, 컨테이너 시작, 공개 주소 응답 확인, 전광판 화면 열기를 상태 화면과 함께 처리한다. 끄기는 전용 창을 닫고 컨테이너를 멈춘다. 주소는 `.env`의 `MOODWALL_PUBLIC_ORIGIN`에서 읽고, 다르면 설치를 거부한다. 그 주소가 Tailscale Funnel(`https://…ts.net`)이면 설치와 켜기 때 Tailscale 로그인, 이 노트북의 주소인지, Funnel이 `127.0.0.1:8000`으로 공개되어 있는지를 `tailscale status --json`·`tailscale serve status --json`으로 확인한다. 꺼져 있으면 켜기는 1분 동안 재연결을 기다린 뒤 직원에게 Tailscale **Connect**를 안내한다(`TUNNEL_UNAVAILABLE`). 시험용으로 `-TailscalePath`에 다른 실행 파일을 줄 수 있다. 세 번째 아이콘 **무드월 업데이트**([Update-Moodwall.ps1](Update-Moodwall.ps1))는 담당자가 요청할 때만 누른다. 팀 저장소 `main`을 fast-forward로 받고, 바뀐 곳(화면·서버·DB 마이그레이션·런처)만 다시 만든 뒤 전광판을 다시 켠다. 마이그레이션 전에 실패하면 이전 버전으로 되돌린다. 전체 절차는 [도서관 노트북 운영](../../docs/library-laptop-operation.md)을 따른다. 시작 창은 연결된 화면 가운데 2046×768 전광판 비율에 가장 가까운 화면에 연다.
 
 ## 직원의 매일 사용 방법
 

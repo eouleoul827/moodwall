@@ -20,6 +20,15 @@ Import-Module ([IO.Path]::Combine($PSScriptRoot, 'DisplayLauncher.psm1')) -Force
 
 try {
     $server = $null
+    # powershell.exe -File passes "a.yaml,b.yaml" as one string; accept that form too.
+    $ComposeFiles = @($ComposeFiles | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($ServerRoot -and -not $PSBoundParameters.ContainsKey('ComposeFiles')) {
+        # Reinstalling (e.g. from "무드월 업데이트") keeps the compose files chosen at first install.
+        try {
+            $previous = Read-MoodwallServerConfiguration -InstallRoot $InstallRoot
+            if ($previous) { $ComposeFiles = @($previous.composeFiles) }
+        } catch { }
+    }
     if ($ServerRoot) {
         $server = Get-MoodwallServerConfiguration -ServerRoot $ServerRoot -ComposeFiles $ComposeFiles
         # One address everywhere: the wall must be opened at the server's PUBLIC_ORIGIN,
@@ -52,7 +61,8 @@ try {
         $startShortcut = [pscustomobject]@{ Path = $plan.PowerOnShortcutPath; Arguments = $plan.PowerOnArguments; Description = '무드월 서버와 전광판 화면을 켭니다.' }
         $shortcuts = @($startShortcut,
             [pscustomobject]@{ Path = $plan.PowerOffShortcutPath; Arguments = $plan.PowerOffArguments; Description = '무드월을 끕니다. 그다음 노트북을 꺼도 됩니다.' },
-            $staffShortcut)
+            $staffShortcut,
+            [pscustomobject]@{ Path = $plan.UpdateShortcutPath; Arguments = $plan.UpdateArguments; Description = '팀 저장소의 최신 버전으로 무드월을 업데이트합니다. 담당자가 요청할 때만 누릅니다.' })
     } else {
         $startShortcut = [pscustomobject]@{ Path = $plan.ShortcutPath; Arguments = $plan.ShortcutArguments; Description = '무드월 전광판을 전체 화면으로 엽니다. 종료: Alt+F4' }
         $shortcuts = @($startShortcut, $staffShortcut)
@@ -77,7 +87,7 @@ try {
     foreach ($entry in $shortcuts) { [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($entry.Path)) }
     $encoding = New-Object Text.UTF8Encoding($false)
     [IO.File]::WriteAllText([IO.Path]::Combine($plan.InstallRoot, 'moodwall-display-launcher.marker'), 'MoodwallDisplayLauncher:1', $encoding)
-    foreach ($file in @('DisplayLauncher.psm1', 'Start-Display.ps1', 'Start-Staff.ps1', 'Start-Moodwall.ps1', 'Stop-Moodwall.ps1')) {
+    foreach ($file in (Get-MoodwallLauncherFiles)) {
         Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, $file)) -Destination ([IO.Path]::Combine($plan.InstallRoot, $file)) -Force
     }
     [IO.File]::WriteAllText([IO.Path]::Combine($plan.InstallRoot, 'config.json'), ($plan.Configuration | ConvertTo-Json), $encoding)
