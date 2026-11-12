@@ -29,6 +29,22 @@ export default function DisplaySetupApp({ fetcher = fetch }) {
   }, [session, fetcher]);
   const originMismatch = Boolean(publicOrigin && publicOrigin !== window.location.origin);
 
+  // Keyboard-less LED players (ViPlex web page widget) open /display/setup#code=<pairing code>.
+  // The fragment never reaches the server. Pair once with it, then always continue to the wall.
+  const hashCode = useRef((() => {
+    try { return new URLSearchParams(window.location.hash.slice(1)).get('code') || ''; } catch { return ''; }
+  })());
+  useEffect(() => {
+    if (!hashCode.current) return;
+    if (session) { window.location.replace('/display'); return; }
+    if (boot !== 'PAIR' || pairing) return;
+    const value = hashCode.current; hashCode.current = '';
+    setPairing(true); setProblem('');
+    pairDisplay(value.trim(), fetcher)
+      .then(result => { accept(result); notifyDisplaySession(); window.location.replace('/display'); })
+      .catch(error => { setProblem(`자동 등록 실패: ${error.code || error.message || 'UNKNOWN'}`); setPairing(false); });
+  }, [session, boot, pairing, fetcher, accept]);
+
   const pair = async event => {
     event.preventDefault(); if (pairing || code.trim().length < 16) return;
     const current = lifecycle.current;

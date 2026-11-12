@@ -20,7 +20,11 @@ import { seedFor } from './themes.js';
 const assets = [cloud01, cloud02, cloud03, cloud04, cloud05, cloud06, cloud07, cloud08,
   cloud09, cloud10, cloud11, cloud12, cloud13, cloud14, cloud15, cloud16];
 export const CLOUD_SHAPES = Object.freeze(metadata.map((shape, index) => Object.freeze({ ...shape, url: assets[index] })));
-const graphemes = new Intl.Segmenter('ko', { granularity: 'grapheme' });
+// The TU15Pro LED player browser predates Intl.Segmenter (Chrome 87).
+// Fall back to code points, as student/graphemes.js already does.
+const graphemes = typeof Intl.Segmenter === 'function'
+  ? new Intl.Segmenter('ko', { granularity: 'grapheme' })
+  : { segment: value => Array.from(value, segment => ({ segment })) };
 
 /** The design text boxes use an unpadded 1000×height canvas; SVG files add 10px on each edge. */
 export function cloudGeometry(item) {

@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
+const SQUARE_BOX = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('aspect-ratio', '1');
+
 /**
  * LED panels have no sub-pixels to hide resampling: a QR module drawn on 3.49
  * physical pixels gets blurred edges and phones fail to read it from a distance.
@@ -14,9 +16,11 @@ export default function LedQr({ image, alt }) {
     if (!box || !modules || typeof ResizeObserver === 'undefined') return undefined;
     const fit = () => {
       const style = getComputedStyle(box);
-      const inner = Math.min(
-        box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-        box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom));
+      const innerWidth = box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      // Without CSS aspect-ratio (Chrome < 88, TU15Pro LED player) the box
+      // height follows this image, so measuring it creates a resize feedback loop.
+      const inner = SQUARE_BOX ? Math.min(innerWidth,
+        box.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) : innerWidth;
       const ratio = window.devicePixelRatio || 1;
       const scale = Math.floor(inner * ratio / modules);
       setSize(scale >= 1 ? scale * modules / ratio : null);
