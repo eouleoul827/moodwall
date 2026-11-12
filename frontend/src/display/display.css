@@ -79,12 +79,6 @@
 .mw-connection-panel p { font-size:13px; line-height:1.6; color:#8d9383; }
 .mw-connection-panel button,.mw-connection-panel a { display:block; width:100%; margin-top:12px; padding:10px; border:1px solid var(--mw-line); border-radius:10px; background:#fafbf7; color:#6e7d60; cursor:pointer; text-align:center; text-decoration:none; font-size:13px; }
 .mw-connection-panel p.mw-tools-note { font-size:11px; }
-.mw-bubble-management { margin-top:24px; padding-top:18px; border-top:1px solid var(--mw-line); }
-.mw-bubble-management h3 { font-size:15px; margin:0; }
-.mw-bubble-management ul { list-style:none; padding:0; margin:15px 0 0; max-height:240px; overflow:auto; }
-.mw-bubble-management li a { text-align:left; display:flex; flex-direction:column; gap:8px; background:#fff; }
-.mw-bubble-management li span { overflow-wrap:anywhere; line-height:1.5; color:#526044; }
-.mw-bubble-management li small { color:#929c86; }
 .mw-setup { display:flex; align-items:center; justify-content:center; overflow:auto; padding:35px 20px; min-height:100svh; height:auto; }
 .mw-setup-card { background:#fff; width:min(100%,480px); border:1px solid #e3e5d9; padding:45px 40px; border-radius:30px; box-shadow:0 20px 90px #51553708; }
 .mw-setup-card .mw-wordmark { font-size:18px; }

@@ -105,6 +105,8 @@ const messages = {
   PARTICIPANT_BANNED: '지금은 작성할 수 없어요. 내일 다시 참여해 주세요.',
   BANNED: '지금은 작성할 수 없어요. 내일 다시 참여해 주세요.',
   DISPLAY_QUEUE_FULL: '전광판에 메시지가 많이 모였어요. 잠시 후 다시 보내 주세요.',
+  MODERATION_BUSY: '글이 많이 몰렸어요. 잠시 후 다시 보내 주세요.',
+  MODEL_NOT_READY: '준비 중이에요. 잠시 후 다시 보내 주세요.',
   DAY_ENDING: '오늘 전광판이 마무리되고 있어요. 내일 다시 만나요.',
   DISPLAY_OFFLINE: '전광판을 잠시 연결하고 있어요. 조금 뒤 다시 보내 주세요.',
   INTAKE_PAUSED: '지금은 전광판이 쉬고 있어요. 잠시 후 다시 보내 주세요.',

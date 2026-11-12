@@ -36,15 +36,23 @@ export function studentReceiptView(value) {
   if (value.reasonCode === "SUPPORT_AVAILABLE") return { card: "NOTICE", title: "전광판에 표시되지 않았어요",
     message: "이 메시지는 전광판에 표시하지 않았어요.", terminal: true };
   if (value.reasonCode === "CONTENT_REVIEW_UNCERTAIN") return { card: "UNCERTAIN", title: "공개 여부를 판단하기 어려웠어요",
-    message: "이 글은 전광판에 표시하지 않았어요. 내용을 조금 더 분명하게 적어 다시 보낼 수 있어요.", terminal: true };
+    message: "뜻이 잘 전해지도록 조금 더 구체적으로 써 주세요.", terminal: true };
   if (value.reasonCode === "CONTENT_REVIEW_UNAVAILABLE") return { card: "NOTICE", title: "내용 확인을 완료하지 못했어요",
-    message: "이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요.", terminal: true };
+    message: "다시 써서 보내 주세요.", terminal: true };
   if (NORMAL.has(value.userStatus)) return { card: "COMPLETE", title: "메시지를 보냈어요!",
     message: "확인 후 전광판에 순서대로 올라가요. 표시되면 15초 동안 크게 보여요.", terminal: TERMINAL.has(value.userStatus) };
   if (value.userStatus === "NEEDS_REWRITE") return { card: "REWRITE", title: "표현을 조금 바꿔 주세요",
-    message: "표현을 바꿔 다시 보내 주세요.", terminal: true };
-  return { card: "NOTICE", title: "표시하지 못했어요",
-    message: value.userStatus === "HIDDEN" ? "이 글은 전광판에서 내려갔어요." : "잠시 후 다시 작성해 주세요.", terminal: true };
+    message: "욕설·비하·개인정보는 올릴 수 없어요. 표현을 바꿔 다시 보내 주세요.", terminal: true };
+  return { card: "NOTICE", ...closedNotice(value), terminal: true };
+}
+
+/** Post-acceptance outcomes that are not about wording: say what happened and what the student can do. */
+function closedNotice({ userStatus, reasonCode }) {
+  if (reasonCode === "DAY_ENDED") return { title: "오늘 전광판이 마감됐어요", message: "내일 다시 보내 주세요." };
+  if (reasonCode === "PARTICIPANT_SUSPENDED") return { title: "오늘은 글을 올릴 수 없어요", message: "내일 다시 참여해 주세요." };
+  if (userStatus === "EXPIRED") return { title: "시간이 지나 표시되지 않았어요", message: "다시 보내 주세요." };
+  if (userStatus === "CANCELLED") return { title: "표시가 취소됐어요", message: "잠시 후 다시 보내 주세요." };
+  return { title: "전광판에 올리지 못했어요", message: "잠시 후 다시 보내 주세요." };
 }
 
 function wait(ms, signal) {

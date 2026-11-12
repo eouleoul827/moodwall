@@ -80,3 +80,23 @@
   :root:not(.mw-signage) .mw-display-frame .mw-bubble,:root:not(.mw-signage) .mw-display-frame .mw-night-stars i { animation:none; }
   :root:not(.mw-signage) .mw-display-frame .mw-duration-track i { animation:none; }
 }
+
+/* The TU15Pro LED player browser (Chromium ~80-86) lacks svh (108), color-mix() (111)
+   and aspect-ratio (88). These fallbacks apply only where those features are missing. */
+@supports not (height: 1svh) {
+  .mw-display { min-height:100vh; height:100vh; }
+  .mw-display-day,.mw-display-night { --mw-u:min(1vw,3vh); }
+  .mw-display-frame { width:min(100vw,300vh); height:min(100vh,50vw); }
+  .mw-connection-panel { max-height:calc(100vh - 90px); }
+  .mw-setup { min-height:100vh; }
+}
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .mw-display-frame .mw-bubble .mw-cloud-shape { background:radial-gradient(ellipse at var(--cloud-glow-x) var(--cloud-text-top),var(--cloud-tint) 0%,var(--cloud-tint) 38%,#fff 100%); }
+  .mw-display-night .mw-bubble .mw-cloud-shape { background:radial-gradient(ellipse at var(--cloud-glow-x) var(--cloud-text-top),var(--cloud-tint) 0%,var(--cloud-tint) 100%); }
+  .mw-display-frame .mw-spotlight,.mw-display-night .mw-spotlight { background:var(--mw-bg); }
+  .mw-bubble { border-color:rgba(0,0,0,.08); }
+}
+@supports not (aspect-ratio: 1) {
+  .mw-day-glow { height:calc(var(--mw-u) * 32); }
+  .mw-night-stars i { height:calc(var(--mw-u) * .14); }
+}

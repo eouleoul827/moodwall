@@ -38,7 +38,7 @@ describe('student composition and receipts', () => {
     await submit();
     expect(await screen.findByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '도움이 필요해요' })).toBeNull();
-    expect(screen.getByRole('button', { name: '문제 있는 글 알리기' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '문제 있는 글 알리기' })).toBeNull();
     expect(api.connect).toHaveBeenCalledWith('test-ticket', expect.any(AbortSignal));
     expect(client.begin).toHaveBeenCalledExactlyOnceWith('오늘도 좋은 하루!');
     expect(screen.queryByText('배경 이모지 고르기')).toBeNull();
@@ -198,29 +198,6 @@ describe('student composition and receipts', () => {
     expect(client.send).toHaveBeenCalledTimes(1);
   });
 
-  it('reports only a fixed category and preserves the key after a lost response', async () => {
-    const { api } = setup();
-    api.request.mockRejectedValueOnce(Object.assign(Error('synthetic'), { code: 'NETWORK_ERROR' }));
-    await submit('비공개 원문');
-    fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
-    expect(screen.getByRole('region', { name: '문제 있는 글 알리기' })).toBeTruthy();
-    expect(screen.queryByRole('region', { name: '도움받는 방법' })).toBeNull();
-    expect(screen.queryByText(/가까운 선생님|믿을 수 있는 어른|도움이 필요/)).toBeNull();
-    fireEvent.change(screen.getByLabelText('어떤 문제인가요?'), { target: { value: 'PRIVACY' } });
-    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
-    const retry = await screen.findByRole('button', { name: '같은 신고 다시 보내기' });
-    expect(screen.getByLabelText('어떤 문제인가요?').disabled).toBe(true);
-    fireEvent.click(retry);
-    await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
-    expect(api.request).toHaveBeenCalledTimes(2);
-    const first = api.request.mock.calls[0], second = api.request.mock.calls[1];
-    expect(first[0]).toBe('/api/v2/reports');
-    expect(first[1].body).toEqual({ category: 'PRIVACY' });
-    expect(first[1].csrfToken).toBe('test-csrf');
-    expect(second).toEqual(first);
-    expect(JSON.stringify(first)).not.toContain('비공개 원문');
-  });
-
   it('restores a saved READY receipt even when usage has no active pending submission', async () => {
     const { client } = setup({ recoveryResult: accepted('WAITING'), connectedSession: { ...session(), usage: { ...usage, activeSubmissionId: null } } });
     expect(await screen.findByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
@@ -285,72 +262,4 @@ describe('student composition and receipts', () => {
     expect(screen.queryByRole('heading', { name: '표현을 조금 바꿔 주세요' })).toBeNull();
   });
 
-  it('refreshes report CSRF once and retries the same report key and category', async () => {
-    const { api } = setup();
-    api.request.mockRejectedValueOnce(Object.assign(Error('stale'), { status: 403, code: 'CSRF_REJECTED' }));
-    api.session.mockResolvedValueOnce({ ...session(), csrfToken: 'fresh-report-csrf' });
-    await submit();
-    fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
-    fireEvent.change(screen.getByLabelText('어떤 문제인가요?'), { target: { value: 'PRIVACY' } });
-    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
-    await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
-    expect(api.session).toHaveBeenCalledTimes(1);
-    expect(api.request).toHaveBeenCalledTimes(2);
-    const first = api.request.mock.calls[0][1], second = api.request.mock.calls[1][1];
-    expect(second.idempotencyKey).toBe(first.idempotencyKey);
-    expect(second.body).toEqual(first.body);
-    expect(first.csrfToken).toBe('test-csrf');
-    expect(second.csrfToken).toBe('fresh-report-csrf');
-  });
-
-  it('bounds an unsuccessful report auth refresh and keeps its original intent on re-entry', async () => {
-    const { api } = setup();
-    api.request.mockRejectedValue(Object.assign(Error('stale'), { status: 403, code: 'CSRF_REJECTED' }));
-    await submit();
-    fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
-    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
-    await screen.findByText('접속을 확인하지 못했어요. 잠시 후 같은 신고로 다시 확인해 주세요.');
-    expect(api.session).toHaveBeenCalledTimes(1);
-    expect(api.request).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByRole('button', { name: '신고 닫기' }));
-    fireEvent.click(screen.getByRole('button', { name: '문제 있는 글 알리기' }));
-    expect(screen.getByLabelText('어떤 문제인가요?').disabled).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: '같은 신고 다시 보내기' }));
-    await waitFor(() => expect(api.request).toHaveBeenCalledTimes(4));
-    expect(new Set(api.request.mock.calls.map(([, options]) => options.idempotencyKey)).size).toBe(1);
-  });
-
-  it('requires QR re-entry when report authentication expired, and resumes the same intent on focus', async () => {
-    const { api } = setup();
-    api.request.mockRejectedValueOnce(Object.assign(Error('expired'), { status: 401, code: 'SESSION_EXPIRED' }));
-    api.session.mockResolvedValueOnce(null);
-    await submit();
-    fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
-    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
-    await screen.findByText(/전광판에 있는 QR을 찍으면/);
-    expect(api.request).toHaveBeenCalledTimes(1);
-    api.session.mockResolvedValueOnce({ ...session(), csrfToken: 'renewed-csrf' });
-    fireEvent.focus(window);
-    await screen.findByRole('button', { name: '같은 신고 다시 보내기' });
-    fireEvent.click(screen.getByRole('button', { name: '같은 신고 다시 보내기' }));
-    await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
-    expect(api.request.mock.calls[1][1].idempotencyKey).toBe(api.request.mock.calls[0][1].idempotencyKey);
-  });
-
-  it('shows a fresh report form on re-entry only after the previous report was confirmed', async () => {
-    const { api } = setup();
-    await submit();
-    fireEvent.click(await screen.findByRole('button', { name: '문제 있는 글 알리기' }));
-    fireEvent.change(screen.getByLabelText('어떤 문제인가요?'), { target: { value: 'PRIVACY' } });
-    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
-    await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
-    fireEvent.click(screen.getByRole('button', { name: '신고 닫기' }));
-    fireEvent.click(screen.getByRole('button', { name: '문제 있는 글 알리기' }));
-    expect(screen.getByLabelText('어떤 문제인가요?').value).toBe('HARASSMENT');
-    expect(screen.getByLabelText('어떤 문제인가요?').disabled).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: '알리기' }));
-    await screen.findByText('알려줘서 고마워요. 확인할 수 있도록 접수했어요.');
-    expect(api.request).toHaveBeenCalledTimes(2);
-    expect(api.request.mock.calls[1][1].idempotencyKey).not.toBe(api.request.mock.calls[0][1].idempotencyKey);
-  });
 });

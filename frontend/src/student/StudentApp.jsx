@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SubmissionClient } from '@clients/student/submission-client.mjs';
 import { createStudentApi, studentErrorMessage, takeAdmissionTicket } from './api.js';
 import { characterCount, validateMention } from './graphemes.js';
-import { StudentHelp } from './StudentHelp.jsx';
 import './student.css';
 
 const defaultApi = createStudentApi();
@@ -288,7 +287,6 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
             {availability.text && <p className="student-rules" role="status">{availability.text}</p>}
           </div>
         </section>}
-      <StudentHelp api={api} csrfToken={() => csrfRef.current} refreshSession={refreshSession} canReport={Boolean(session)} showReportEntry={screen === 'receipt'} />
       <footer className="student-footer">moodwall · 우리의 오늘이 모이는 곳</footer>
     </div>
   </main>;

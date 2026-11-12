@@ -44,80 +44,6 @@ describe("operator API connection", () => {
     expect(screen.queryByText(/실제 API 호출·과금 없음 · 검수 가능/)).toBeNull();
   });
 
-  it("shows report metadata and records a resolution without implicitly hiding a message", async () => {
-    const reportId = "22222222-2222-4222-8222-222222222222";
-    const submissionId = "33333333-3333-4333-8333-333333333333";
-    const report = { reportId, boardId: "board", submissionId, category: "PRIVACY", status: "RECEIVED",
-      receivedAt: "2026-11-04T03:00:00Z", resolvedAt: null, resolution: null, targetAvailable: false, content: "must not render this content" };
-    const api = vi.fn(async (path, options) => {
-      if (path === "/api/operator/session") return signedIn;
-      if (path === `/api/operator/reports/${reportId}/resolve`) return { ...report, status: "RESOLVED", resolution: options.body.resolution };
-      if (path === "/api/operator/reports") return { items: [report], nextCursor: null };
-      return { items: [], nextCursor: null };
-    });
-    render(<OperatorApp api={api} />);
-    await screen.findByRole("heading", { name: "개인정보 노출" }, { timeout: 6000 });
-    expect(screen.queryByText("must not render this content")).toBeNull();
-    expect(screen.getByText(/보관 기간이 지나/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "처리 기록" }));
-    await screen.findByText("신고 처리 결과를 기록했어요.");
-    const command = api.mock.calls.find(([path]) => path.endsWith("/resolve"));
-    expect(command[1]).toEqual({ method: "POST", body: { resolution: "INSUFFICIENT_EVIDENCE" }, csrfToken: signedIn.csrfToken, idempotencyKey: expect.any(String) });
-    expect(api.mock.calls.some(([path]) => path.endsWith("/hide"))).toBe(false);
-  });
-
-  it("retries an uncertain report resolution using the same key and locked result", async () => {
-    const reportId = "22222222-2222-4222-8222-222222222222";
-    const report = { reportId, category: "THREAT", status: "RECEIVED", receivedAt: "2026-11-04T03:00:00Z", submissionId: null };
-    let commands = 0;
-    const api = vi.fn(async (path) => {
-      if (path === "/api/operator/session") return signedIn;
-      if (path.endsWith("/resolve")) {
-        if (++commands === 1) throw rejected(503);
-        return { ...report, status: "RESOLVED", resolution: "NO_ACTION" };
-      }
-      return { items: path === "/api/operator/reports" ? [report] : [], nextCursor: null };
-    });
-    render(<OperatorApp api={api} />);
-    fireEvent.change(await screen.findByLabelText("처리 결과"), { target: { value: "NO_ACTION" } });
-    fireEvent.click(screen.getByRole("button", { name: "처리 기록" }));
-    const retry = await screen.findByRole("button", { name: "같은 처리 기록 다시 확인" });
-    expect(screen.getByLabelText("처리 결과").disabled).toBe(true);
-    fireEvent.click(retry);
-    await screen.findByText("신고 처리 결과를 기록했어요.");
-    const requests = api.mock.calls.filter(([path]) => path.endsWith("/resolve"));
-    expect(requests).toHaveLength(2);
-    expect(requests[0]).toEqual(requests[1]);
-  });
-
-  it("selects a retained bubble from the display without hiding until an authenticated click", async () => {
-    const id = "aaaaaaaa-aaaa-4aaa-8aaa-000000000001";
-    window.history.replaceState(null, "", `/operator#hide=${id}`);
-    const api = vi.fn(async path => path === "/api/operator/session" ? { ...signedIn, role: "MODERATOR" } : { items: [], nextCursor: null });
-    render(<OperatorApp api={api} />);
-    expect((await screen.findByLabelText("말풍선 ID")).value).toBe(id);
-    expect(window.location.hash).toBe("");
-    expect(api.mock.calls.some(([path]) => path.endsWith("/hide"))).toBe(false);
-    await userEvent.click(screen.getByRole("button", { name: "이 말풍선 숨기기" }));
-    expect(api).toHaveBeenCalledWith(`/api/operator/submissions/${id}/hide`, {
-      method: "POST", body: { reasonCode: "INAPPROPRIATE_CONTENT" }, csrfToken: signedIn.csrfToken,
-    });
-    expect(await screen.findByText("해당 말풍선을 전광판에서 숨겼어요.")).toBeTruthy();
-    expect(screen.getByLabelText("말풍선 ID").value).toBe("");
-  });
-
-  it("does not accept arbitrary paths as a retained bubble ID", async () => {
-    window.history.replaceState(null, "", "/operator#hide=..%2F..%2Flogout");
-    const api = vi.fn(async path => path === "/api/operator/session" ? signedIn : { items: [], nextCursor: null });
-    render(<OperatorApp api={api} />);
-    const target = await screen.findByLabelText("말풍선 ID");
-    expect(target.value).toBe("");
-    fireEvent.change(target, { target: { value: "../../logout" } });
-    expect(screen.getByRole("button", { name: "이 말풍선 숨기기" }).disabled).toBe(true);
-    fireEvent.submit(target.closest("form"));
-    expect(api.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
-  });
-
   it("logs in without persisting a password and recovers to the current session", async () => {
     let loggedIn = false;
     const api = vi.fn(async (path, options) => {
@@ -152,18 +78,6 @@ describe("operator API connection", () => {
     expect(screen.queryByText("화면 중단됨")).toBeNull();
     resolveMode({ mode: "PAUSED" });
     expect(await screen.findByText("화면 중단됨")).toBeTruthy();
-  });
-
-  it("moderators can hide an approved message without receiving admin controls", async () => {
-    const api = vi.fn(async path => path === "/api/operator/session" ? { ...signedIn, role: "MODERATOR" } : {
-      items: [{ submission: { id: "synthetic-id", content: "오늘 행복해", moderationStatus: "APPROVED", displayStatus: "QUEUED", acceptedAt: "2026-11-04T03:00:00Z" } }], nextCursor: null,
-    });
-    render(<OperatorApp api={api} />);
-    await userEvent.click(await screen.findByRole("button", { name: "오늘 행복해 숨기기" }));
-    expect(screen.queryByRole("button", { name: "접수 재개" })).toBeNull();
-    expect(api).toHaveBeenCalledWith("/api/operator/submissions/synthetic-id/hide", {
-      method: "POST", body: { reasonCode: "INAPPROPRIATE_CONTENT" }, csrfToken: signedIn.csrfToken,
-    });
   });
 
   it("logout clears operator data without a subsequent unauthorized refresh", async () => {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { readPlaybackBubbleCatalog } from '@clients/display/playback-bubble-cache.mjs';
-import { AUTH_ERRORS, displayRequest, notifyDisplaySession, pairDisplay, useDisplaySession } from './display-session.js';
+import { displayRequest, notifyDisplaySession, pairDisplay, useDisplaySession } from './display-session.js';
 import './display.css';
 
 const PAIR_MESSAGES = {
@@ -11,46 +10,12 @@ const PAIR_MESSAGES = {
 };
 
 /** Staff explicitly opens this page in the display profile. It never creates a playback runtime. */
-export default function DisplaySetupApp({ fetcher = fetch, storage, catalogReader = readPlaybackBubbleCatalog }) {
-  const { session, boot, busy, problem: sessionProblem, check, invalidate, accept } = useDisplaySession(fetcher);
+export default function DisplaySetupApp({ fetcher = fetch }) {
+  const { session, boot, busy, problem: sessionProblem, check, accept } = useDisplaySession(fetcher);
   const [code, setCode] = useState(''), [pairing, setPairing] = useState(false), [problem, setProblem] = useState('');
-  const [bubbles, setBubbles] = useState([]), [catalogProblem, setCatalogProblem] = useState('');
   const [publicOrigin, setPublicOrigin] = useState('');
   const lifecycle = useRef(0);
   useEffect(() => { const current = ++lifecycle.current; return () => { if (lifecycle.current === current) lifecycle.current++; }; }, []);
-
-  useEffect(() => {
-    if (!session) { setBubbles([]); return; }
-    let active = true, inFlight = false, request = null;
-    const refresh = async () => {
-      if (!active || inFlight) return;
-      inFlight = true; const controller = new AbortController(); request = controller;
-      try {
-        const snapshots = [], seen = new Set(); let cursor = null;
-        do {
-          const value = await displayRequest(`/api/v2/display/state${cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`}`, { fetcher, signal: controller.signal });
-          if (!active) return;
-          snapshots.push(value); cursor = value.nextCursor;
-          if (cursor !== null && (typeof cursor !== 'string' || !cursor.length || cursor.length > 2048 || seen.has(cursor))) throw new Error('INVALID_CURSOR');
-          seen.add(cursor);
-          if (snapshots.length >= 10_000 && cursor !== null) throw new Error('PAGE_LIMIT');
-        } while (cursor !== null);
-        let localStorage = storage;
-        if (localStorage === undefined) { try { localStorage = window.localStorage; } catch { localStorage = null; } }
-        const catalog = catalogReader({ boardId: session.boardId, storage: localStorage, snapshots });
-        if (active) { setBubbles(catalog.bubbles); setCatalogProblem(catalog.storageAvailable ? '' : '이 브라우저의 말풍선 보관함을 읽을 수 없어요.'); }
-      } catch (error) {
-        if (!active || controller.signal.aborted) return;
-        setBubbles([]);
-        if (AUTH_ERRORS.has(error.status)) invalidate();
-        else setCatalogProblem('말풍선 목록을 확인하지 못했어요. 연결 후 다시 확인해 주세요.');
-      } finally { inFlight = false; request = null; }
-    };
-    void refresh();
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 15_000);
-    window.addEventListener('storage', refresh);
-    return () => { active = false; request?.abort(); clearInterval(timer); window.removeEventListener('storage', refresh); };
-  }, [session, fetcher, storage, catalogReader, invalidate]);
 
   // Every POST must carry the server's PUBLIC_ORIGIN. Opening the wall from another
   // address (localhost vs 127.0.0.1, LAN IP vs HTTPS domain) silently breaks it.
@@ -63,6 +28,22 @@ export default function DisplaySetupApp({ fetcher = fetch, storage, catalogReade
     return () => controller.abort();
   }, [session, fetcher]);
   const originMismatch = Boolean(publicOrigin && publicOrigin !== window.location.origin);
+
+  // Keyboard-less LED players (ViPlex web page widget) open /display/setup#code=<pairing code>.
+  // The fragment never reaches the server. Pair once with it, then always continue to the wall.
+  const hashCode = useRef((() => {
+    try { return new URLSearchParams(window.location.hash.slice(1)).get('code') || ''; } catch { return ''; }
+  })());
+  useEffect(() => {
+    if (!hashCode.current) return;
+    if (session) { window.location.replace('/display'); return; }
+    if (boot !== 'PAIR' || pairing) return;
+    const value = hashCode.current; hashCode.current = '';
+    setPairing(true); setProblem('');
+    pairDisplay(value.trim(), fetcher)
+      .then(result => { accept(result); notifyDisplaySession(); window.location.replace('/display'); })
+      .catch(error => { setProblem(`자동 등록 실패: ${error.code || error.message || 'UNKNOWN'}`); setPairing(false); });
+  }, [session, boot, pairing, fetcher, accept]);
 
   const pair = async event => {
     event.preventDefault(); if (pairing || code.trim().length < 16) return;
@@ -100,11 +81,6 @@ export default function DisplaySetupApp({ fetcher = fetch, storage, catalogReade
         <p>화면 송출과 접수의 중단·재개는 운영자 화면에서 따로 관리해 주세요.</p>
         <a className="mw-operator-link" href="/display">송출 화면 열기</a>
         <button className="mw-primary" onClick={() => void fullscreen()}>전체 화면 열기</button>
-        <section className="mw-bubble-management" aria-label="말풍선 관리">
-          <h2>말풍선 관리</h2><p>투명해진 말풍선도 선택할 수 있어요. 운영자 로그인 후 숨김을 직접 실행해 주세요.</p>
-          {catalogProblem && <p role="status">{catalogProblem}</p>}
-          <ul>{bubbles.map(bubble => <li key={bubble.id}><a href={`/operator#hide=${encodeURIComponent(bubble.id)}`} target="_blank" rel="noreferrer"><span>{bubble.content}</span><small>숨김 관리 ↗</small></a></li>)}</ul>
-        </section>
       </>}
       <a className="mw-operator-link" href="/operator" target="_blank" rel="noreferrer">운영자 화면 열기 ↗</a>
       <p>연결이 확인됐는데 송출 화면이 복구되지 않으면, 송출 창을 선택해 새로고침해 주세요. 브라우저 데이터는 지우지 마세요.</p>

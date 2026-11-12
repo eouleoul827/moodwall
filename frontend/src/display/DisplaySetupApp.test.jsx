@@ -6,8 +6,7 @@ const session = { csrfToken: 'display-csrf', boardId: '00000000-0000-4000-8000-0
 const response = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 beforeEach(() => vi.stubGlobal('BroadcastChannel', class { close() {} postMessage() {} }));
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
-const catalogReader = vi.fn(() => ({ bubbles: [], storageAvailable: true }));
-function setup(fetcher, props = {}) { return render(<DisplaySetupApp fetcher={fetcher} catalogReader={catalogReader} {...props} />); }
+function setup(fetcher, props = {}) { return render(<DisplaySetupApp fetcher={fetcher} {...props} />); }
 
 describe('explicit staff display setup', () => {
   it.each([
@@ -74,21 +73,5 @@ describe('explicit staff display setup', () => {
     const retry = screen.getByRole('button', { name: '다시 연결하기' }); fireEvent.click(retry); fireEvent.click(retry);
     expect(retry.disabled).toBe(true); await act(async () => vi.advanceTimersByTimeAsync(5000)); expect(attempts).toBe(2);
     await act(async () => finish(response(session))); await act(async () => vi.advanceTimersByTimeAsync(30_000)); expect(attempts).toBe(2); app.unmount();
-  });
-  it('reads all snapshot pages and lists expired-source bubbles as safe UUID-only moderation links', async () => {
-    const id = '00000000-0000-4000-8000-000000000010', content = '<img src=x onerror=alert(1)>';
-    const reader = vi.fn(() => ({ storageAvailable: true, bubbles: [{ id, content, phase: 'AMBIENT' }] }));
-    const storage = { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() };
-    const fetcher = vi.fn(async path => path === '/api/display/session' ? response(session) : response({ nextCursor: path.includes('?') ? null : 'page-two' }));
-    setup(fetcher, { catalogReader: reader, storage });
-    const link = await screen.findByRole('link', { name: /숨김 관리/ });
-    expect(link.getAttribute('href')).toBe(`/operator#hide=${id}`); expect(link.getAttribute('rel')).toBe('noreferrer');
-    expect(link.textContent).toContain(content); expect(link.querySelector('img')).toBeNull();
-    expect(reader.mock.calls[0][0].snapshots).toHaveLength(2); expect(storage.setItem).not.toHaveBeenCalled(); expect(storage.removeItem).not.toHaveBeenCalled();
-  });
-  it('rejects repeated pagination cursors and keeps the management failure private', async () => {
-    const fetcher = vi.fn(async path => path === '/api/display/session' ? response(session) : response({ nextCursor: 'repeat' }));
-    setup(fetcher); await screen.findByText('말풍선 목록을 확인하지 못했어요. 연결 후 다시 확인해 주세요.');
-    expect(fetcher.mock.calls.filter(([path]) => path.startsWith('/api/v2/display/state'))).toHaveLength(2);
   });
 });

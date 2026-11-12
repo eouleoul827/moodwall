@@ -26,7 +26,8 @@ export default defineConfig({
     },
     fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
   },
-  build: { target: "es2022" },
+  // The TU15Pro LED player's embedded Chromium (~80-86) must parse the bundle.
+  build: { target: ["es2020", "chrome80"] },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test-setup.js"],
