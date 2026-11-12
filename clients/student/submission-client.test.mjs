@@ -255,6 +255,32 @@ test("uncertainty uses a neutral explanation rather than calling the message har
   assert.doesNotMatch(view.message, /욕설|괴롭힘|벌점/);
 });
 
+test("rewrite notice explains the shared-board rules", () => {
+  const view = studentReceiptView(receipt({ userStatus: "NEEDS_REWRITE", reasonCode: "CONTENT_REQUIRES_REWRITE" }));
+  assert.equal(view.card, "REWRITE");
+  assert.match(view.message, /욕설·비하·개인정보/);
+  assert.match(view.message, /다시 보내 주세요/);
+});
+
+test("closed outcomes explain what happened instead of a bare failure", () => {
+  const cases = [
+    [{ userStatus: "EXPIRED", reasonCode: "DAY_ENDED" }, "오늘 전광판이 마감됐어요", /내일 다시/],
+    [{ userStatus: "EXPIRED", reasonCode: "PRESENTATION_EXPIRED" }, "시간이 지나 표시되지 않았어요", /^다시 보내 주세요\.$/],
+    [{ userStatus: "EXPIRED", reasonCode: "DEADLINE_EXCEEDED" }, "시간이 지나 표시되지 않았어요", /다시 보내 주세요/],
+    [{ userStatus: "CANCELLED", reasonCode: "PARTICIPANT_SUSPENDED" }, "오늘은 글을 올릴 수 없어요", /내일 다시 참여/],
+    [{ userStatus: "CANCELLED", reasonCode: "DISPLAY_CANCELLED" }, "표시가 취소됐어요", /잠시 후/],
+    [{ userStatus: "FAILED", reasonCode: "INFERENCE_TIMEOUT" }, "전광판에 올리지 못했어요", /잠시 후/],
+  ];
+  for (const [fields, title, message] of cases) {
+    const view = studentReceiptView(receipt({ ...fields, contentStatus: "PURGED" }));
+    assert.equal(view.card, "NOTICE");
+    assert.equal(view.title, title);
+    assert.match(view.message, message);
+    assert.equal(view.terminal, true);
+    assert.doesNotMatch(`${view.title} ${view.message}`, /표시하지 못했어요$|INFERENCE|DEADLINE|TIMEOUT/);
+  }
+});
+
 test("provider safety failure is a terminal neutral notice without requiring rephrasing", async () => {
   const { client, requests } = setup(() => response(202, receipt({
     processingStatus: "FAILED", userStatus: "FAILED", reasonCode: "CONTENT_REVIEW_UNAVAILABLE", contentStatus: "PURGED",
@@ -263,7 +289,7 @@ test("provider safety failure is a terminal neutral notice without requiring rep
   const result = await client.send();
   assert.equal(result.view.card, "NOTICE");
   assert.equal(result.view.title, "내용 확인을 완료하지 못했어요");
-  assert.equal(result.view.message, "이 글은 아직 전광판에 표시되지 않았어요. 다시 작성할 수 있어요.");
+  assert.equal(result.view.message, "다시 써서 보내 주세요.");
   assert.equal(result.view.terminal, true);
   assert.equal(result.receipt.userStatus, "FAILED");
   assert.doesNotMatch(result.view.message, /위반|욕설|경고|벌점|바꿔|수정/);
