@@ -7,6 +7,7 @@ import './display.css';
 import './display-scene.css';
 import DisplayBackdrop from './DisplayBackdrop.jsx';
 import CloudMessage from './CloudMessage.jsx';
+import MoodBackground from './background/MoodBackground.jsx';
 import LedQr from './LedQr.jsx';
 import { AUTH_ERRORS, displayRequest, useDisplaySession } from './display-session.js';
 import { createDisplayDiagnostics } from './display-diagnostics.js';
@@ -331,7 +332,8 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
       </div>
     </div>
     <section ref={sceneElement} className="mw-spotlight" hidden={!spotlight} aria-live="polite" aria-label="새로운 메시지">
-      {spotlight && <div className="mw-spotlight-inner" key={spotlight.id}>
+      {spotlight && <div className="mw-spotlight-inner has-mood-bg" key={spotlight.id}>
+        <MoodBackground emotion={spotlight.sceneId} content={spotlight.content} seed={spotlight.sceneSeed ?? spotlight.id} side="left" />
         <SceneParticles item={spotlight} /><EmotionMark className="mw-scene-mark" sceneId={spotlight.sceneId} />
         <header><span className="mw-emotion-pill">{theme.label}</span><p>새 구름이 도착했어요</p></header>
         <p className="mw-full-message" style={{ '--message-font': [...spotlight.content].length > 24 ? 4.5 : 5.1667 }}>{spotlight.content}</p>

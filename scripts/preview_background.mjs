@@ -11,7 +11,7 @@ const samples = [...MOODS.map((mood) => [mood, SAMPLE_MESSAGES[mood]]),
 
 const cards = samples.flatMap(([emotion, text]) =>
   [1, 2].map((n) => {
-    const { mood, svg, label } = generateBackground({ emotion, content: text, seed: `${seed}-${n}-${text}`, mascotBase: "frontend/public/mascot/" });
+    const { mood, svg, label } = generateBackground({ emotion, content: text, seed: `${seed}-${n}-${text}`, mascotBase: "frontend/src/display/background/mascot/" });
     return `<figure><div class="card">${svg}<div class="bubble">${esc(text)}</div></div><figcaption>${mood} · ${esc(label)}</figcaption></figure>`;
   }),
 );

@@ -3,7 +3,9 @@
 // Builds an SVG string; no DOM access.
 import { hashString, mulberry32 } from "./seededRandom.js";
 
-const W = 1600, H = 900, GROUND = 872;
+// 높이는 900으로 고정하고 너비는 화면 비율에 맞춘다 (전광판 2046×768 같은 와이드 화면 대응)
+const H = 900, GROUND = 872;
+let W = 1600;
 let rnd = Math.random;
 const R = (a, b) => a + rnd() * (b - a);
 const RI = (a, b) => Math.floor(R(a, b + 1));
@@ -16,7 +18,7 @@ let assetBase = "/mascot/";
 const id = (p) => `${idBase}${p}${++uid}`;
 
 // 가운데 말풍선 자리
-const BUBBLE = { x0: 470, x1: 1130, y0: 250, y1: 640 };
+let BUBBLE = { x0: 470, x1: 1130, y0: 250, y1: 640 };
 const inBubble = (x, y, pad = 0) => x > BUBBLE.x0 - pad && x < BUBBLE.x1 + pad && y > BUBBLE.y0 - pad && y < BUBBLE.y1 + pad;
 
 // ---------- 이미지 ----------
@@ -29,7 +31,8 @@ const ART = {
   byeoli: ["byeoli-3d.webp", 585, 600],
   jeit: ["jeit-3d.webp", 448, 600],
 };
-const img = ([file, w, h]) => `<image href="${assetBase}${file}" width="${w}" height="${h}"/>`;
+let assetUrl = null;
+const img = ([file, w, h]) => `<image href="${assetUrl ? assetUrl(file) : assetBase + file}" width="${w}" height="${h}"/>`;
 
 // ---------- 공통 도구 ----------
 function linear(stops, vertical = true) {
@@ -477,11 +480,6 @@ const FX = {
   일반: () => "",
 };
 
-function grain() {
-  const gn = id("gn");
-  return { gn, def: `<filter id="${gn}"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/>
-    <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .5 0"/></filter>` };
-}
 
 // Backend emotion labels -> generator moods
 const EMOTION_TO_MOOD = {
@@ -505,17 +503,25 @@ export function moodOf(emotion) {
  * Full-screen SVG background for one approved mention.
  * Same seed -> same picture, so re-renders and reloads do not reshuffle.
  * `content` is only used for keyword matching and is never written into the SVG.
+ * `side` ("left" | "right") pins JJ to one side; omit it to pick randomly.
+ * `assetUrl(file)` returns the URL for an image file (bundler-hashed paths); otherwise `mascotBase + file`.
+ * `aspect` is width / height of the box the SVG fills, so wide panels get a wide scene instead of a cropped one.
  */
-export function generateBackground({ emotion, content = "", seed = "", mascotBase = "/mascot/" } = {}) {
+export function generateBackground({ emotion, content = "", seed = "", mascotBase = "/mascot/", assetUrl: resolveAsset = null, side, aspect = 16 / 9 } = {}) {
   const mood = moodOf(emotion);
-  const h = hashString(`${seed}|${mood}`);
+  W = Math.round(H * Math.min(Math.max(Number(aspect) || 16 / 9, 1.2), 3.2));
+  BUBBLE = { x0: W * 0.29, x1: W * 0.71, y0: 250, y1: 640 };
+  const h = hashString(`${seed}|${mood}|${W}`);
   rnd = mulberry32(h);
   uid = 0;
   idBase = `mw${h.toString(36)}`;
   assetBase = mascotBase;
+  assetUrl = typeof resolveAsset === "function" ? resolveAsset : null;
   try {
     const text = String(content);
-    const right = rnd() < 0.6;
+    const coin = rnd() < 0.6;
+    // side로 제이제이 위치를 고정할 수 있다 (전광판은 QR이 오른쪽 아래라 왼쪽)
+    const right = side === "right" ? true : side === "left" ? false : coin;
 
     // 주인공 3D 제이제이
     const art = ART.jj(mood);
@@ -532,8 +538,10 @@ export function generateBackground({ emotion, content = "", seed = "", mascotBas
     // 친구 자리: 제이제이 머리 위 / 반대편 땅 / 반대편 중간
     const spots = shuffle([
       { cx: jjX + (right ? -1 : 1) * R(150, 210), top: R(20, 70), h: R(150, 180) },
-      { cx: right ? R(170, 300) : W - R(170, 300), h: 220, ground: true },
-      { cx: right ? R(110, 200) : W - R(110, 200), top: R(400, 470), h: R(150, 180) },
+      // 위치를 고정한 화면(전광판)은 반대편 아래에 QR이 있어서 땅 자리를 쓰지 않는다
+      side ? { cx: right ? R(110, 200) : W - R(110, 200), top: R(60, 140), h: R(150, 180) }
+        : { cx: right ? R(170, 300) : W - R(170, 300), h: 220, ground: true },
+      { cx: right ? R(110, 200) : W - R(110, 200), top: R(330, 400), h: R(150, 180) },
     ]);
     const cast = castFor(mood, text);
     let friends = "";
@@ -543,12 +551,10 @@ export function generateBackground({ emotion, content = "", seed = "", mascotBas
       friends += sp.ground ? stand(ART[who], sp.cx, sp.h, mood).s : floater(ART[who], sp.cx, sp.top, sp.h, mood, i);
     });
 
-    const g = grain();
-    const body = `<defs>${g.def}</defs>` + scene.back + friends + main.s + scene.front + FX[mood](main) +
-      `<rect width="${W}" height="${H}" filter="url(#${g.gn})" opacity=".06" class="mw-grain"/>`;
+    const body = scene.back + friends + main.s + scene.front + FX[mood](main);
     return {
       mood,
-      svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`,
+      svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`,
       label: `${sceneName} · 제이제이${cast.map((c) => ", " + NAME[c]).join("")}`,
     };
   } finally {
