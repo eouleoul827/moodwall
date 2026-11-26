@@ -251,7 +251,7 @@ Export-ModuleMember -Function *
 
     $repo = [IO.Path]::Combine($testRoot, 'Server Repo')
     [void][IO.Directory]::CreateDirectory([IO.Path]::Combine($repo, 'frontend', 'dist'))
-    foreach ($file in @('compose.yaml', 'compose.frontend.yaml', 'compose.gemini.yaml', 'compose.library.yaml')) { [IO.File]::WriteAllText([IO.Path]::Combine($repo, $file), 'services: {}') }
+    foreach ($file in @('compose.yaml', 'compose.frontend.yaml', 'compose.claude.yaml', 'compose.library.yaml')) { [IO.File]::WriteAllText([IO.Path]::Combine($repo, $file), 'services: {}') }
     [IO.File]::WriteAllText([IO.Path]::Combine($repo, 'frontend', 'dist', 'index.html'), '<!doctype html>')
     $envPath = [IO.Path]::Combine($repo, '.env')
     [IO.File]::WriteAllText($envPath, "MOODWALL_BOARD_ID=x`r`nMOODWALL_PUBLIC_ORIGIN='https://moodwall.school.edu/'`r`n")
@@ -269,7 +269,7 @@ Export-ModuleMember -Function *
     Assert-Equal $LASTEXITCODE 0 'server-mode PlanOnly succeeds without typing the URL'
     $serverPlan = ($output -join "`n") | ConvertFrom-Json
     Assert-Equal $serverPlan.DisplayUrl 'https://moodwall.school.edu/display' 'wall address comes from PUBLIC_ORIGIN'
-    Assert-Equal ($serverPlan.Server.composeFiles -join ',') 'compose.yaml,compose.frontend.yaml,compose.gemini.yaml,compose.library.yaml' 'default library compose stack'
+    Assert-Equal ($serverPlan.Server.composeFiles -join ',') 'compose.yaml,compose.frontend.yaml,compose.claude.yaml,compose.library.yaml' 'default library compose stack'
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOnShortcutPath)) '무드월 켜기.lnk' 'power-on icon'
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.PowerOffShortcutPath)) '무드월 끄기.lnk' 'power-off icon'
     Assert-Equal ([IO.Path]::GetFileName($serverPlan.UpdateShortcutPath)) '무드월 업데이트.lnk' 'update icon'

@@ -1,0 +1,9 @@
+{
+  "model_bundle_version": "claude-haiku-5-5-v1",
+  "inference_policy_version": "claude-inference-v1",
+  "model": "claude-haiku-5-5",
+  "policy_prompt_sha256": "27719c01fc1d89a84cb6bb0d5c14f266531d700a0b4025ad1bf3d4d3c4f0df57",
+  "artifacts": {
+    "emotion-addendum.txt": "aa0cfbc4c9a697825374e393422373f44a3eaa2bb3c1f663219be3378af533aa"
+  }
+}
