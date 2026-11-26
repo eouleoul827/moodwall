@@ -169,3 +169,58 @@
   .student-loading, .student-result-mark { animation: none; }
   .student-button { transition: none; }
 }
+
+/* 배려가 필요한 표현 누적 안내 */
+.student-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: rgba(13, 17, 32, .45);
+  animation: student-fade .2s ease-out both;
+}
+.student-dialog {
+  width: 100%;
+  max-width: 408px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 22px 20px;
+  border-radius: 22px;
+  background: var(--student-card);
+  color: var(--student-ink);
+  box-shadow: 0 18px 48px rgba(13, 17, 32, .28);
+  animation: student-rise .32s cubic-bezier(.2, .9, .3, 1.1) both;
+}
+.student-dialog h2 { margin: 0; font: 400 24px/1.35 Jua, "Noto Sans KR", sans-serif; letter-spacing: -.4px; }
+.student-dialog p { margin: 0; font-size: 15px; line-height: 1.65; color: var(--student-sub); white-space: pre-line; }
+.student-dialog-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff1d6;
+  color: #b86e00;
+  font-size: 26px;
+  font-weight: 700;
+}
+.student-dialog.is-stop .student-dialog-mark { background: #ffe1de; color: var(--student-error); font-size: 24px; }
+.student-strike-meter { display: flex; gap: 6px; margin: 2px 0 6px; }
+.student-strike-meter span { flex: 1; height: 8px; border-radius: 4px; background: var(--student-soft); }
+.student-strike-meter span.is-on { background: #f0a020; }
+.student-dialog.is-stop .student-strike-meter span.is-on { background: var(--student-error); }
+@keyframes student-fade { from { opacity: 0; } }
+@keyframes student-rise { from { transform: translateY(24px); opacity: 0; } }
+@media (min-height: 640px) { .student-dialog-backdrop { align-items: center; } }
+@media (prefers-color-scheme: dark) {
+  .student-dialog-mark { background: #3a2e12; color: #ffc861; }
+  .student-dialog.is-stop .student-dialog-mark { background: #3d1c1a; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .student-dialog-backdrop, .student-dialog { animation: none; }
+}
