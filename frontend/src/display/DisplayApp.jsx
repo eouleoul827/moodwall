@@ -9,6 +9,8 @@ import DisplayBackdrop from './DisplayBackdrop.jsx';
 import RoundedCloudField from './RoundedCloudField.jsx';
 import MoodBackground from './background/MoodBackground.jsx';
 import { prepareMoodBackground } from './background/assets.js';
+import { createEasterEggs, EGG_LABELS } from './easter-eggs.js';
+import './easter-eggs.css';
 import LedQr from './LedQr.jsx';
 import { AUTH_ERRORS, displayRequest, useDisplaySession } from './display-session.js';
 import { createDisplayDiagnostics } from './display-diagnostics.js';
@@ -79,7 +81,7 @@ function Sky({ period }) {
   </div>;
 }
 
-export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch, BubbleFieldComponent = RoundedCloudField }) {
+export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch, BubbleFieldComponent = RoundedCloudField, easterEggs }) {
   // Only a new credential starts a new runtime. Session metadata can refresh
   // independently; playback/snapshot responses remain authoritative for mode.
   const { runtimeSession: session, csrfRef, invalidate, check } = useDisplaySession(fetcher);
@@ -88,6 +90,8 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
   const [authority, setAuthority] = useState({ connected: false, until: 0 });
   const [fatal, setFatal] = useState(false);
   const sceneElement = useRef(null), runtimeRef = useRef(null), diagnosticsRef = useRef(null), spotlightRef = useRef(null);
+  const eggsRef = useRef(null);
+  if (!eggsRef.current) eggsRef.current = easterEggs || createEasterEggs();
   // The visible clock and day/night colours follow the server, not a library laptop's clock.
   const clockOffsetRef = useRef(0), lastRecheckRef = useRef(-Infinity);
   const syncClock = serverNow => {
@@ -178,7 +182,9 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         spotlightRef.current = item;
         // The controller passes the server-chosen full-screen time for the progress bar.
         const durationMs = Number.isInteger(display?.durationMs) ? display.durationMs : 15_000;
-        flushSync(() => setSpotlight({ ...item, displayDurationMs: durationMs }));
+        // Decided once per message; a re-shown message keeps the same easter egg.
+        const egg = eggsRef.current.next(item);
+        flushSync(() => setSpotlight({ ...item, displayDurationMs: durationMs, egg }));
         if (sceneElement.current) sceneElement.current.hidden = false;
       },
       hide() {
@@ -322,7 +328,8 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
     </div>
     <section ref={sceneElement} className="mw-spotlight" hidden={!spotlight} aria-live="polite" aria-label="새로운 메시지">
       {spotlight && <div className="mw-spotlight-inner has-mood-bg" key={spotlight.id}>
-        <MoodBackground emotion={spotlight.sceneId} content={spotlight.content} seed={spotlight.sceneSeed ?? spotlight.id} side="left" />
+        <MoodBackground emotion={spotlight.sceneId} content={spotlight.content} seed={spotlight.sceneSeed ?? spotlight.id} side="left" special={spotlight.egg?.kind} />
+        {spotlight.egg && <p className={`mw-egg-banner is-${spotlight.egg.kind}`}>{EGG_LABELS[spotlight.egg.kind](spotlight.egg)}</p>}
         <SceneParticles item={spotlight} /><EmotionMark className="mw-scene-mark" sceneId={spotlight.sceneId} />
         <header><span className="mw-emotion-pill">{theme.label}</span><p>새 구름이 도착했어요</p></header>
         <p className="mw-full-message" style={{ '--message-font': [...spotlight.content].length > 24 ? 4.5 : 5.1667 }}>{spotlight.content}</p>

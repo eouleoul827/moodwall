@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DisplayApp from './DisplayApp.jsx';
+import { createEasterEggs } from './easter-eggs.js';
 
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,cXI=') } }));
 vi.mock('./background/assets.js', () => ({ assetUrl: file=>`/assets/${file}`, prepareMoodBackground: vi.fn(async () => {}) }));
@@ -23,7 +24,7 @@ afterEach(() => {
   vi.useRealTimers(); vi.unstubAllGlobals();
   if (originalFonts) Object.defineProperty(document, 'fonts', originalFonts); else Reflect.deleteProperty(document, 'fonts');
 });
-function harness(fetchOverride, ready = true) {
+function harness(fetchOverride, ready = true, props = {}) {
   let wiring;
   const runtime = { start: vi.fn(() => {
     if (ready) {
@@ -34,7 +35,7 @@ function harness(fetchOverride, ready = true) {
   }), stop: vi.fn(), resetAuthentication: vi.fn(), refresh: vi.fn(async () => ({})) };
   const factory = vi.fn(options => { wiring = options; return runtime; });
   const fetcher = fetchOverride || vi.fn(async path => response(path === '/api/display/session' ? session : path === '/api/display/diagnostics' ? { accepted: true } : ticket));
-  const view = render(<DisplayApp runtimeFactory={factory} fetcher={fetcher} />);
+  const view = render(<DisplayApp runtimeFactory={factory} fetcher={fetcher} {...props} />);
   return { ...view, factory, runtime, fetcher, get wiring() { return wiring; } };
 }
 function expectQuiet() {
@@ -75,6 +76,20 @@ describe('public display', () => {
     act(() => app.wiring.renderer.hide()); expect(stage.hidden).toBe(true);
     await expect(app.wiring.renderer.prepare({ ...item, sceneId: 'https://evil.invalid/scene' }, { signal: new AbortController().signal })).rejects.toThrow('UNSUPPORTED_SCENE');
     expectQuiet();
+  });
+  it('shows the JJ easter egg banner for a keyword message and keeps it on a re-show', async () => {
+    const app = harness(undefined, true, { easterEggs: createEasterEggs({ storage: null }) });
+    await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    const egg = { ...item, id: '00000000-0000-4000-8000-000000000020', content: '제이제이 최고야' };
+    act(() => app.wiring.renderer.show(egg));
+    const stage = screen.getByRole('region', { name: '새로운 메시지' });
+    expect(stage.querySelector('.mw-egg-banner').textContent).toBe('제이제이 등장!');
+    expect(stage.querySelector('.mw-full-message').textContent).toBe('제이제이 최고야');
+    act(() => app.wiring.renderer.show(egg));
+    expect(stage.querySelector('.mw-egg-banner').textContent).toBe('제이제이 등장!');
+    act(() => app.wiring.renderer.show({ ...item, id: '00000000-0000-4000-8000-000000000021', content: '그냥 좋은 하루' }));
+    expect(stage.querySelector('.mw-egg-banner')).toBeNull();
+    app.unmount();
   });
   it('removes expired ambient text and never shows disconnected cached text', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());

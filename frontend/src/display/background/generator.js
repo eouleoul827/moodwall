@@ -443,30 +443,34 @@ const JUMP_BY_MOOD = {
   슬픔: [null],
 };
 
-function jumpAnim(j, h) {
+function jumpAnim(j, h, delay = 0) {
   const kt = j.k.map((t) => t.toFixed(3)).join(";");
   const spl = j.k.slice(1).map(() => ".42 0 .58 1").join(";");
   const ys = j.y.map((v) => `0 ${f0(-v * h)}`).join(";");
   const sq = j.sq.map(([x, y]) => `${x} ${y}`).join(";");
   return {
-    lift: `<animateTransform attributeName="transform" type="translate" values="${ys}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" repeatCount="indefinite"/>`,
-    squash: `<animateTransform attributeName="transform" type="scale" values="${sq}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" repeatCount="indefinite"/>`,
-    shadow: (rx) => `<animate attributeName="rx" values="${j.y.map((v) => f0(rx * (1 - v * 3))).join(";")}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" repeatCount="indefinite"/>`,
+    lift: `<animateTransform attributeName="transform" type="translate" values="${ys}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" begin="${delay}s" repeatCount="indefinite"/>`,
+    squash: `<animateTransform attributeName="transform" type="scale" values="${sq}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" begin="${delay}s" repeatCount="indefinite"/>`,
+    shadow: (rx) => `<animate attributeName="rx" values="${j.y.map((v) => f0(rx * (1 - v * 3))).join(";")}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" begin="${delay}s" repeatCount="indefinite"/>`,
   };
 }
 
-function stand(art, cx, h, mood, jump = null) {
+// opts.delay: 점프 시작을 늦춘다(파도타기). opts.enterFrom: 그만큼 옆에서 미끄러져 들어온다.
+function stand(art, cx, h, mood, jump = null, opts = {}) {
   const [, w, ih] = art;
   const k = h / ih, sw = w * k;
   const rx = sw * 0.36;
-  const j = jump ? jumpAnim(JUMPS[jump], h) : null;
+  const j = jump ? jumpAnim(JUMPS[jump], h, opts.delay || 0) : null;
   const shadow = `<ellipse cx="${f0(cx)}" cy="${GROUND + 4}" rx="${f0(rx)}" ry="${f0(h * 0.03 + 6)}" fill="#000" opacity=".12">${j ? j.shadow(rx) : ""}</ellipse>`;
   const inner = `<g transform="scale(${k.toFixed(4)}) translate(${(-w / 2).toFixed(1)} ${-ih})">${img(art)}</g>`;
   // 발밑이 원점이라 눌림(scale)도 발을 기준으로 일어난다
   const body = j
     ? `<g transform="translate(${cx.toFixed(1)} ${GROUND})"><g>${j.lift}<g>${j.squash}${inner}</g></g></g>`
     : `<g transform="translate(${cx.toFixed(1)} ${GROUND})"><g>${MOTION[mood](h)}${inner}</g></g>`;
-  return { s: shadow + body, top: GROUND - h, left: cx - sw / 2, right: cx + sw / 2, cx };
+  const s = opts.enterFrom
+    ? `<g><animateTransform attributeName="transform" type="translate" values="${f0(opts.enterFrom)} 0;0 0" dur="0.9s" calcMode="spline" keySplines=".2 .8 .3 1" fill="freeze"/>${shadow + body}</g>`
+    : shadow + body;
+  return { s, top: GROUND - h, left: cx - sw / 2, right: cx + sw / 2, cx };
 }
 
 function floater(art, cx, top, h, mood, i) {
@@ -543,13 +547,55 @@ export function moodOf(emotion) {
  * `content` is only used for keyword matching and is never written into the SVG.
  * `side` ("left" | "right") pins JJ to one side; omit it to pick randomly.
  * `assetUrl(file)` returns the URL for an image file (bundler-hashed paths); otherwise `mascotBase + file`.
+ * `special` ("jj" | "hundred" | "wave") draws an easter-egg scene with the same expression image.
  * `aspect` is width / height of the box the SVG fills, so wide panels get a wide scene instead of a cropped one.
  */
-export function generateBackground({ emotion, content = "", seed = "", mascotBase = "/mascot/", assetUrl: resolveAsset = null, side, aspect = 16 / 9 } = {}) {
+// ---------- 이스터에그 ----------
+function firework(x, y, r, colors, begin, dur) {
+  let rays = "";
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2, c = colors[i % colors.length];
+    rays += `<line x1="0" y1="0" x2="${f0(Math.cos(a) * r)}" y2="${f0(Math.sin(a) * r)}" stroke="${c}" stroke-width="7" stroke-linecap="round"/>` +
+      `<circle cx="${f0(Math.cos(a) * r * 1.12)}" cy="${f0(Math.sin(a) * r * 1.12)}" r="7" fill="${c}"/>`;
+  }
+  const t = `dur="${dur}s" begin="${begin}s" repeatCount="indefinite"`;
+  return `<g transform="translate(${f0(x)} ${f0(y)})"><g opacity="0">` +
+    `<animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.08;.45;.7;1" ${t}/>` +
+    `<animateTransform attributeName="transform" type="scale" values="0.05;1;1.12;1.12" keyTimes="0;.4;.7;1" calcMode="spline" keySplines=".1 .8 .3 1;.4 0 .6 1;0 0 1 1" ${t}/>` +
+    `<circle r="${f0(r * 0.35)}" fill="#fff6d0" opacity=".35"/>${rays}</g></g>`;
+}
+const SPECIAL_SCENES = {
+  불꽃놀이: (c) => {
+    let back = sky("#141a45", "#3b2c6e") + stars(80, "#ffffff") + hills([["#24205a", 770, 40]]) + ground("#2e2a6b", "#262260");
+    const colors = [["#ff6f9e", "#ffd84d"], ["#7cc6ff", "#ffffff"], ["#8ee0b5", "#ffd84d"], ["#b9a6ff", "#ff9ec0"]];
+    const bursts = [];
+    for (let i = 0, tries = 0; i < 6 && tries < 200; tries++) {
+      const x = R(80, W - 80), y = R(90, 380);
+      if (x > c.avoid.x0 - 120 && x < c.avoid.x1 + 120) continue;
+      if (bursts.some(([bx, by]) => Math.hypot(bx - x, by - y) < 260)) continue;
+      bursts.push([x, y]);
+      back += firework(x, y, R(90, 150), pick(colors), (i * 0.45).toFixed(2), R(2, 2.8).toFixed(1));
+    }
+    return { back, front: "" };
+  },
+};
+// 이스터에그별 설정. 표정은 원래 멘션 감정 그대로 쓰고(미리 받아 둔 이미지), 장면·친구·동작·효과만 바꾼다.
+const SPECIAL = {
+  jj: { scene: ["축하", "무대"], cast: ["byeoli", "jeit"], jump: "점프", fx: "축하", enter: true },
+  hundred: { scene: [null, "불꽃놀이"], cast: ["byeoli", "jeit"], jump: "폴짝", fx: "축하" },
+  wave: { scene: ["응원", "운동장"], cast: ["byeoli", "jeit"], jump: "콩콩", fx: "응원", wave: true },
+};
+function specialScene([mood, name]) {
+  if (!mood) return [name, SPECIAL_SCENES[name]];
+  return SCENES[mood].find(([n]) => n === name);
+}
+
+export function generateBackground({ emotion, content = "", seed = "", mascotBase = "/mascot/", assetUrl: resolveAsset = null, side, aspect = 16 / 9, special = null } = {}) {
   const mood = moodOf(emotion);
   W = Math.round(H * Math.min(Math.max(Number(aspect) || 16 / 9, 1.2), 3.2));
   BUBBLE = { x0: W * 0.29, x1: W * 0.71, y0: 250, y1: 640 };
-  const h = hashString(`${seed}|${mood}|${W}`);
+  const sp = Object.prototype.hasOwnProperty.call(SPECIAL, special) ? SPECIAL[special] : null;
+  const h = hashString(`${seed}|${mood}|${W}|${sp ? special : ""}`);
   rnd = mulberry32(h);
   uid = 0;
   idBase = `mw${h.toString(36)}`;
@@ -565,13 +611,13 @@ export function generateBackground({ emotion, content = "", seed = "", mascotBas
     const art = ART.jj(mood);
     const jh = R(600, 640), jw = art[1] * jh / art[2];
     const jjX = right ? W - jw / 2 - R(14, 34) : jw / 2 + R(14, 34);
-    const jump = pick(JUMP_BY_MOOD[mood]);
-    const main = stand(art, jjX, jh, mood, jump);
+    const jump = sp ? sp.jump : pick(JUMP_BY_MOOD[mood]);
+    const main = stand(art, jjX, jh, mood, jump, sp?.enter ? { enterFrom: right ? 900 : -900 } : {});
 
     // 장면 (hero 장식은 제이제이 반대편 위쪽)
     const hero = right ? R(260, 360) : W - R(260, 360);
     const avoid = { x0: main.left - 30, x1: main.right + 30, y0: main.top - 60 };
-    const [sceneName, sceneFn] = pick(SCENES[mood]);
+    const [sceneName, sceneFn] = sp ? specialScene(sp.scene) : pick(SCENES[mood]);
     const scene = sceneFn({ right, jjX, hero, avoid });
 
     // 친구 자리: 제이제이 머리 위 / 반대편 땅 / 반대편 중간
@@ -582,19 +628,28 @@ export function generateBackground({ emotion, content = "", seed = "", mascotBas
         : { cx: right ? R(170, 300) : W - R(170, 300), h: 220, ground: true },
       { cx: right ? R(110, 200) : W - R(110, 200), top: R(330, 400), h: R(150, 180) },
     ]);
-    const cast = castFor(mood, text);
+    const cast = sp ? sp.cast : castFor(mood, text);
     let friends = "";
-    cast.forEach((who, i) => {
-      const sp = { ...spots[i] };
-      if (who === "jeit") sp.h *= 1.15;
-      friends += sp.ground ? stand(ART[who], sp.cx, sp.h, mood).s : floater(ART[who], sp.cx, sp.top, sp.h, mood, i);
-    });
+    if (sp?.wave) {
+      // 파도타기: 제이제이 옆 땅 위에 나란히 서서 차례로 뛰어오른다 (말풍선 아래, QR 반대쪽)
+      const dir = right ? -1 : 1;
+      cast.forEach((who, i) => {
+        const fh = who === "jeit" ? 270 : 240;
+        friends += stand(ART[who], jjX + dir * (main.right - main.left) * (0.78 + i * 0.5), fh, "응원", sp.jump, { delay: 0.22 * (i + 1) }).s;
+      });
+    } else {
+      cast.forEach((who, i) => {
+        const spot = { ...spots[i] };
+        if (who === "jeit") spot.h *= 1.15;
+        friends += spot.ground ? stand(ART[who], spot.cx, spot.h, mood).s : floater(ART[who], spot.cx, spot.top, spot.h, sp ? "축하" : mood, i);
+      });
+    }
 
-    const body = scene.back + friends + main.s + scene.front + FX[mood](main);
+    const body = scene.back + friends + main.s + scene.front + FX[sp ? sp.fx : mood](main);
     return {
       mood,
       svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`,
-      label: `${sceneName} · 제이제이${jump ? `(${jump})` : ""}${cast.map((c) => ", " + NAME[c]).join("")}`,
+      label: `${sp ? `[${special}] ` : ""}${sceneName} · 제이제이${jump ? `(${jump})` : ""}${cast.map((c) => ", " + NAME[c]).join("")}`,
     };
   } finally {
     rnd = Math.random;
