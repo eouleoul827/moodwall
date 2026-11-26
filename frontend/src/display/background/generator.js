@@ -422,12 +422,50 @@ const MOTION = {
   일반: (h) => `<animateTransform attributeName="transform" type="translate" values="0 0;0 -${f0(h * 0.015)};0 0" dur="3s" repeatCount="indefinite"/>`,
 };
 
-function stand(art, cx, h, mood) {
+// ---------- 제이제이 점프 ----------
+// 팔은 몸에 붙은 원래 이미지 그대로 두고, 몸 전체가 뛴다. 땅에 닿을 때 살짝 눌렸다 펴지고,
+// 뛰어오르는 동안 그림자가 작아진다. (k: 키프레임 시각, y: 높이 비율, sq: 눌림, sh: 그림자 크기)
+const JUMPS = {
+  점프: { dur: 1.1, k: [0, 0.12, 0.45, 0.78, 0.86, 1], y: [0, 0, 0.09, 0, 0, 0], sq: [[1, 1], [1.05, 0.95], [0.98, 1.03], [1.06, 0.93], [1, 1], [1, 1]] },
+  콩콩: { dur: 1.3, k: [0, 0.16, 0.32, 0.48, 0.64, 1], y: [0, 0.04, 0, 0.04, 0, 0], sq: [[1, 1], [1, 1], [1.04, 0.96], [1, 1], [1.04, 0.96], [1, 1]] },
+  폴짝: { dur: 0.75, k: [0, 0.4, 0.8, 0.9, 1], y: [0, 0.055, 0, 0, 0], sq: [[1, 1], [0.98, 1.02], [1.05, 0.95], [1, 1], [1, 1]] },
+  펄쩍: { dur: 0.5, k: [0, 0.35, 0.7, 1], y: [0, 0.035, 0, 0], sq: [[1, 1], [1, 1], [1.04, 0.96], [1, 1]] },
+};
+// 감정별로 고를 수 있는 움직임. null은 원래 움직임(MOTION)을 쓴다는 뜻. 피곤·슬픔은 뛰지 않는다.
+const JUMP_BY_MOOD = {
+  축하: ["점프", "콩콩", "폴짝"],
+  기쁨: ["점프", "콩콩", "폴짝", null],
+  응원: ["점프", "콩콩", null],
+  설렘: ["콩콩", "폴짝", null],
+  화남: ["펄쩍", null],
+  일반: ["콩콩", null, null],
+  피곤: [null],
+  슬픔: [null],
+};
+
+function jumpAnim(j, h) {
+  const kt = j.k.map((t) => t.toFixed(3)).join(";");
+  const spl = j.k.slice(1).map(() => ".42 0 .58 1").join(";");
+  const ys = j.y.map((v) => `0 ${f0(-v * h)}`).join(";");
+  const sq = j.sq.map(([x, y]) => `${x} ${y}`).join(";");
+  return {
+    lift: `<animateTransform attributeName="transform" type="translate" values="${ys}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" repeatCount="indefinite"/>`,
+    squash: `<animateTransform attributeName="transform" type="scale" values="${sq}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" repeatCount="indefinite"/>`,
+    shadow: (rx) => `<animate attributeName="rx" values="${j.y.map((v) => f0(rx * (1 - v * 3))).join(";")}" keyTimes="${kt}" calcMode="spline" keySplines="${spl}" dur="${j.dur}s" repeatCount="indefinite"/>`,
+  };
+}
+
+function stand(art, cx, h, mood, jump = null) {
   const [, w, ih] = art;
   const k = h / ih, sw = w * k;
-  const shadow = `<ellipse cx="${f0(cx)}" cy="${GROUND + 4}" rx="${f0(sw * 0.36)}" ry="${f0(h * 0.03 + 6)}" fill="#000" opacity=".12"/>`;
-  const body = `<g transform="translate(${cx.toFixed(1)} ${GROUND})"><g>${MOTION[mood](h)}` +
-    `<g transform="scale(${k.toFixed(4)}) translate(${(-w / 2).toFixed(1)} ${-ih})">${img(art)}</g></g></g>`;
+  const rx = sw * 0.36;
+  const j = jump ? jumpAnim(JUMPS[jump], h) : null;
+  const shadow = `<ellipse cx="${f0(cx)}" cy="${GROUND + 4}" rx="${f0(rx)}" ry="${f0(h * 0.03 + 6)}" fill="#000" opacity=".12">${j ? j.shadow(rx) : ""}</ellipse>`;
+  const inner = `<g transform="scale(${k.toFixed(4)}) translate(${(-w / 2).toFixed(1)} ${-ih})">${img(art)}</g>`;
+  // 발밑이 원점이라 눌림(scale)도 발을 기준으로 일어난다
+  const body = j
+    ? `<g transform="translate(${cx.toFixed(1)} ${GROUND})"><g>${j.lift}<g>${j.squash}${inner}</g></g></g>`
+    : `<g transform="translate(${cx.toFixed(1)} ${GROUND})"><g>${MOTION[mood](h)}${inner}</g></g>`;
   return { s: shadow + body, top: GROUND - h, left: cx - sw / 2, right: cx + sw / 2, cx };
 }
 
@@ -527,7 +565,8 @@ export function generateBackground({ emotion, content = "", seed = "", mascotBas
     const art = ART.jj(mood);
     const jh = R(600, 640), jw = art[1] * jh / art[2];
     const jjX = right ? W - jw / 2 - R(14, 34) : jw / 2 + R(14, 34);
-    const main = stand(art, jjX, jh, mood);
+    const jump = pick(JUMP_BY_MOOD[mood]);
+    const main = stand(art, jjX, jh, mood, jump);
 
     // 장면 (hero 장식은 제이제이 반대편 위쪽)
     const hero = right ? R(260, 360) : W - R(260, 360);
@@ -555,7 +594,7 @@ export function generateBackground({ emotion, content = "", seed = "", mascotBas
     return {
       mood,
       svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${body}</svg>`,
-      label: `${sceneName} · 제이제이${cast.map((c) => ", " + NAME[c]).join("")}`,
+      label: `${sceneName} · 제이제이${jump ? `(${jump})` : ""}${cast.map((c) => ", " + NAME[c]).join("")}`,
     };
   } finally {
     rnd = Math.random;
