@@ -1,0 +1,25 @@
+/* 이스터에그 문구: 새 멘션 화면 위쪽 가운데 */
+.mw-spotlight-inner .mw-egg-banner {
+  position: absolute;
+  top: 3.5%;
+  left: 50%;
+  z-index: 2;
+  margin: 0;
+  padding: .2em .9em;
+  border-radius: 999px;
+  white-space: nowrap;
+  font: 400 clamp(28px, 3vw, 64px)/1.25 Jua, "Noto Sans KR", sans-serif;
+  color: #fff;
+  background: linear-gradient(90deg, #ff6f9e, #ffb347, #ffd84d);
+  box-shadow: 0 .15em .6em rgba(20, 22, 27, .22);
+  text-shadow: 0 .05em .1em rgba(0, 0, 0, .18);
+  transform: translateX(-50%);
+  animation: mw-egg-pop .6s cubic-bezier(.3, 1.5, .5, 1) both, mw-egg-bob 2.4s ease-in-out .6s infinite;
+}
+.mw-spotlight-inner .mw-egg-banner.is-hundred { background: linear-gradient(90deg, #7b5cff, #ff6f9e, #ffd84d); }
+.mw-spotlight-inner .mw-egg-banner.is-wave { background: linear-gradient(90deg, #2f7fd1, #4fb3ff, #ffd84d); }
+@keyframes mw-egg-pop { from { opacity: 0; transform: translateX(-50%) scale(.4); } }
+@keyframes mw-egg-bob { 50% { transform: translateX(-50%) translateY(-.12em); } }
+@media (prefers-reduced-motion: reduce) {
+  .mw-spotlight-inner .mw-egg-banner { animation: none; }
+}

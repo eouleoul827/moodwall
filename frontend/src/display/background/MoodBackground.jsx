@@ -5,7 +5,7 @@ import "./moodBackground.css";
 
 // The SVG is built entirely from our own templates; mention text is only
 // used for keyword lookup, so injecting it as markup is safe.
-export default function MoodBackground({ emotion, content, seed, side, className = "" }) {
+export default function MoodBackground({ emotion, content, seed, side, special = null, className = "" }) {
   const box = useRef(null);
   const [aspect, setAspect] = useState(16 / 9);
 
@@ -24,8 +24,8 @@ export default function MoodBackground({ emotion, content, seed, side, className
   }, []);
 
   const { svg } = useMemo(
-    () => generateBackground({ emotion, content, seed: String(seed ?? ""), side, aspect, assetUrl }),
-    [emotion, content, seed, side, aspect],
+    () => generateBackground({ emotion, content, seed: String(seed ?? ""), side, aspect, assetUrl, special }),
+    [emotion, content, seed, side, aspect, special],
   );
   return <div ref={box} className={`mw-bg ${className}`.trim()} aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
