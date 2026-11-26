@@ -24,7 +24,7 @@ function fixture(t, options = {}) {
   replace("cancelAnimationFrame", id => frames.delete(id));
   const states = [], problems = [], views = [], calls = [];
   const snapshot = () => ({ displayProtocolVersion: "2", boardId: BOARD, businessDate: "2026-11-04",
-    deviceGeneration: "1", cacheResetToken: "0", revision: "1", serverNow: iso(0),
+    deviceGeneration: "1", cacheResetToken: "0", retiredCompletedSequence: "0", revision: "1", serverNow: iso(0),
     snapshotAt: iso(0), ambientUntil: "2026-11-04T15:00:00Z", onlineLeaseUntil: iso(30_000),
     mode: "MOODWALL", bubbles: [], removedIds: [], nextCursor: null });
   const envelope = () => ({ displayProtocolVersion: "2", boardId: BOARD, deviceGeneration: "1",
@@ -39,7 +39,7 @@ function fixture(t, options = {}) {
     if (path === "/api/display/heartbeat") owner = JSON.parse(request.body).clientInstanceId;
     if (path === "/api/display/playback/claim") active = {
       attemptId: ATTEMPT, submissionId: ITEM, status: "CLAIMED", leaseUntil: iso(10_000),
-      item: { id: ITEM, content: "오늘 행복해", displayProtocolVersion: "2", readySequence: "1",
+      item: { id: ITEM, content: "오늘 행복해", displayProtocolVersion: "2", readySequence: "1", completedSequence: "1",
         sceneId: "joy", sceneVersion: "1", ambientUntil: "2026-11-04T15:00:00Z",
         firstStartAuthorizedAt: null, contentDeleteAt: null },
     };

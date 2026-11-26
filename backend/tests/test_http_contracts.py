@@ -20,7 +20,7 @@ from inference.fake import FakeAnalyzer
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "app" / "resources" / "openapi.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-CONTRACT_SHA256 = "1ba86360b0d28a7440237297649198a2a304b76096f11f970acf26475f0eac71"
+CONTRACT_SHA256 = "42ea11fbe3fef40bbf2037c6c789fba120eab384fc2fa22d653eccc55a319af7"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 PRIVATE_FIELDS = {
     "participantId",
@@ -92,7 +92,7 @@ def test_packaged_contract_matches_pinned_and_repository_copy():
 
 
 def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
-    assert CONTRACT["info"]["version"] == "0.12.1"
+    assert CONTRACT["info"]["version"] == "0.13.0"
     assert CONTRACT["components"]["schemas"]["DisplayState"]["properties"]["bubbles"]["maxItems"] == 100
     assert "slot" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
     assert "remainingMs" not in CONTRACT["components"]["schemas"]["DisplayBubble"]["properties"]
@@ -125,6 +125,20 @@ def test_server_expiry_and_local_bubble_retention_are_separate_contracts():
     for field in ("cacheResetToken", "deviceGeneration"):
         assert state["properties"][field]["type"] == "string"
         assert state["properties"][field]["pattern"] == "^(0|[1-9][0-9]*)$"
+
+
+def test_v2_completed_retention_contract_requires_monotonic_retirement_metadata():
+    schemas = CONTRACT["components"]["schemas"]
+    assert "completedSequence" in schemas["PlaybackItem"]["required"]
+    scope = schemas["PlaybackCacheScope"]
+    assert "retiredCompletedSequence" in scope["required"]
+    assert scope["properties"]["retiredCompletedSequence"]["type"] == "string"
+    states = [
+        schema
+        for schema in schemas.values()
+        if "retiredCompletedSequence" in schema.get("properties", {}) and "bubbles" in schema["properties"]
+    ]
+    assert len(states) == 1 and states[0]["properties"]["bubbles"]["maxItems"] == 30
 
 
 def _parsed_time(value):

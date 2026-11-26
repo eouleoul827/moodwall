@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Moodwall HTTP API",
-    "version": "0.12.1",
+    "version": "0.13.0",
     "description": "Moodwall API: legacy v1 floating bubbles remain compatible. V2 accepts content only, stores a text-free owner receipt for 24 hours, and orders completed preparation by committed READY sequence. A fenced display instance claims one message, obtains a five-second start authorization, reports the first frame, then reports completion after at least 15 seconds. New arrivals wait. Source text expires one hour after the first start authorization; local transparent bubbles remain until KST midnight. Predisplay waiting is separately bounded at ten minutes. Admission reservations are atomic and rolling-hour post quotas remain distinct from endpoint request limits. All POST requests require the exact Origin and JSON object body within 4096 bytes. Authenticated writes require CSRF; command and submission keys use raw UUID headers. Authentication, owner scopes, request limits and RFC 9457 errors apply to both versions. Model safety policy remains unchanged; this contract does not authorize model deployment. Provider moderation adds support-aware receipts and private reports. Gemini transport is server-only, with durable accounting, readiness probes and circuit controls; the mock profile performs no external calls."
   },
   "servers": [
@@ -1093,7 +1093,8 @@
                           "acceptedAt": "2026-11-04T03:00:00Z",
                           "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                           "contentDeleteAt": "2026-11-04T04:00:02Z",
-                          "ambientUntil": "2026-11-04T15:00:00Z"
+                          "ambientUntil": "2026-11-04T15:00:00Z",
+                          "completedSequence": null
                         }
                       }
                     }
@@ -3117,7 +3118,8 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                       "contentDeleteAt": "2026-11-04T04:00:02Z",
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": null
                     }
                   }
                 }
@@ -3134,7 +3136,7 @@
         "tags": [
           "display"
         ],
-        "description": "",
+        "description": "Completed cloud bodies remain until first start authorization +1h or permanent retirement beyond the latest thirty completions, whichever occurs first. Waiting and playing items do not count. Successful complete assigns completedSequence atomically; overflow deletes the oldest body and advances retiredCompletedSequence. Browser memory/storage must delete expired and retired bodies and reject resurrection by old snapshots or completion ACKs. Text-free SHOWN receipts retain their existing 24h lifetime. Midnight, hiding, authentication and device-generation boundaries remain unchanged.",
         "security": [
           {
             "displaySession": []
@@ -3236,11 +3238,13 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                       "contentDeleteAt": "2026-11-04T04:00:02Z",
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": "1"
                     }
                   ],
                   "bubbleTotalCount": 1,
-                  "nextCursor": null
+                  "nextCursor": null,
+                  "retiredCompletedSequence": "0"
                 }
               }
             }
@@ -3396,7 +3400,8 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": null,
                       "contentDeleteAt": null,
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": null
                     }
                   }
                 }
@@ -3594,7 +3599,8 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                       "contentDeleteAt": "2026-11-04T04:00:02Z",
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": null
                     }
                   }
                 }
@@ -3773,7 +3779,8 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                       "contentDeleteAt": "2026-11-04T04:00:02Z",
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": null
                     }
                   }
                 }
@@ -3952,7 +3959,8 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                       "contentDeleteAt": "2026-11-04T04:00:02Z",
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": "1"
                     }
                   }
                 }
@@ -4131,7 +4139,8 @@
                       "acceptedAt": "2026-11-04T03:00:00Z",
                       "firstStartAuthorizedAt": "2026-11-04T03:00:02Z",
                       "contentDeleteAt": "2026-11-04T04:00:02Z",
-                      "ambientUntil": "2026-11-04T15:00:00Z"
+                      "ambientUntil": "2026-11-04T15:00:00Z",
+                      "completedSequence": null
                     }
                   }
                 }
@@ -6525,6 +6534,20 @@
             "minLength": 1,
             "maxLength": 40,
             "format": "date-time"
+          },
+          "completedSequence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 19,
+                "pattern": "^(0|[1-9][0-9]{0,18})$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Immutable board-local completion order; null until DONE. Independent of readySequence."
           }
         },
         "required": [
@@ -6540,9 +6563,10 @@
           "acceptedAt",
           "firstStartAuthorizedAt",
           "contentDeleteAt",
-          "ambientUntil"
+          "ambientUntil",
+          "completedSequence"
         ],
-        "description": "Approved scene with no student-selected emoji. The server withholds text at its logical expiry even if a physical cleanup batch is late. ambientUntil governs local-only retention."
+        "description": "Approved scene without a student-selected emoji. Text is withheld at first-start +1h or permanent latest-30 retirement, whichever occurs first. ambientUntil remains the KST day boundary, never permission to keep expired text."
       },
       "PlaybackAttempt": {
         "type": "object",
@@ -6896,7 +6920,7 @@
           },
           "bubbles": {
             "type": "array",
-            "maxItems": 100,
+            "maxItems": 30,
             "items": {
               "$ref": "#/components/schemas/PlaybackItem"
             }
@@ -6916,6 +6940,13 @@
                 "type": "null"
               }
             ]
+          },
+          "retiredCompletedSequence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "description": "Persistent completed-body retirement boundary."
           }
         },
         "required": [
@@ -6933,9 +6964,10 @@
           "cacheResetToken",
           "bubbles",
           "bubbleTotalCount",
-          "nextCursor"
+          "nextCursor",
+          "retiredCompletedSequence"
         ],
-        "description": "Paged v2 completed bubbles only. Read every nextCursor page to synchronize; page size is not a display-count cap. Absence after source expiry must not erase an already cached transparent bubble. removedIds, cacheResetToken, generation and midnight do erase it."
+        "description": "Authenticated v2 completed clouds: at most the latest thirty live completions. Delete bodies at contentDeleteAt or at/below retiredCompletedSequence; neither absent pages nor late completion ACKs can restore retired bodies. Waiting presentations never count toward thirty."
       },
       "PlaybackClaimRequest": {
         "type": "object",
@@ -7444,6 +7476,13 @@
             "minLength": 1,
             "maxLength": 19,
             "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "retiredCompletedSequence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "description": "Completed sequences at or below this persistent boundary must be deleted and never restored."
           }
         },
         "required": [
@@ -7457,7 +7496,8 @@
           "mode",
           "onlineLeaseUntil",
           "removedIds",
-          "cacheResetToken"
+          "cacheResetToken",
+          "retiredCompletedSequence"
         ],
         "description": "Authenticated storage scope for a received DONE card; grants no online permission. Public rendering requires a validated bubble snapshot."
       },

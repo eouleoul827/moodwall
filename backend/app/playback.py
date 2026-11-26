@@ -29,6 +29,7 @@ ACTIVE = {"CLAIMED", "START_AUTHORIZED", "PLAYING"}
 TERMINAL = {"DONE", "FAILED", "EXPIRED", "CANCELLED", "HIDDEN"}
 INTERRUPT_REASONS = {"HIDDEN", "PAGE_HIDDEN", "RELOAD", "FRAME_GAP", "ASSET_FAILURE", "NETWORK", "CLIENT_ERROR"}
 PAGE_SIZE = 100
+MAX_COMPLETED_CLOUDS = 30
 
 
 def _canonical(value):
@@ -484,6 +485,36 @@ class PlaybackService:
             (now, receipt["id"]),
         )
 
+    async def _retire_completed_locked(self, conn, board, now):
+        """The board lock serializes completion/cap changes; waiting work is untouched."""
+        cutoff = await one(
+            conn,
+            """SELECT p.completed_sequence FROM presentation_items p
+            JOIN submission_receipts r ON r.id=p.submission_id
+            WHERE p.board_id=%s AND p.status='DONE' AND r.content_status='AVAILABLE'
+              AND r.content_delete_at>%s AND p.completed_sequence>%s
+            ORDER BY p.completed_sequence DESC OFFSET %s LIMIT 1""",
+            (board["id"], now, board["retired_completed_sequence"], MAX_COMPLETED_CLOUDS),
+        )
+        if not cutoff:
+            return 0
+        retired = cutoff["completed_sequence"]
+        rows = await all_rows(
+            conn,
+            """SELECT r.* FROM submission_receipts r JOIN presentation_items p ON p.submission_id=r.id
+            WHERE p.board_id=%s AND p.completed_sequence<=%s AND r.content_status='AVAILABLE'
+            ORDER BY p.completed_sequence FOR UPDATE OF r""",
+            (board["id"], retired),
+        )
+        for receipt in rows:
+            await self._purge_locked(conn, receipt, now)
+        await conn.execute(
+            "UPDATE board_runtime SET retired_completed_sequence=%s,state_version=state_version+1 WHERE id=%s",
+            (retired, board["id"]),
+        )
+        board["retired_completed_sequence"] = retired
+        return len(rows)
+
     async def _terminal_locked(self, conn, board, receipt, status, reason, now):
         item = await one(conn, "SELECT * FROM presentation_items WHERE submission_id=%s FOR UPDATE", (receipt["id"],))
         if item:
@@ -605,6 +636,10 @@ class PlaybackService:
                 and source["display_status"] != "HIDDEN"
                 and receipt["business_date"] == business_day(now)
                 and (receipt["content_delete_at"] is None or receipt["content_delete_at"] > now)
+                and (
+                    item["completed_sequence"] is None
+                    or item["completed_sequence"] > board["retired_completed_sequence"]
+                )
                 and (receipt["first_start_authorized_at"] is not None or receipt["pre_display_deadline_at"] > now)
             )
             view = {
@@ -670,6 +705,7 @@ class PlaybackService:
             "onlineLeaseUntil": board["heartbeat_lease_until"],
             "removedIds": list(dict.fromkeys(str(row["target_id"]) for row in removals[:1000])),
             "cacheResetToken": str(removals[1000]["id"]) if len(removals) > 1000 else "0",
+            "retiredCompletedSequence": str(board["retired_completed_sequence"]),
         }
 
     @staticmethod
@@ -684,6 +720,7 @@ class PlaybackService:
             "sceneVersion": item["scene_version"],
             "sceneSeed": item["scene_seed"],
             "readySequence": str(item["ready_sequence"]),
+            "completedSequence": str(item["completed_sequence"]) if item["completed_sequence"] is not None else None,
             "acceptedAt": receipt["accepted_at"],
             "firstStartAuthorizedAt": receipt["first_start_authorized_at"],
             "contentDeleteAt": receipt["content_delete_at"],
@@ -918,13 +955,22 @@ class PlaybackService:
                 await conn.execute(
                     "UPDATE playback_attempts SET status='DONE',completed_at=%s WHERE id=%s", (now, attempt_id)
                 )
-                await conn.execute("UPDATE presentation_items SET status='DONE' WHERE id=%s", (item["id"],))
+                sequence = await one(
+                    conn,
+                    "UPDATE board_runtime SET next_completed_sequence=next_completed_sequence+1 WHERE id=%s RETURNING next_completed_sequence",
+                    (board["id"],),
+                )
+                await conn.execute(
+                    "UPDATE presentation_items SET status='DONE',completed_sequence=%s WHERE id=%s",
+                    (sequence["next_completed_sequence"], item["id"]),
+                )
                 await conn.execute(
                     "UPDATE submission_receipts SET presentation_status='DONE',completed_at=%s,revision=revision+1 WHERE id=%s",
                     (now, receipt["id"]),
                 )
                 await conn.execute("UPDATE submissions SET display_status='FLOATING' WHERE id=%s", (receipt["id"],))
                 await conn.execute("UPDATE board_runtime SET playback_current_item_id=NULL WHERE id=%s", (board["id"],))
+                await self._retire_completed_locked(conn, board, now)
             else:
                 await self._interrupt_locked(conn, board, item, attempt, receipt, payload["reason"], now)
             await conn.execute("UPDATE board_runtime SET state_version=state_version+1 WHERE id=%s", (board["id"],))
@@ -1100,6 +1146,7 @@ class PlaybackService:
                     await self._terminal_locked(conn, board, receipt, "FAILED", "PLAYBACK_UNCONFIRMED", now)
                 else:
                     await self._purge_locked(conn, receipt, now)
+            await self._retire_completed_locked(conn, board, now)
             await conn.execute(
                 """DELETE FROM submission_receipts r WHERE receipt_expires_at<=%s AND NOT EXISTS
                 (SELECT 1 FROM admission_reservations a WHERE a.submission_id=r.id AND a.released_at IS NULL)""",
@@ -1133,10 +1180,19 @@ class PlaybackService:
             snapshot = datetime.fromisoformat(page["snapshotAt"])
             clause = """r.board_id=%s AND r.business_date=%s AND r.content_status='AVAILABLE'
                 AND r.content_delete_at>%s AND p.status='DONE' AND r.completed_at<=%s
+                AND p.completed_sequence>%s
                 AND s.display_status='FLOATING' AND NOT EXISTS (SELECT 1 FROM operator_audit_logs a
                     WHERE a.board_id=r.board_id AND a.target_id=r.id AND a.action='HIDE_SUBMISSION'
                     AND a.occurred_at>=%s AND a.occurred_at<%s)"""
-            params = [board["id"], business_day(now), now, snapshot, ambient - timedelta(days=1), ambient]
+            params = [
+                board["id"],
+                business_day(now),
+                now,
+                snapshot,
+                board["retired_completed_sequence"],
+                ambient - timedelta(days=1),
+                ambient,
+            ]
             count = await one(
                 conn,
                 "SELECT count(*) AS n FROM submission_receipts r JOIN submissions s ON s.id=r.id JOIN presentation_items p ON p.submission_id=r.id WHERE "
@@ -1148,7 +1204,7 @@ class PlaybackService:
                 params.extend((datetime.fromisoformat(page["lastAt"]), UUID(page["lastId"])))
             rows = await all_rows(
                 conn,
-                """SELECT r.*,s.content,s.emotion,p.scene_id,p.scene_version,p.scene_seed,p.ready_sequence
+                """SELECT r.*,s.content,s.emotion,p.scene_id,p.scene_version,p.scene_seed,p.ready_sequence,p.completed_sequence
                 FROM submission_receipts r JOIN submissions s ON s.id=r.id JOIN presentation_items p ON p.submission_id=r.id
                 WHERE """
                 + clause

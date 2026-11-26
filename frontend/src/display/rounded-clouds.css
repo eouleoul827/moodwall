@@ -1,0 +1,50 @@
+/* Approved 2046x768 cloud wall. Keep the real QR and existing three-panel layout. */
+.mw-cloud-wall .mw-display-frame .mw-wall-layout{grid-template-columns:calc(var(--mw-u) * 16) minmax(0,1fr) calc(var(--mw-u) * 16);gap:calc(var(--mw-u) * 1.6667);padding:calc(var(--mw-u) * 2)}
+.mw-cloud-wall .mw-display-frame .mw-join-panel,.mw-cloud-wall .mw-display-frame .mw-forecast{padding:calc(var(--mw-u) * 1.15);border-radius:calc(var(--mw-u) * 1.4)}
+.mw-cloud-wall .mw-display-frame .mw-join-panel h1{font-size:calc(var(--mw-u) * 2);line-height:1.23}
+.mw-cloud-wall .mw-display-frame .mw-join-panel>p{font-size:calc(var(--mw-u) * .98)}
+.mw-cloud-wall .mw-display-frame .mw-wordmark{font-size:calc(var(--mw-u) * .9)}
+.mw-cloud-wall .mw-display-frame .mw-wall-center{padding:calc(var(--mw-u) * .5)}
+.mw-cloud-wall .mw-display-frame .mw-wall-heading p{font-size:calc(var(--mw-u) * 1);margin:0 0 calc(var(--mw-u) * .3);color:#e2eaf3}
+.mw-cloud-wall .mw-display-frame .mw-wall-heading h2{font-size:calc(var(--mw-u) * 2.15);line-height:1.12;color:#faf8f1}
+.mw-cloud-wall .mw-display-frame .mw-wall-heading time{font-size:calc(var(--mw-u) * 2.1);color:#faf8f1}
+.mw-cloud-wall .mw-display-frame .mw-eyebrow{font-size:calc(var(--mw-u) * .9);letter-spacing:.08em}
+.mw-cloud-wall .mw-display-frame .mw-forecast-heading{gap:calc(var(--mw-u) * .4);min-height:calc(var(--mw-u) * 3.5)}
+.mw-cloud-wall .mw-display-frame .mw-weather-icon{width:calc(var(--mw-u) * 2.2)}
+.mw-cloud-wall .mw-display-frame .mw-forecast h2{font-size:calc(var(--mw-u) * 1.5);line-height:1.24}
+.mw-cloud-wall .mw-display-frame .mw-mood-row{grid-template-columns:calc(var(--mw-u) * 2.7) minmax(0,1fr) calc(var(--mw-u) * 2);gap:calc(var(--mw-u) * .4);font-size:calc(var(--mw-u) * 1)}
+.mw-cloud-wall .mw-display-frame .mw-mood-row small{font-size:calc(var(--mw-u) * .9)}
+.mw-cloud-wall .mw-display-frame .mw-mood-bars{gap:calc(var(--mw-u) * .64)}
+.mw-cloud-wall .mw-display-frame .mw-mood-track{height:calc(var(--mw-u) * .8)}
+.mw-cloud-wall .mw-display-frame .mw-sky{background:linear-gradient(165deg,#415d7c 0%,#607d99 70%,#7890a7 100%)}
+.mw-cloud-wall .mw-display-frame .mw-sky-night{background:radial-gradient(ellipse at 70% 80%,#554e6b35,transparent 56%),linear-gradient(165deg,#142847 0%,#203959 100%)}
+.mw-cloud-wall .mw-display-frame .mw-day-glow{opacity:.18}
+.mw-cloud-wall .mw-display-frame .mw-night-stars{opacity:.35}
+.mw-cloud-wall .mw-display-frame .mw-empty{display:none}
+
+/* Every eligible message keeps its own cloud. The entire wall is the sky; panels
+   remain above it, as in the original display. Reference size: 2046x768. */
+.mw-cloud-wall .mw-display-frame .rw-cloud-field{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.mw-cloud-wall .rw-cloud-track{position:absolute;left:calc(var(--mw-u) * -22.4829);top:0;width:0;height:0;transform:translate(calc(var(--mw-u) * var(--rw-x)),calc(var(--mw-u) * var(--rw-y)));will-change:transform}
+.mw-cloud-wall .rw-reading-cloud{position:relative;width:calc(var(--mw-u) * var(--rw-cloud-width));height:calc(var(--mw-u) * var(--rw-cloud-height));margin:0;filter:drop-shadow(0 calc(var(--mw-u) * .16) calc(var(--mw-u) * .20) #07172a38);animation:rwCloudWander var(--rw-bob-duration) ease-in-out var(--rw-bob-delay) infinite}
+.mw-cloud-wall .rw-cloud-silhouette{position:absolute;inset:0;width:100%;height:100%;overflow:visible;transform:scaleX(var(--rw-cloud-flip))}
+.mw-cloud-wall .rw-cloud-silhouette>path{stroke-width:calc(var(--mw-u) * .1173)}
+.mw-cloud-wall .rw-cloud-text{position:absolute;left:15%;top:57.6923%;transform:translateY(-50%);width:70%;max-height:53.8462%;overflow:hidden;margin:0;color:#23334e;font-family:'Noto Sans KR',sans-serif;font-size:calc(var(--mw-u) * var(--rw-cloud-font));font-weight:700;line-height:1.16;letter-spacing:-.02em;text-align:center;white-space:normal}
+.mw-cloud-wall .rw-cloud-text>span{display:block;white-space:nowrap;max-width:100%;overflow:hidden}
+.mw-cloud-wall .rw-empty-sky{position:absolute;left:20%;right:20%;top:26%;bottom:8%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#faf8f1;gap:calc(var(--mw-u) * .8)}
+.mw-cloud-wall .rw-empty-sky p{margin:0;word-break:keep-all}
+.mw-cloud-wall .rw-invitation-title{font-family:Jua,sans-serif;font-size:calc(var(--mw-u) * 2.7);font-weight:400;line-height:1.35;letter-spacing:-.04em}
+.mw-cloud-wall .rw-invitation-copy,.mw-cloud-wall .rw-sparse-invitation{font-size:calc(var(--mw-u) * 1.15);line-height:1.65;color:#d2dce8}
+.mw-cloud-wall .rw-sparse-invitation{position:absolute;left:20%;right:20%;bottom:9%;text-align:center}
+
+@keyframes rwCloudWander{0%,100%{transform:translate(calc(var(--mw-u) * var(--rw-wander) * -.65),calc(var(--mw-u) * var(--rw-wander) * .45))}33%{transform:translate(calc(var(--mw-u) * var(--rw-wander) * .55),calc(var(--mw-u) * var(--rw-wander) * -.8))}67%{transform:translate(calc(var(--mw-u) * var(--rw-wander) * -.15),calc(var(--mw-u) * var(--rw-wander) * .7))}}
+@media(prefers-reduced-motion:reduce){:root:not(.mw-signage) .mw-cloud-wall .rw-reading-cloud{animation:none}}
+.mw-cloud-wall .rw-cloud-field.is-paused .rw-reading-cloud{animation-play-state:paused}
+
+/* A retiring cloud keeps only its silhouette for a single short exit. */
+.mw-cloud-wall .rw-cloud-departure{position:absolute;left:calc(var(--mw-u) * -22.4829);top:0;width:0;height:0;transform:translate(calc(var(--mw-u) * var(--rw-x)),calc(var(--mw-u) * var(--rw-y)))}
+.mw-cloud-wall .rw-departing-cloud{position:relative;width:calc(var(--mw-u) * var(--rw-cloud-width));height:calc(var(--mw-u) * var(--rw-cloud-height));margin:0;animation:rwCloudExpire var(--rw-exit-duration) ease-out both}
+.mw-cloud-wall .is-capacity .rw-departing-cloud{animation-name:rwCloudDepart}
+@keyframes rwCloudExpire{from{opacity:.9;transform:scale(1);filter:blur(0)}to{opacity:0;transform:scale(1.045);filter:blur(calc(var(--mw-u) * .2))}}
+@keyframes rwCloudDepart{from{opacity:.9;transform:translate(0,0)}to{opacity:0;transform:translate(calc(var(--mw-u) * 4.4),calc(var(--mw-u) * -.4)) scale(.97)}}
+@media(prefers-reduced-motion:reduce){:root:not(.mw-signage) .mw-cloud-wall .rw-cloud-departure{display:none}}

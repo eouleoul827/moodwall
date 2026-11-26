@@ -39,7 +39,7 @@ async def schema_ready(conn, board_id):
     return bool(
         all(row.values())
         and revision
-        and revision["version_num"] == "0009_playback_duration"
+        and revision["version_num"] == "0010_cloud_retention"
         and registry
         and (registry["library_version"], registry["schema_sha256"]) == queue_schema_identity()
     )

@@ -1,14 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { generateBackground } from "./generator.js";
+import { assetUrl } from "./assets.js";
 import "./moodBackground.css";
-
-// Images live next to this file so Vite puts them under /assets/ with hashed
-// names; the backend serves only /assets/ from the build.
-const MASCOT_URLS = Object.fromEntries(
-  Object.entries(import.meta.glob("./mascot/*.webp", { eager: true, query: "?url", import: "default" }))
-    .map(([path, url]) => [path.slice(path.lastIndexOf("/") + 1), url]),
-);
-const assetUrl = (file) => MASCOT_URLS[file] ?? "";
 
 // The SVG is built entirely from our own templates; mention text is only
 // used for keyword lookup, so injecting it as markup is safe.
