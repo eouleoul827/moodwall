@@ -15,8 +15,15 @@ from inference.loader import AnalyzerContext
 
 BUNDLE = Path(__file__).with_name("claude_bundle")
 LABELS = {
-    "슬픔": "SADNESS", "기쁨": "JOY", "설렘": "EXCITEMENT", "응원": "SUPPORT",
-    "축하": "CELEBRATION", "피곤": "TIRED", "화남": "ANGER", "일반": None, "부적절": "BLOCK",
+    "슬픔": "SADNESS",
+    "기쁨": "JOY",
+    "설렘": "EXCITEMENT",
+    "응원": "SUPPORT",
+    "축하": "CELEBRATION",
+    "피곤": "TIRED",
+    "화남": "ANGER",
+    "일반": None,
+    "부적절": "BLOCK",
 }
 
 
