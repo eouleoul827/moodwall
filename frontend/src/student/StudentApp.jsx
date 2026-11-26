@@ -14,6 +14,52 @@ function formatTime(value) {
   return new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' }).format(new Date(value));
 }
 
+// 서버가 세는 '배려가 필요한 표현' 누적 횟수. 5번이면 서버가 하루 정지를 건다 (backend/app/moderation.py).
+const STRIKE_LIMIT = 5;
+
+function formatDateTime(value) {
+  return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' }).format(new Date(value));
+}
+
+function strikeCopy(strike) {
+  if (strike.kind === 'suspended') {
+    return { title: '오늘은 참여가 잠시 멈췄어요',
+      message: `배려가 필요한 표현이 여러 번 쌓여서 지금은 메시지를 쓸 수 없어요.\n${formatDateTime(strike.until)}부터 다시 참여할 수 있어요.` };
+  }
+  const left = STRIKE_LIMIT - strike.count;
+  if (strike.count >= 3) {
+    return { title: `주의가 ${strike.count}번 쌓였어요`,
+      message: `${left}번 더 쌓이면 오늘은 메시지를 쓸 수 없어요.\n서로를 배려하는 표현으로 다시 써 주세요.` };
+  }
+  return { title: '이번 메시지는 올라가지 않았어요',
+    message: `모두가 함께 보는 전광판이라 배려가 필요한 표현은 올리지 않아요.\n주의가 ${STRIKE_LIMIT}번 쌓이면 오늘 하루 참여가 멈춰요.` };
+}
+
+/** Which words matched is never shown, so the dialog cannot be used to probe the filter. */
+function StrikeDialog({ strike, onClose }) {
+  const button = useRef(null);
+  useEffect(() => {
+    button.current?.focus();
+    const onKey = event => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const stopped = strike.kind === 'suspended';
+  const count = stopped ? STRIKE_LIMIT : Math.min(strike.count, STRIKE_LIMIT);
+  const { title, message } = strikeCopy(strike);
+  return <div className="student-dialog-backdrop">
+    <section className={`student-dialog${stopped ? ' is-stop' : ''}`} role="alertdialog" aria-modal="true" aria-labelledby="strike-title" aria-describedby="strike-copy">
+      <div className="student-dialog-mark" aria-hidden="true">{stopped ? '✋' : '!'}</div>
+      <h2 id="strike-title">{title}</h2>
+      <p id="strike-copy">{message}</p>
+      <div className="student-strike-meter" role="img" aria-label={`주의 ${count}/${STRIKE_LIMIT}`}>
+        {Array.from({ length: STRIKE_LIMIT }, (_, i) => <span key={i} className={i < count ? 'is-on' : ''} />)}
+      </div>
+      <button ref={button} type="button" className="student-button" onClick={onClose}>{stopped ? '확인했어요' : '알겠어요'}</button>
+    </section>
+  </div>;
+}
+
 function postingAvailability(session, usage, now) {
   if (!session || !session.admissionValid || Date.parse(session.admissionExpiresAt) <= now) {
     return { blocked: true, text: '전광판의 새 QR을 찍으면 참여할 수 있어요.' };
@@ -53,6 +99,8 @@ export function StudentFlow({ api = defaultApi, createSubmissionClient = default
   const [clock, setClock] = useState(Date.now());
   const [bootKey, setBootKey] = useState(0);
   const [updateRequired, setUpdateRequired] = useState(false);
+  const [strike, setStrike] = useState(null);
+  const lastStrikes = useRef(null);
   const csrfRef = useRef('');
   const clockOffset = useRef(0);
   const mounted = useRef(false);
@@ -139,6 +187,18 @@ export function StudentFlow({ api = defaultApi, createSubmissionClient = default
     window.addEventListener('focus', visible);
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); };
   }, [boot, session, refreshUsage, refreshSession]);
+
+  // Server usage is the only source: a rise in violationCount opens the dialog once.
+  useEffect(() => {
+    if (!usage) return;
+    const count = Number.isInteger(usage.violationCount) ? usage.violationCount : null;
+    const suspended = Boolean(usage.suspendedUntil) && Date.parse(usage.suspendedUntil) > Date.now() + clockOffset.current;
+    const previous = lastStrikes.current;
+    lastStrikes.current = { count, suspended };
+    if (suspended && !previous?.suspended) { setStrike({ kind: 'suspended', until: usage.suspendedUntil }); return; }
+    if (!suspended && count !== null && previous?.count != null && count > previous.count) setStrike({ kind: 'warning', count });
+  }, [usage]);
+  const closeStrike = useCallback(() => setStrike(null), []);
 
   const availability = postingAvailability(session, usage, clock + clockOffset.current);
   const length = characterCount(text.trim());
@@ -290,6 +350,7 @@ export function StudentFlow({ api = defaultApi, createSubmissionClient = default
         </section>}
       <footer className="student-footer">moodwall · 우리의 오늘이 모이는 곳</footer>
     </div>
+    {strike && <StrikeDialog strike={strike} onClose={closeStrike} />}
   </main>;
 }
 

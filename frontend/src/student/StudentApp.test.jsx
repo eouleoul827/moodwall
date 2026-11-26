@@ -279,3 +279,45 @@ describe('student composition and receipts', () => {
   });
 
 });
+
+describe('student strike notice', () => {
+  it('opens a notice when the server violation count rises, without naming the matched words', async () => {
+    const { api } = setup({ sendResult: accepted('NEEDS_REWRITE'), connectedSession: { ...session(), usage: { ...usage, violationCount: 0 } } });
+    expect(await screen.findByRole('heading', { name: '지금 기분이 어때요?' })).toBeTruthy();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    api.usage.mockResolvedValue({ ...usage, violationCount: 1 });
+    await submit('시발 오늘 진짜 힘들다');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog.textContent).toMatch(/이번 메시지는 올라가지 않았어요/);
+    expect(dialog.textContent).toMatch(/5번 쌓이면 오늘 하루 참여가 멈춰요/);
+    expect(dialog.textContent).not.toMatch(/시발/);
+    expect(screen.getByRole('img', { name: '주의 1/5' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '알겠어요' }));
+    fireEvent.click(screen.getByRole('button', { name: '알겠어요' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('warns more strongly from the third strike and stays quiet for an existing count on entry', async () => {
+    const { api } = setup({ sendResult: accepted('NEEDS_REWRITE'), connectedSession: { ...session(), usage: { ...usage, violationCount: 2 } } });
+    await screen.findByRole('heading', { name: '지금 기분이 어때요?' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    api.usage.mockResolvedValue({ ...usage, violationCount: 3 });
+    await submit('바보야');
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog.textContent).toMatch(/주의가 3번 쌓였어요/);
+    expect(dialog.textContent).toMatch(/2번 더 쌓이면/);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('explains a one-day suspension with the time writing reopens', async () => {
+    const until = new Date(Date.now() + 8 * 3600000).toISOString();
+    setup({ connectedSession: { ...session(), usage: { ...usage, violationCount: 5, suspendedUntil: until } } });
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog.textContent).toMatch(/오늘은 참여가 잠시 멈췄어요/);
+    expect(dialog.textContent).toMatch(/부터 다시 참여할 수 있어요/);
+    fireEvent.click(screen.getByRole('button', { name: '확인했어요' }));
+    expect(screen.getByRole('button', { name: /전광판에 올리기/ }).disabled).toBe(true);
+    expect(screen.getByText('지금은 작성할 수 없어요. 내일 다시 참여해 주세요.')).toBeTruthy();
+  });
+});
