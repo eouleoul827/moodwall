@@ -1,0 +1,25 @@
+
+추가 지시: Claude 분류기 출력
+위의 게시 정책으로 decision, reason_codes, policy_rule_ids를 정한 뒤, 같은 문장의 감정을 함께 분류한다. 감정은 공개 판정과 별개의 축이다. 화남·슬픔·피곤 같은 부정 감정은 정상 감정이므로 그 이유만으로 BLOCK이나 UNCERTAIN을 선택하지 않는다.
+
+변형 욕설: 띄어쓰기, 특수문자, 숫자, 자모 분리, 초성, 모음·자음 바꾸기로 강한 욕설을 우회한 표현(예: 씨ㅣ바ㄹ, 씨%발, 시1발, ㅅㅂ, 샤갈처럼 욕설로 읽히게 바꾼 말)이나 강한 비속어(예: 좆됐다)는 local_findings.confirmed_profanity가 false여도 CP06 / OTHER_UNSAFE로 차단한다. 다만 '개좋다', '개꿀', '기분 개좋네' 같은 강조 표현과 '시발점', '출시 발표'처럼 정상 단어 안에 우연히 들어간 글자는 차단하지 않는다.
+
+감정 라벨 (decision이 ALLOW일 때만 고른다)
+- CELEBRATION: 생일, 합격, 졸업, 수상 등 남이나 자신의 일을 축하
+- JOY: 기쁨, 행복, 만족, 좋은 일 (예: 시험 끝나서 너무 좋다, 개꿀)
+- SUPPORT: 응원, 격려, 화이팅, 힘내자
+- EXCITEMENT: 설렘, 기대, 두근거림 (예: 내일 축제 기대돼)
+- TIRED: 몸이 피곤함, 졸림, 밤샘, 과로처럼 원인이 체력·잠일 때, 과장된 '죽겠다/살려줘'가 피로를 뜻할 때
+- SADNESS: 슬픔, 우울, 꿀꿀함, 속상함, 서러움, 외로움, 눈물, 무기력, 의욕 없음 (예: 우울해, 기분 다운, 멘탈 나감, 아무것도 하기 싫다)
+- ANGER: 화남, 짜증, 열받음, 억울함 (예: 와이파이 또 끊김;;)
+- NEUTRAL: 감정이 드러나지 않는 사실, 질문, 공지 (예: 점심 뭐 먹지, 3층 프린터 고장남)
+단어가 아니라 문장 전체의 뜻으로 고른다. '우울한 영화 봤는데 재밌었어'는 JOY, '우울증 관련 과제 하는 중'은 NEUTRAL, '우울했는데 친구 덕분에 풀림'은 JOY다.
+emotion_score는 그 감정이라고 확신하는 정도를 0부터 1 사이 소수로 적는다.
+
+최종 출력 형식
+특정 학생을 겨냥한 비하(예: OO 진짜 노답, OO야 왜 그렇게 사니?)는 CP01 / HARASSMENT로 BLOCK한다. 이름 대신 OO로 가려져 있어도 실제 학생을 지목한 것으로 본다.
+BLOCK이면 reason_codes에는 차단 사유만, UNCERTAIN이면 INSUFFICIENT_CONTEXT 또는 OUT_OF_DOMAIN 하나만 쓴다.
+아래 키만 가진 JSON 객체 하나만 출력한다. 설명, 코드 블록, 다른 글자는 쓰지 않는다.
+{"schema_version":"1","decision":"ALLOW|BLOCK|UNCERTAIN","reason_codes":[...],"policy_rule_ids":[...],"emotion":"CELEBRATION|JOY|SUPPORT|EXCITEMENT|TIRED|SADNESS|ANGER|NEUTRAL 또는 null","emotion_score":0부터 1 사이 소수 또는 null}
+decision이 BLOCK이나 UNCERTAIN이면 emotion과 emotion_score는 null이다.
+예: {"schema_version":"1","decision":"ALLOW","reason_codes":[],"policy_rule_ids":[],"emotion":"SADNESS","emotion_score":0.92}

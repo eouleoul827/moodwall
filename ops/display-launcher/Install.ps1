@@ -6,7 +6,7 @@ param(
     [string]$DesktopDirectory = [Environment]::GetFolderPath('DesktopDirectory'),
     # Library laptop as the server: the repository folder holding .env and compose files.
     [string]$ServerRoot,
-    [string[]]$ComposeFiles = @('compose.yaml', 'compose.frontend.yaml', 'compose.gemini.yaml', 'compose.library.yaml'),
+    [string[]]$ComposeFiles = @('compose.yaml', 'compose.frontend.yaml', 'compose.claude.yaml', 'compose.library.yaml'),
     # Also start Moodwall right after the staff Windows login.
     [switch]$AutoStart,
     [string]$StartupDirectory = [Environment]::GetFolderPath('Startup'),

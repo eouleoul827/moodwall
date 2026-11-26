@@ -1,5 +1,5 @@
 # Library laptop = the server. Apply after compose.yaml, compose.frontend.yaml and
-# compose.gemini.yaml (add compose.gemini-emotion.yaml for local emotion colours).
+# compose.claude.yaml (MOODWALL_CLAUDE_API_KEY in .env).
 #
 # Students' phones (LTE/5G or any Wi-Fi) reach the laptop through Tailscale Funnel,
 # installed on Windows itself (not a container). It gives the laptop a fixed, free

@@ -1,0 +1,15 @@
+# Claude (Haiku 5.5) analyzer. Put MOODWALL_CLAUDE_API_KEY in .env only.
+# Start: docker compose -f compose.yaml -f compose.frontend.yaml -f compose.claude.yaml up -d --build
+# Only the worker receives the API key.
+services:
+  api:
+    environment:
+      MOODWALL_MODEL_BUNDLE_VERSION: claude-haiku-5-5-v1
+      MOODWALL_INFERENCE_POLICY_VERSION: claude-inference-v1
+  worker:
+    environment:
+      MOODWALL_ANALYZER: inference.claude_analyzer:create_analyzer
+      MOODWALL_MODEL_MANIFEST_PATH: /srv/backend/inference/claude_bundle/manifest.json
+      MOODWALL_MODEL_BUNDLE_VERSION: claude-haiku-5-5-v1
+      MOODWALL_INFERENCE_POLICY_VERSION: claude-inference-v1
+      MOODWALL_CLAUDE_API_KEY: ${MOODWALL_CLAUDE_API_KEY:?Put MOODWALL_CLAUDE_API_KEY in .env}
