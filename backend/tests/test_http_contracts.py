@@ -20,7 +20,7 @@ from inference.fake import FakeAnalyzer
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "app" / "resources" / "openapi.json"
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-CONTRACT_SHA256 = "42ea11fbe3fef40bbf2037c6c789fba120eab384fc2fa22d653eccc55a319af7"
+CONTRACT_SHA256 = "2d5b5fe4bff369b4385f7a7142dc2edbde21085b005bca13629ee1c2e44db212"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 PRIVATE_FIELDS = {
     "participantId",
@@ -77,11 +77,12 @@ async def _submit(client, content="합격 축하해"):
 
 
 def test_packaged_contract_matches_pinned_and_repository_copy():
-    """Containers retain the reviewed bytes even when ../docs is not mounted."""
-    assert hashlib.sha256(CONTRACT_PATH.read_bytes()).hexdigest() == CONTRACT_SHA256
+    """Pin Git's LF bytes while accepting Windows working-tree CRLF checkouts."""
+    packaged = CONTRACT_PATH.read_bytes().replace(b"\r\n", b"\n")
+    assert hashlib.sha256(packaged).hexdigest() == CONTRACT_SHA256
     source = Path(__file__).resolve().parents[2] / "docs" / "openapi.json"
     if source.exists():
-        assert source.read_bytes() == CONTRACT_PATH.read_bytes()
+        assert source.read_bytes().replace(b"\r\n", b"\n") == packaged
     operations = [
         entry["operationId"]
         for path in CONTRACT["paths"].values()

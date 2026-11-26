@@ -84,6 +84,10 @@ async def test_thirty_first_completion_purges_old_body_but_preserves_receipt_and
     identity = await player(clients)
     old = await submit(clients)
     await approve(system, old)
+    # Prepare both real submissions before advancing only the playback clock.
+    # Moderation uses DB time and correctly rejects a future accepted_at.
+    newest = await submit(clients, who="stranger", content="새로운 글")
+    await approve(system, newest)
     state, identity = await claim_player(clients, identity)
     assert (await command(clients, state, identity, "start")).status_code == 200
     assert (await command(clients, state, identity, "frame")).status_code == 200
@@ -104,8 +108,6 @@ async def test_thirty_first_completion_purges_old_body_but_preserves_receipt_and
             await seed_cloud(conn, settings, now, sequence)
         pending = await seed_cloud(conn, settings, now, 99, done=False)
         await conn.execute("UPDATE board_runtime SET next_completed_sequence=30 WHERE id=%s", (settings.board_id,))
-    newest = await submit(clients, who="stranger", content="새로운 글")
-    await approve(system, newest)
     next_state, next_identity = await claim_player(clients, identity)
     # The synthetic waiting item's larger READY sequence keeps it waiting.
     assert next_state["attempt"]["submissionId"] == str(newest)
