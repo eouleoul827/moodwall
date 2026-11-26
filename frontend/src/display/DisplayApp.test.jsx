@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DisplayApp from './DisplayApp.jsx';
 
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,cXI=') } }));
+vi.mock('./background/assets.js', () => ({ assetUrl: file=>`/assets/${file}`, prepareMoodBackground: vi.fn(async () => {}) }));
 const session = { csrfToken: 'display-csrf', boardId: '00000000-0000-4000-8000-000000000001', mode: 'MOODWALL', credentialExpiresAt: '2027-01-01T00:00:00Z' };
 const ticket = { joinUrl: 'https://school.example/join#ticket=private-qr-ticket', rotatesAt: '2026-11-04T09:05:00Z', validUntil: '2026-11-04T09:10:00Z', serverNow: '2026-11-04T09:00:00Z' };
 const item = { id: '00000000-0000-4000-8000-000000000010', content: '<img src=x onerror=alert(1)>', sceneId: 'joy', sceneVersion: '1', sceneSeed: 'abc', emotion: 'JOY', phase: 'FLOATING' };
@@ -52,7 +53,7 @@ describe('public display', () => {
     expect(app.wiring.boardId).toBe(session.boardId); expect(app.wiring.csrfToken()).toBe('display-csrf');
     expect(app.fetcher.mock.calls[0][1].credentials).toBe('same-origin');
     expect(screen.getByText('카메라로 찍어주세요')).toBeTruthy();
-    expect(screen.getByText('첫번째 구름을 남겨볼까요')).toBeTruthy();
+    expect(screen.getByText('첫 번째 구름을 띄워볼까요?')).toBeTruthy();
     expect(screen.queryByText(/이 벽의|QR을 찍으면 내 한 줄이 화면 가득 떠요/)).toBeNull();
     expect(screen.queryByText(/폰|30자|1시간에 3번/)).toBeNull(); expectQuiet();
     app.unmount(); expect(app.runtime.stop).toHaveBeenCalledTimes(1); expect(events[0].close).toHaveBeenCalledTimes(1);
@@ -75,15 +76,16 @@ describe('public display', () => {
     await expect(app.wiring.renderer.prepare({ ...item, sceneId: 'https://evil.invalid/scene' }, { signal: new AbortController().signal })).rejects.toThrow('UNSUPPORTED_SCENE');
     expectQuiet();
   });
-  it('retains ambient text and never shows disconnected cached text', async () => {
+  it('removes expired ambient text and never shows disconnected cached text', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     const bubble = { ...item, content: '오늘도 수고했어' };
     act(() => app.wiring.renderBubbles({ visible: true, bubbles: [bubble], totalCount: 1 }));
-    expect(screen.getByText(bubble.content)).toBeTruthy();
+    expect(screen.getByLabelText(bubble.content)).toBeTruthy();
     act(() => app.wiring.renderBubbles({ visible: true, bubbles: [{ ...bubble, phase: 'AMBIENT' }], totalCount: 1 }));
-    expect(screen.getByText(bubble.content).closest('.mw-bubble-track').classList.contains('is-ambient')).toBe(true);
+    expect(screen.queryByLabelText(bubble.content)).toBeNull();
+    expect(document.querySelector('.mw-wall-heading em').textContent).toBe('0');
     act(() => app.wiring.renderBubbles({ visible: false, bubbles: [], totalCount: 0 }));
-    expect(screen.queryByText(bubble.content)).toBeNull(); expectQuiet();
+    expect(screen.queryByLabelText(bubble.content)).toBeNull(); expectQuiet();
   });
   it('renders cloud artwork and cache counts without the removed helper labels', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
@@ -91,13 +93,27 @@ describe('public display', () => {
     expect(screen.getByRole('heading', { name: /지금 1개의 구름이\s*머물고 있어요/ })).toBeTruthy();
     expect(screen.queryByText('이 화면에 남은 기분 기준')).toBeNull();
     expect(screen.queryByText(/450|°C|약 1분|3회 경고|5회 정지/)).toBeNull();
-    expect(screen.getByText('오늘도 수고했어').closest('.mw-bubble').dataset.cloudShape).toMatch(/^cloud-\d{2}\.svg$/);
+    expect(screen.getByLabelText('오늘도 수고했어').closest('.rw-reading-cloud').dataset.cloudShape).toBeTruthy();
     act(() => app.wiring.renderer.show(item));
     expect(screen.getByRole('region', { name: '새로운 메시지' }).querySelector('.mw-duration-track').dataset.durationSeconds).toBe('15');
     act(() => app.wiring.renderer.show({ ...item, id: '00000000-0000-4000-8000-000000000011' }, { durationMs: 9000 }));
     const track = screen.getByRole('region', { name: '새로운 메시지' }).querySelector('.mw-duration-track');
     expect(track.dataset.durationSeconds).toBe('9'); expect(track.style.getPropertyValue('--play-duration')).toBe('9000ms');
     expectQuiet();
+  });
+  it('reflects corrected content and emotion without changing the message identity', async () => {
+    const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
+    const bubble = { ...item, content:'오늘도 응원해', sceneId:'support' };
+    act(() => app.wiring.renderBubbles({ visible:true, bubbles:[bubble], totalCount:1 }));
+    const cloud = document.querySelector('.rw-reading-cloud');
+    const before = cloud.style.getPropertyValue('--rw-cloud-tint');
+    act(() => app.wiring.renderBubbles({ visible:true, bubbles:[{...bubble,sceneId:'joy'}], totalCount:1 }));
+    expect(document.querySelector('.rw-reading-cloud')).toBe(cloud);
+    expect(cloud.style.getPropertyValue('--rw-cloud-tint')).not.toBe(before);
+    act(() => app.wiring.renderBubbles({ visible:true, bubbles:[{...bubble,content:'오늘도 고마워'}], totalCount:1 }));
+    expect(screen.queryByLabelText('오늘도 응원해')).toBeNull();
+    expect(screen.getByLabelText('오늘도 고마워')).toBeTruthy();
+    app.unmount();
   });
   it('uses SSE hints and silently stops on authentication failure without a registration form', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
@@ -129,6 +145,19 @@ describe('public display', () => {
     await expect(app.wiring.renderer.prepare(item, { signal: new AbortController().signal })).rejects.toThrow('FONT_UNAVAILABLE');
     const cancelled = new AbortController(); cancelled.abort(new Error('NO_LONGER_VISIBLE'));
     await expect(app.wiring.renderer.prepare(item, { signal: cancelled.signal })).rejects.toThrow('NO_LONGER_VISIBLE'); expectQuiet();
+  });
+  it('waits for background images before declaring a new scene ready', async () => {
+    const { prepareMoodBackground } = await import('./background/assets.js');
+    let finish;
+    prepareMoodBackground.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const app=harness(); await waitFor(()=>expect(app.runtime.start).toHaveBeenCalled());
+    let ready=false;
+    const prepared=app.wiring.renderer.prepare(item,{signal:new AbortController().signal}).then(()=>{ready=true;});
+    await act(async()=>{}); expect(ready).toBe(false);
+    await act(async()=>{finish();await prepared;}); expect(ready).toBe(true);
+    prepareMoodBackground.mockRejectedValueOnce(new Error('BACKGROUND_IMAGE_FAILED'));
+    await expect(app.wiring.renderer.prepare(item,{signal:new AbortController().signal})).rejects.toThrow('BACKGROUND_IMAGE_FAILED');
+    expectQuiet();app.unmount();
   });
   it('keeps the runtime alive when QR conversion fails', async () => {
     const { default: QRCode } = await import('qrcode'); QRCode.toDataURL.mockRejectedValueOnce(new Error('SECRET_QR_FAILURE'));
@@ -235,14 +264,14 @@ describe('public display', () => {
     expect(app.runtime.resetAuthentication).not.toHaveBeenCalled();
     expect(screen.getByAltText('기분을 남기는 참여 QR 코드')).toBeTruthy(); app.unmount();
   });
-  it('drifts only the newest clouds while still counting every cloud', async () => {
+  it('keeps the count and forecast aligned with the newest thirty clouds', async () => {
     const app = harness(); await waitFor(() => expect(app.runtime.start).toHaveBeenCalled());
     const many = Array.from({ length: 45 }, (_, index) => ({ ...item, content: `구름 ${index}`,
       id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}` }));
     act(() => app.wiring.renderBubbles({ visible: true, bubbles: many, totalCount: 45 }));
-    expect(document.querySelectorAll('.mw-bubble-track')).toHaveLength(30);
+    expect(document.querySelectorAll('.rw-cloud-track')).toHaveLength(30);
     expect(screen.queryByText('구름 0')).toBeNull(); expect(screen.getByText('구름 44')).toBeTruthy();
-    expect(document.querySelector('.mw-wall-heading em').textContent).toBe('45'); app.unmount();
+    expect(document.querySelector('.mw-wall-heading em').textContent).toBe('30'); app.unmount();
   });
   it('recovers from malformed successful proxy responses without exposing them', async () => {
     vi.useFakeTimers(); let attempts = 0;

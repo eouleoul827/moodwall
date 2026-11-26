@@ -405,23 +405,33 @@ export class DisplayPlaybackController {
       this.ownerEpoch = claim.playbackEpoch;
       this.status = "PREPARING";
       this.#guard();
+      // Preparation can time out before the playback command loop is cancelled.
+      // Give its image/font work a separate lifetime so retries cannot leave old
+      // preparation running or abort the interruption report and next command.
+      const preparation = new AbortController();
+      const parentSignal = this.controller.signal;
+      const cancelPreparation = () => preparation.abort(parentSignal.reason);
+      parentSignal.addEventListener("abort", cancelPreparation, { once: true });
+      if (parentSignal.aborted) cancelPreparation();
       let assetTimer, cancelAsset;
       try {
         await Promise.race([
-          this.renderer.prepare(this.current.item, { signal: this.controller.signal }),
+          this.renderer.prepare(this.current.item, { signal: preparation.signal }),
           new Promise((_, reject) => { assetTimer = this.clock.setTimer(() => reject(failure("ASSET_FAILURE")), 5000); }),
           new Promise((_, reject) => {
-            cancelAsset = () => reject(this.controller.signal.reason);
-            this.controller.signal.addEventListener("abort", cancelAsset, { once: true });
-            if (this.controller.signal.aborted) cancelAsset();
+            cancelAsset = () => reject(preparation.signal.reason);
+            preparation.signal.addEventListener("abort", cancelAsset, { once: true });
+            if (preparation.signal.aborted) cancelAsset();
           }),
         ]);
       } catch {
-        if (this.controller.signal.aborted) throw this.controller.signal.reason;
+        if (parentSignal.aborted) throw parentSignal.reason;
         throw failure("ASSET_FAILURE");
       } finally {
         this.clock.clearTimer(assetTimer);
-        this.controller.signal.removeEventListener("abort", cancelAsset);
+        preparation.signal.removeEventListener("abort", cancelAsset);
+        parentSignal.removeEventListener("abort", cancelPreparation);
+        preparation.abort();
       }
       this.#guard();
       const started = await this.#send(this.#command("start"));
@@ -518,7 +528,8 @@ export class DisplayPlaybackController {
       }
     }
     if (!dropped && this.visible() && !this.stopped && this.authority.data.clientInstanceId === this.clientInstanceId &&
-        this.#serverNow() < parseTime(this.current.item.ambientUntil)) {
+        this.#serverNow() < Math.min(parseTime(this.current.item.ambientUntil), parseTime(this.current.item.contentDeleteAt)) &&
+        this.lastCompletion?.data.attempt.item !== null) {
       this.renderer.float?.(this.current.item);
     }
     this.status = "DONE";

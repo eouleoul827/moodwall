@@ -9,12 +9,13 @@ const iso = ms => new Date(ms).toISOString();
 function card(overrides = {}) {
   return { id: ITEM, content: "오늘 행복해", emotion: "JOY", animationId: "hearts", sceneId: "joy",
     sceneVersion: "1", sceneSeed: "seed", readySequence: "9007199254740993",
+    completedSequence: overrides.readySequence ?? "9007199254740993",
     firstStartAuthorizedAt: iso(BASE), contentDeleteAt: iso(BASE + 3_600_000),
     ambientUntil: "2026-11-04T15:00:00.000Z", displayProtocolVersion: "2", ...overrides };
 }
 function snapshot(overrides = {}) {
   return { displayProtocolVersion: "2", boardId: BOARD, businessDate: "2026-11-04",
-    deviceGeneration: "1", cacheResetToken: "0", revision: "9007199254740994",
+    deviceGeneration: "1", cacheResetToken: "0", retiredCompletedSequence: "0", revision: "9007199254740994",
     serverNow: iso(BASE), ambientUntil: "2026-11-04T15:00:00.000Z", onlineLeaseUntil: iso(BASE + 30_000),
     mode: "MOODWALL", bubbles: [card()], removedIds: [], snapshotAt: iso(BASE), nextCursor: null, ...overrides };
 }
@@ -31,18 +32,72 @@ function completeAck(metadata = {}) {
       status: "DONE", presentationStatus: "DONE", deviceGeneration: scope.deviceGeneration, item: card() } };
 }
 
+test("completion order evicts the oldest body permanently across pages, ACK replay and reload", () => {
+  const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  const cards = Array.from({ length: 31 }, (_, index) => card({
+    id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, "0")}`,
+    readySequence: String(31 - index), completedSequence: String(index + 1),
+    content: `completed body ${index + 1}`,
+  }));
+  assert.equal(cache.synchronize(snapshot({ bubbles: cards }), 0), true);
+  assert.deepEqual(cache.view(0).bubbles.map(value => value.id), cards.slice(1).map(value => value.id));
+  assert.equal(cache.retired, 1n);
+  assert.ok(!storage.getItem(cache.key).includes('"content":"completed body 1"'));
+  assert.equal(cache.synchronize(snapshot({ bubbles: [cards[0]] }), 1), true);
+  assert.equal(cache.cards.has(cards[0].id), false);
+  const ack = completeAck(); ack.attempt.submissionId = cards[0].id; ack.attempt.item = cards[0];
+  assert.equal(cache.acceptCompleted(ack, cards[0], 15_000, 15_000, cache.authEpoch), false);
+  const reopened = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  assert.equal(reopened.synchronize(snapshot({ bubbles: [cards[0]] }), 0), true);
+  assert.equal(reopened.cards.has(cards[0].id), false);
+  assert.equal(reopened.cards.size, 30);
+});
+
+test("the server retirement watermark removes text and survives an older-scope completion ACK", () => {
+  const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  cache.synchronize(snapshot(), 0);
+  const retired = card().completedSequence;
+  cache.synchronize(snapshot({ bubbles: [], retiredCompletedSequence: retired,
+    revision: "9007199254740995" }), 1);
+  assert.equal(cache.cards.size, 0);
+  assert.equal(cache.acceptCompleted(completeAck(), card(), 15_000, 15_000, cache.authEpoch), false);
+  assert.deepEqual(JSON.parse(storage.getItem(cache.key)).cards, []);
+  const reopened = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  reopened.synchronize(snapshot(), 0);
+  assert.equal(reopened.cards.size, 0);
+});
+
+test("expiry deletes offline local storage and waiting items cannot enter the cloud cache", () => {
+  const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  cache.synchronize(snapshot(), 0);
+  cache.disconnect();
+  assert.equal(cache.view(3_600_000).visible, false);
+  assert.equal(cache.cards.size, 0);
+  assert.deepEqual(JSON.parse(storage.getItem(cache.key)).cards, []);
+  assert.equal(cache.synchronize(snapshot({ bubbles: [card({ completedSequence: null })] }), 3_600_001), false);
+});
+
+test("the former midnight cache is erased and never imported into the bounded cache", () => {
+  const storage = memoryStorage();
+  storage.setItem(`moodwall.display.playback.v1:${BOARD}`, JSON.stringify({ cards: [card()] }));
+  const cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
+  assert.equal(storage.getItem(`moodwall.display.playback.v1:${BOARD}`), null);
+  cache.synchronize(snapshot({ bubbles: [] }), 0);
+  assert.equal(cache.cards.size, 0);
+});
+
 test("a confirmed DONE persists before the first snapshot without granting public visibility", () => {
   const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
   assert.equal(cache.acceptCompleted(completeAck(), card(), 15_000, 15_000, cache.authEpoch), true);
   assert.equal(cache.cards.size, 1);
   assert.equal(JSON.parse(storage.getItem(cache.key)).cards[0].content, card().content);
   assert.equal(cache.view(15_000).visible, false);
-  // The source has now disappeared from the server. The stored completion is
-  // restored only after a matching authenticated snapshot, as an ambient bubble.
+  // An authenticated restore must delete expired content, even if the source is absent.
   const reopened = new PlaybackBubbleCache({ boardId: BOARD, storage });
   assert.equal(reopened.synchronize(snapshot({ bubbles: [], serverNow: iso(BASE + 3_600_000),
     onlineLeaseUntil: iso(BASE + 3_630_000) }), 0), true);
-  assert.equal(reopened.view(0).bubbles[0].phase, "AMBIENT");
+  assert.deepEqual(reopened.view(0).bubbles, []);
+  assert.deepEqual(JSON.parse(storage.getItem(cache.key)).cards, []);
 });
 
 test("DONE caching neither reconnects a disconnected cache nor extends its snapshot lease", () => {
@@ -98,11 +153,11 @@ test("completion requires matching authenticated metadata, immutable text and a 
   assert.equal(cache.cards.get(ITEM).contentDeleteAt, card().contentDeleteAt);
 });
 
-test("a confirmed late DONE with a purged source can persist its already received item", () => {
+test("a confirmed late DONE with a purged source cannot resurrect its received item", () => {
   const cache = new PlaybackBubbleCache({ boardId: BOARD });
   const ack = completeAck({ serverNow: iso(BASE + 3_600_000) }); ack.attempt.item = null;
-  assert.equal(cache.acceptCompleted(ack, card(), 0, 0, cache.authEpoch), true);
-  assert.equal(cache.cards.get(ITEM).content, card().content);
+  assert.equal(cache.acceptCompleted(ack, card(), 0, 0, cache.authEpoch), false);
+  assert.equal(cache.cards.has(ITEM), false);
   assert.equal(cache.view(0).visible, false);
 });
 
@@ -117,13 +172,13 @@ test("a late DONE can retain its body under a newer matching scope without rewin
   assert.equal(cache.acceptCompleted(completeAck(), card(), 22_000, 22_000, cache.authEpoch), false);
 });
 
-test("the staff catalog can read ambient cards after lease expiry without writing shared storage", () => {
+test("the staff catalog omits expired cards without writing shared storage", () => {
   const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
   cache.synchronize(snapshot(), 0);
   const before = [...storage.data];
   const staff = readPlaybackBubbleCatalog({ boardId: BOARD, storage, snapshots: [snapshot({
     bubbles: [], serverNow: iso(BASE + 3_600_000), onlineLeaseUntil: iso(BASE + 1000), mode: "PAUSED" })] });
-  assert.deepEqual(staff.bubbles.map(row => [row.content, row.phase]), [[card().content, "AMBIENT"]]);
+  assert.deepEqual(staff.bubbles, []);
   assert.equal(staff.storageAvailable, true); assert.equal(staff.cacheValid, true);
   assert.deepEqual([...storage.data], before);
   const hidden = readPlaybackBubbleCatalog({ boardId: BOARD, storage, snapshots: [snapshot({ bubbles: [], removedIds: [ITEM] })] });
@@ -150,13 +205,13 @@ test("stable animation frames reuse a view and only rebuild at a phase boundary"
   assert.equal(cache.view(500), before);
   assert.equal(cache.view(999), before);
   const after = cache.view(1000);
-  assert.notEqual(after, before); assert.equal(after.bubbles[0].phase, "AMBIENT");
+  assert.notEqual(after, before); assert.deepEqual(after.bubbles, []);
   assert.equal(cache.view(1100), after);
   cache.hide(ITEM);
   assert.equal(cache.view(1200).bubbles.length, 0);
 });
 
-test("the default cache retains a full seventeen-hour day and reuses 4080-card views", t => {
+test("the default cache retains only the newest thirty of a full seventeen-hour day", t => {
   const first = BASE - 6 * 3_600_000, end = first + 4079 * 15_000;
   const segmenter = new Intl.Segmenter("ko", { granularity: "grapheme" });
   const samples = [["Korean", String.fromCodePoint(0xac00).repeat(30)],
@@ -165,7 +220,7 @@ test("the default cache retains a full seventeen-hour day and reuses 4080-card v
   for (const [kind, content] of samples) {
     assert.equal([...segmenter.segment(content)].length, 30);
     const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage });
-    assert.equal(cache.maxCards, 5000);
+    assert.equal(cache.maxCards, 30);
     const cards = Array.from({ length: 4080 }, (_, index) => card({
       id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, "0")}`,
       content, readySequence: String(index + 1), firstStartAuthorizedAt: iso(first + index * 15_000),
@@ -179,24 +234,27 @@ test("the default cache retains a full seventeen-hour day and reuses 4080-card v
     const raw = storage.getItem(cache.key);
     assert.ok(raw.length < 4_000_000); // Existing UTF-16 code-unit read guard is unchanged.
     const started = performance.now(), view = cache.view(0), firstViewMs = performance.now() - started;
-    assert.equal(view.totalCount, 4080); assert.equal(view.bubbles.length, 4080);
+    assert.equal(view.totalCount, 30); assert.equal(view.bubbles.length, 30);
+    assert.deepEqual(view.bubbles.map(value => value.id), cards.slice(-30).map(value => value.id));
+    assert.equal(JSON.parse(raw).cards.length, 30);
     const stableStarted = performance.now();
     for (let frame = 0; frame < 60_000; frame++) assert.equal(cache.view(frame / 10), view);
     const stableViewsMs = performance.now() - stableStarted;
     const reopened = new PlaybackBubbleCache({ boardId: BOARD, storage });
     assert.equal(reopened.synchronize(snapshot({ ...metadata, revision: "4081", bubbles: [] }), 0), true);
-    assert.equal(reopened.view(0).bubbles.length, 4080);
+    assert.equal(reopened.view(0).bubbles.length, 30);
     t.diagnostic(`${kind}: UTF-8 ${Buffer.byteLength(raw, "utf8")} bytes; UTF-16 ${Buffer.byteLength(raw, "utf16le")} bytes; ` +
       `first view ${firstViewMs.toFixed(2)} ms; 60000 stable reads ${stableViewsMs.toFixed(2)} ms (synthetic Node only)`);
   }
 });
 
-test("the expanded default cache still enforces a bounded configurable capacity and size guard", () => {
-  for (const maxCards of [0, 10_001, Infinity]) {
+test("the cache enforces the thirty-card maximum and a bounded smaller capacity", () => {
+  for (const maxCards of [0, 31, 10_001, Infinity]) {
     assert.throws(() => new PlaybackBubbleCache({ boardId: BOARD, maxCards }), /configuration/);
   }
   const storage = memoryStorage(), cache = new PlaybackBubbleCache({ boardId: BOARD, storage, maxCards: 2 });
   const cards = [0, 1, 2].map(index => card({
+    completedSequence: String(index + 1),
     id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, "0")}`,
     firstStartAuthorizedAt: iso(BASE - 3000 + index * 1000), contentDeleteAt: iso(BASE - 3000 + index * 1000 + 3_600_000),
   }));
@@ -215,12 +273,13 @@ test("v2 uses first start rather than accepted time and requires no student emoj
   assert.equal(cache.view(0).bubbles[0].content, "오늘 행복해");
 });
 
-test("source expiry preserves exactly the same text as ambient", () => {
+test("source expiry physically removes cached text at exactly one hour", () => {
   const cache = new PlaybackBubbleCache({ boardId: BOARD });
   assert.equal(cache.synchronize(snapshot(), 0), true);
   assert.equal(cache.synchronize(snapshot({ serverNow: iso(BASE + 3_600_000), bubbles: [],
     onlineLeaseUntil: iso(BASE + 3_630_000) }), 3_600_000), true);
-  assert.deepEqual(cache.view(3_600_000).bubbles.map(row => [row.content, row.phase]), [["오늘 행복해", "AMBIENT"]]);
+  assert.deepEqual(cache.view(3_600_000).bubbles, []);
+  assert.equal(cache.cards.size, 0);
 });
 
 test("an absent page never erases already displayed text", () => {
@@ -269,7 +328,7 @@ test("KST midnight clears every cloud, including one still inside its first hour
   assert.equal(cache.synchronize(snapshot({ serverNow: iso(lateServerNow), snapshotAt: iso(lateServerNow),
     onlineLeaseUntil: iso(lateServerNow + 30 * 60_000), bubbles: [ambient, floating] }), 0), true);
   const before = cache.view(0);
-  assert.deepEqual(before.bubbles.map(bubble => bubble.phase).sort(), ["AMBIENT", "FLOATING"]);
+  assert.deepEqual(before.bubbles.map(bubble => bubble.phase), ["FLOATING"]);
   const atMidnight = Date.parse("2026-11-04T15:00:00Z") - lateServerNow;
   assert.equal(cache.view(atMidnight).visible, false);
   assert.equal(cache.cards.size, 0);

@@ -150,7 +150,7 @@ function Assert-MoodwallInstallRoot {
     if (-not [IO.File]::Exists($markerPath) -or [IO.File]::ReadAllText($markerPath).Trim() -ne $script:MarkerValue) {
         throw '기존 파일이 있는 폴더에는 설치할 수 없습니다. 무드월 전용 빈 폴더를 선택해 주세요.'
     }
-    $allowed = @($script:MarkerName, 'DisplayLauncher.psm1', 'Start-Display.ps1', 'Start-Staff.ps1', 'Start-Moodwall.ps1', 'Stop-Moodwall.ps1', 'config.json', 'server.json', 'Profiles', 'Logs', 'staff-session.marker')
+    $allowed = @($script:MarkerName, 'config.json', 'server.json', 'update-state.json', 'Profiles', 'Logs', 'staff-session.marker') + @($script:LauncherFiles)
     foreach ($item in $items) {
         if ($item.Name -notin $allowed -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw '설치 폴더에 알 수 없는 파일 또는 연결 항목이 있어 갱신을 중단했습니다.'

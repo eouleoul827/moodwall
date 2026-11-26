@@ -33,10 +33,16 @@ describe('student composition and receipts', () => {
   it('connects the QR entry, submits text only, and keeps a single normal completion card', async () => {
     const { api, client } = setup();
     expect(await screen.findByRole('heading', { name: '지금 기분이 어때요?' })).toBeTruthy();
+    expect(screen.getByText('작은 한마디로 우리의 하늘을 채워 줘.')).toBeTruthy();
+    expect(document.querySelectorAll('.student-skin-art')).toHaveLength(1);
+    expect(document.querySelector('.student-skin-art').getAttribute('aria-hidden')).toBe('true');
+    expect(screen.queryByRole('img')).toBeNull();
     expect(screen.queryByRole('button', { name: '도움이 필요해요' })).toBeNull();
     expect(document.querySelector('.student-help-entry')).toBeNull();
     await submit();
     expect(await screen.findByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
+    expect(document.querySelectorAll('.student-skin-art')).toHaveLength(1);
+    expect(screen.queryByText('작은 한마디로 우리의 하늘을 채워 줘.')).toBeNull();
     expect(screen.queryByRole('button', { name: '도움이 필요해요' })).toBeNull();
     expect(screen.queryByRole('button', { name: '문제 있는 글 알리기' })).toBeNull();
     expect(api.connect).toHaveBeenCalledWith('test-ticket', expect.any(AbortSignal));
@@ -48,6 +54,16 @@ describe('student composition and receipts', () => {
     act(() => watched.onChange(accepted('SHOWING')));
     expect(screen.getByRole('heading', { name: '메시지를 보냈어요!' })).toBeTruthy();
     expect(screen.queryByText('SHOWING')).toBeNull();
+  });
+
+  it('shows the decorative frame at QR entry without providing a composition form', async () => {
+    const { client } = setup({ connectedSession: null });
+    expect(await screen.findByText(/전광판에 있는 QR을 찍으면/)).toBeTruthy();
+    expect(document.querySelectorAll('.student-skin-art')).toHaveLength(1);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: '전광판에 올리기' })).toBeNull();
+    expect(client.begin).not.toHaveBeenCalled();
+    expect(client.send).not.toHaveBeenCalled();
   });
 
   it('keeps an unknown intent immutable and recovers before allowing a fresh post', async () => {

@@ -117,6 +117,25 @@ try {
     Assert-Equal $dryPlan.DisplayUrl 'https://school.test/display' 'installer plan URL validated'
     Assert-Equal ([IO.Directory]::Exists($dryRoot)) $false 'installer PlanOnly does not write install directory'
     Assert-Equal ([IO.Directory]::Exists($desktopRoot)) $false 'installer PlanOnly does not create desktop'
+    # A normal installation owns the updater and its persisted build state too.
+    # Reinstalling to refresh scripts must accept the same files the installer creates.
+    $reinstallRoot = [IO.Path]::Combine($testRoot, 'Existing Installation')
+    [void][IO.Directory]::CreateDirectory($reinstallRoot)
+    [IO.File]::WriteAllText([IO.Path]::Combine($reinstallRoot, 'moodwall-display-launcher.marker'), 'MoodwallDisplayLauncher:1')
+    foreach ($file in (Get-MoodwallLauncherFiles)) {
+        [IO.File]::WriteAllText([IO.Path]::Combine($reinstallRoot, $file), '# synthetic installed script')
+    }
+    Write-MoodwallUpdateState -InstallRoot $reinstallRoot -FrontendCommit ('a' * 40) -BackendCommit ('b' * 40)
+    $output = & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath -DisplayUrl 'https://school.test' -InstallRoot $reinstallRoot -DesktopDirectory $desktopRoot -PlanOnly
+    Assert-Equal $LASTEXITCODE 0 'installer accepts a complete existing installation and update state'
+    Assert-Equal ((($output -join "`n") | ConvertFrom-Json).InstallRoot) $reinstallRoot 'reinstall plan retains the installed location'
+    Assert-Equal (Read-MoodwallUpdateState $reinstallRoot).frontendCommit ('a' * 40) 'reinstall plan preserves update state'
+    [IO.File]::WriteAllText([IO.Path]::Combine($reinstallRoot, 'unrelated.txt'), 'preserve me')
+    Assert-Throws { Assert-MoodwallInstallRoot $reinstallRoot } 'complete installation still rejects unrelated files'
+    Remove-Item -LiteralPath ([IO.Path]::Combine($reinstallRoot, 'unrelated.txt'))
+    Remove-Item -LiteralPath ([IO.Path]::Combine($reinstallRoot, 'update-state.json'))
+    [void][IO.Directory]::CreateDirectory([IO.Path]::Combine($reinstallRoot, 'update-state.json'))
+    Assert-Throws { Assert-MoodwallInstallRoot $reinstallRoot } 'update state must be a file, not a directory'
     $installedSimulation = [IO.Path]::Combine($testRoot, 'Installed Source With Spaces')
     [void][IO.Directory]::CreateDirectory($installedSimulation)
     foreach ($file in @('DisplayLauncher.psm1', 'Start-Display.ps1')) {
@@ -365,8 +384,48 @@ Export-ModuleMember -Function *
         Assert-Equal ([IO.File]::Exists([IO.Path]::Combine($PSScriptRoot, $file))) $true ('launcher file exists: ' + $file)
     }
     $tokens = $null; $parseErrors = $null
-    [void][Management.Automation.Language.Parser]::ParseFile([IO.Path]::Combine($PSScriptRoot, 'Update-Moodwall.ps1'), [ref]$tokens, [ref]$parseErrors)
+    $updaterAst = [Management.Automation.Language.Parser]::ParseFile([IO.Path]::Combine($PSScriptRoot, 'Update-Moodwall.ps1'), [ref]$tokens, [ref]$parseErrors)
     Assert-Equal @($parseErrors).Count 0 'updater parses'
+    # Run the actual build function with synthetic Docker calls. Do not execute
+    # the updater's top-level UI, read deployment settings, or start containers.
+    $buildFunction = $updaterAst.Find({ param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Build-Server'
+    }, $true)
+    & {
+        param([string]$Definition)
+        . ([scriptblock]::Create($Definition))
+        function Start-DockerEngine { return 'synthetic-docker.exe' }
+        function Get-MoodwallComposeArguments { param($Server, [string[]]$Arguments) return $Arguments }
+        function Invoke-Checked {
+            param([string]$FilePath, [string[]]$Arguments, [string]$Failure, [int]$TimeoutSeconds)
+            Assert-Equal $FilePath 'synthetic-docker.exe' 'build uses only the synthetic Docker executable'
+            $script:TestServerCommands += ,($Arguments -join ' ')
+            if ($Arguments[0] -ceq $script:TestServerFailAction) { throw $Failure }
+            return ''
+        }
+        $script:Server = [pscustomobject]@{}
+        $allCommands = @('build api worker migrate', 'stop --timeout 30 api worker', 'run --rm migrate', 'up -d --no-build api worker')
+        foreach ($failureAction in @('', 'build', 'stop', 'run', 'up')) {
+            $script:TestServerCommands = @()
+            $script:TestServerFailAction = $failureAction
+            $script:Migrated = $false
+            $failureMessage = ''
+            try { Build-Server -Migrate } catch { $failureMessage = $_.Exception.Message }
+            $expectedCount = switch ($failureAction) { 'build' { 1 } 'stop' { 2 } 'run' { 3 } default { 4 } }
+            Assert-Equal ($script:TestServerCommands -join ';') (($allCommands | Select-Object -First $expectedCount) -join ';') ('ordered migration commands; failure=' + $failureAction)
+            Assert-Equal ([bool]$failureMessage) ([bool]$failureAction) ('migration failure propagates; failure=' + $failureAction)
+            Assert-Equal $script:Migrated ($failureAction -notin @('build', 'stop')) ('old-code rollback blocked once migration is attempted; failure=' + $failureAction)
+            if ($failureAction -ceq 'run') {
+                Assert-Equal ($failureMessage -like '*서버는 멈춘 상태로 유지합니다*') $true 'migration failure explains that writers remain stopped'
+            }
+        }
+        $script:TestServerCommands = @()
+        $script:TestServerFailAction = ''
+        $script:Migrated = $false
+        Build-Server
+        Assert-Equal ($script:TestServerCommands -join ';') 'build api worker migrate;up -d --no-build api worker' 'pre-migration recovery rebuilds and starts without changing the schema'
+        Assert-Equal $script:Migrated $false 'pre-migration recovery preserves rollback eligibility'
+    } $buildFunction.Extent.Text
     # The last checks deliberately run failing installers; CI's dot-sourced shell exits with $LASTEXITCODE.
     $global:LASTEXITCODE = 0
     Write-Output ("PASS: $script:Passed launcher checks; no UI, network or real installation performed.")

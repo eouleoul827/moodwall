@@ -44,7 +44,7 @@ function harness(options = {}) {
         ...(options.durationMs === undefined ? {} : { durationMs: options.durationMs }),
         startAuthorizedAt: null, startNotAfter: null, leaseUntil: iso(BASE + now + 10_000),
         item: { id: ITEM, content: "오늘 행복해", emotion: "JOY", animationId: "hearts", sceneId: "joy",
-          sceneVersion: "1", sceneSeed: "abc", readySequence: "9007199254740993",
+          sceneVersion: "1", sceneSeed: "abc", readySequence: "9007199254740993", completedSequence: "1",
           acceptedAt: iso(BASE - 60_000), firstStartAuthorizedAt: null, contentDeleteAt: null,
           ambientUntil: "2026-11-04T15:00:00.000Z", displayProtocolVersion: "2" } };
     } else if (command.action === "start") {
@@ -64,7 +64,7 @@ function harness(options = {}) {
     return options.request ? options.request(command, standard, { advance, snapshot, get active() { return active; } }) : standard(command);
   } };
   const renderer = {
-    prepare: async item => { draws.push({ action: "prepare", at: now, item }); options.prepare?.(item); },
+    prepare: async (item, { signal }) => { draws.push({ action: "prepare", at: now, item }); return options.prepare?.(item, signal); },
     show: (item, display) => draws.push({ action: "show", at: now, item, display }),
     hide: () => draws.push({ action: "hide", at: now }),
     float: item => draws.push({ action: "float", at: now, item }),
@@ -160,7 +160,7 @@ test("an actual DONE ACK stores its verified body before any following snapshot 
     if (command.action === "complete") {
       result.attempt.presentationStatus = "DONE"; result.attempt.deviceGeneration = result.deviceGeneration;
       result.cacheScope = { displayProtocolVersion: "2", boardId: BOARD, businessDate: "2026-11-04",
-        deviceGeneration: result.deviceGeneration, cacheResetToken: "0", revision: result.revision,
+        deviceGeneration: result.deviceGeneration, cacheResetToken: "0", retiredCompletedSequence: "0", revision: result.revision,
         serverNow: result.serverNow, ambientUntil: "2026-11-04T15:00:00.000Z", mode: result.mode,
         onlineLeaseUntil: result.leaseUntil, removedIds: [] };
     }
@@ -417,11 +417,68 @@ test("long transport round trip is rejected even if timer callback has not execu
 });
 
 test("asset preparation failure interrupts without a first frame or start", async () => {
-  const { player, calls, draws } = harness({ prepare: () => { throw Error("font unavailable"); } });
+  let signal, stopped = 0;
+  const { player, calls, draws } = harness({ prepare: (_item, preparationSignal) => {
+    signal = preparationSignal;
+    signal.addEventListener("abort", () => { stopped++; }, { once: true });
+    throw Error("font unavailable");
+  } });
   assert.equal((await player.runOnce()).code, "ASSET_FAILURE");
+  assert.equal(signal.aborted, true);
+  assert.equal(stopped, 1);
+  assert.equal(player.controller.signal.aborted, false);
   assert.equal(calls.at(-1).body.reason, "ASSET_FAILURE");
   assert.ok(!calls.some(row => row.action === "start"));
   assert.ok(!draws.some(row => row.action === "show"));
+});
+
+test("asset timeout cancels unfinished work and ignores late readiness before a healthy retry", async () => {
+  let entered, finishLate, preparationSignal, prepared = 0, stopped = 0;
+  const started = new Promise(resolve => { entered = resolve; });
+  const pending = new Promise(resolve => { finishLate = resolve; });
+  const app = harness({ prepare: (_item, signal) => {
+    if (++prepared > 1) return;
+    preparationSignal = signal;
+    signal.addEventListener("abort", () => { stopped++; }, { once: true });
+    entered();
+    return pending;
+  } });
+  const run = app.player.runOnce();
+  await started;
+  app.advance(5001);
+  assert.equal((await run).code, "ASSET_FAILURE");
+  assert.equal(preparationSignal.aborted, true);
+  assert.equal(stopped, 1);
+  assert.equal(app.player.controller.signal.aborted, false);
+  assert.equal(app.calls.at(-1).body.reason, "ASSET_FAILURE");
+  finishLate(); await Promise.resolve(); await Promise.resolve();
+  assert.ok(!app.calls.some(row => row.action === "start"));
+  assert.ok(!app.draws.some(row => row.action === "show"));
+  assert.equal((await app.player.runOnce()).status, "DONE");
+  assert.equal(app.calls.filter(row => row.action === "start").length, 1);
+  assert.equal(app.draws.filter(row => row.action === "show").length, 1);
+  assert.equal(stopped, 1);
+});
+
+test("parent cancellation stops asset preparation and preserves the interruption reason", async () => {
+  let entered, preparationSignal, stopped = 0;
+  const started = new Promise(resolve => { entered = resolve; });
+  const app = harness({ prepare: (_item, signal) => new Promise((_resolve, reject) => {
+    preparationSignal = signal;
+    signal.addEventListener("abort", () => { stopped++; reject(signal.reason); }, { once: true });
+    entered();
+  }) });
+  const run = app.player.runOnce();
+  await started;
+  app.player.pause("PAGE_HIDDEN");
+  const result = await run;
+  assert.equal(preparationSignal.aborted, true);
+  assert.equal(preparationSignal.reason.code, "PAGE_HIDDEN");
+  assert.equal(stopped, 1);
+  assert.equal(result.code, "PAGE_HIDDEN");
+  assert.equal(app.calls.at(-1).body.reason, "PAGE_HIDDEN");
+  assert.ok(!app.calls.some(row => row.action === "start"));
+  assert.ok(!app.draws.some(row => row.action === "show"));
 });
 
 test("ambiguous claim is retried with its original key and body before loading", async () => {
@@ -461,7 +518,7 @@ test("late completed receipt without source text confirms completion without ext
     return data;
   } });
   assert.equal((await player.runOnce()).status, "DONE");
-  assert.equal(draws.find(row => row.action === "float").item.contentDeleteAt, iso(BASE + 3_600_000));
+  assert.ok(!draws.some(row => row.action === "float"));
 });
 
 test("confirmed old completion cannot render or take over a newer owner's item", async () => {

@@ -3,6 +3,7 @@ import { SubmissionClient } from '@clients/student/submission-client.mjs';
 import { createStudentApi, studentErrorMessage, takeAdmissionTicket } from './api.js';
 import { characterCount, validateMention } from './graphemes.js';
 import './student.css';
+import StudentSkyFrame from './StudentSkyFrame.jsx';
 
 const defaultApi = createStudentApi();
 const defaultClient = options => new SubmissionClient(options);
@@ -36,7 +37,7 @@ function MoodPreview({ content, complete = false }) {
   </div>;
 }
 
-export function StudentApp({ api = defaultApi, createSubmissionClient = defaultClient, initialTicket, reload = () => window.location.reload() } = {}) {
+export function StudentFlow({ api = defaultApi, createSubmissionClient = defaultClient, initialTicket, introDescription, reload = () => window.location.reload() } = {}) {
   const [ticket] = useState(() => initialTicket === undefined ? takeAdmissionTicket() : initialTicket);
   const [session, setSession] = useState(null);
   const [usage, setUsage] = useState(null);
@@ -261,7 +262,7 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
           {boot === 'error' && <button className="student-button" onClick={() => setBootKey(value => value + 1)}>다시 연결하기</button>}
         </section> : screen === 'compose' ? <form className="student-compose" onSubmit={send}>
           <div className="student-compose-main">
-            <div className="student-intro"><h1>지금 기분이 어때요?</h1></div>
+            <div className="student-intro"><h1>지금 기분이 어때요?</h1>{introDescription && <p className="student-intro-description">{introDescription}</p>}</div>
             <div className="student-input-group">
               <label className="student-sr-only" htmlFor="mention">멘션 입력</label>
               <textarea id="mention" rows="2" placeholder="오늘 기분을 한 줄로 남겨주세요" value={text} readOnly={sending || unconfirmed || updateRequired}
@@ -290,6 +291,10 @@ export function StudentApp({ api = defaultApi, createSubmissionClient = defaultC
       <footer className="student-footer">moodwall · 우리의 오늘이 모이는 곳</footer>
     </div>
   </main>;
+}
+
+export function StudentApp({ introDescription = '작은 한마디로 우리의 하늘을 채워 줘.', ...props } = {}) {
+  return <StudentSkyFrame><StudentFlow {...props} introDescription={introDescription} /></StudentSkyFrame>;
 }
 
 export default StudentApp;

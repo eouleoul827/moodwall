@@ -6,15 +6,15 @@ import { DISPLAY_PALETTES, particleStyles, periodFor, seedFor, themeFor, THEMES 
 import './display.css';
 import './display-scene.css';
 import DisplayBackdrop from './DisplayBackdrop.jsx';
-import CloudMessage from './CloudMessage.jsx';
+import RoundedCloudField from './RoundedCloudField.jsx';
+import MoodBackground from './background/MoodBackground.jsx';
+import { prepareMoodBackground } from './background/assets.js';
 import LedQr from './LedQr.jsx';
 import { AUTH_ERRORS, displayRequest, useDisplaySession } from './display-session.js';
 import { createDisplayDiagnostics } from './display-diagnostics.js';
 
 const EMPTY_BUBBLES = { visible: false, bubbles: [], totalCount: 0 };
-// Every received cloud stays counted in the heading and forecast, but only the
-// newest ones drift. A 2046 × 768 panel becomes an unreadable, GPU-heavy mass
-// long before the 2000-card cache limit (each cloud is a masked, filtered layer).
+// The heading, forecast and drifting field describe the same retained pool.
 export const MAX_DRIFTING_CLOUDS = 30;
 const RECHECK_AFTER_403_MS = 30_000;
 function WeatherIcon({ className = '' }) {
@@ -46,20 +46,6 @@ function SceneParticles({ item }) {
   </div>;
 }
 
-const BubbleField = function BubbleField({ view, period }) {
-  return <div className="mw-bubble-field" aria-label="이 화면에 남은 메시지">
-    {view.visible && view.bubbles.slice(-MAX_DRIFTING_CLOUDS).map((bubble, shownIndex, shown) => {
-      // Position from the index in the full ordered list so older clouds never jump rows.
-      const index = view.bubbles.length - shown.length + shownIndex;
-      const seed = seedFor(bubble.id);
-      return <div key={bubble.id} className={`mw-bubble-track ${bubble.phase === 'AMBIENT' ? 'is-ambient' : ''}`}
-        style={{ '--row': `${6 + ((index * 113 + seed % 47) % 72)}%`, '--rest-x': `${23 + seed % 46}%`,
-          '--drift-duration': `${80 + seed % 60}s`, '--drift-delay': `${-(seed % 140)}s` }}>
-        <CloudMessage item={bubble} period={period} />
-      </div>;
-    })}
-  </div>;
-};
 
 function MoodForecast({ bubbles }) {
   const counts = useMemo(() => {
@@ -93,7 +79,7 @@ function Sky({ period }) {
   </div>;
 }
 
-export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch }) {
+export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRuntime, fetcher = fetch, BubbleFieldComponent = RoundedCloudField }) {
   // Only a new credential starts a new runtime. Session metadata can refresh
   // independently; playback/snapshot responses remain authoritative for mode.
   const { runtimeSession: session, csrfRef, invalidate, check } = useDisplaySession(fetcher);
@@ -175,6 +161,8 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
           throw Object.assign(new Error('UNSUPPORTED_SCENE'), { code: 'ASSET_FAILURE' });
         }
         try {
+          await prepareMoodBackground(item.sceneId, { signal });
+          if (signal.aborted) throw signal.reason;
           await document.fonts?.load('400 96px "Jua"', item.content);
           if (signal.aborted) throw signal.reason;
           await document.fonts?.load('700 96px "Noto Sans KR"', item.content);
@@ -203,8 +191,11 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
       fetch: observedFetch,
       renderBubbles(view) {
         if (!active || invalidated) return;
-        const signature = `${view.visible}:${view.bubbles.map(bubble => `${bubble.id}:${bubble.phase}`).join(',')}`;
-        if (signature !== bubbleSignature) { bubbleSignature = signature; setBubbles(view); }
+        const retained = view.visible ? view.bubbles.filter(bubble => bubble.phase !== 'AMBIENT').slice(-MAX_DRIFTING_CLOUDS) : [];
+        const signature = JSON.stringify([view.visible, retained.map(bubble => [bubble.id, bubble.content, bubble.sceneId, bubble.phase])]);
+        if (signature !== bubbleSignature) {
+          bubbleSignature = signature; setBubbles({ ...view, bubbles: retained, totalCount: retained.length });
+        }
       },
       onState(state) {
         if (!active || invalidated) return;
@@ -307,7 +298,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
   const period = periodFor(now), palette = DISPLAY_PALETTES[period], theme = themeFor(spotlight, period);
   if (!session || fatal) return <DisplayBackdrop />;
 
-  return <main className={`mw-display mw-display-${period}`} style={{ '--scene-color': theme.color, '--scene-tint': theme.tint,
+  return <main className={`mw-display mw-cloud-wall mw-display-${period}`} style={{ '--scene-color': theme.color, '--scene-tint': theme.tint,
     '--mw-bg': palette.bg, '--mw-panel': palette.panel, '--mw-ink': palette.ink, '--mw-sub': palette.sub,
     '--mw-line': palette.line, '--mw-track': palette.track, '--mw-sky-top': palette.skyTop,
     '--mw-sky-bottom': palette.skyBottom, '--mw-cloud-ink': palette.cloudInk, '--mw-shadow': palette.shadow }}>
@@ -315,7 +306,7 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
     <div className="mw-display-frame">
     <div className="mw-wall-content" hidden={!wallAvailable}>
       <Sky period={period} />
-      <BubbleField view={bubbles} period={period} />
+      <BubbleFieldComponent view={bubbles} period={period} serverNow={now} />
       <div className="mw-wall-layout">
         <aside className="mw-join-panel">
           <div className="mw-wordmark">MOOD WALL</div>
@@ -325,13 +316,13 @@ export default function DisplayApp({ runtimeFactory = createMoodwallDisplayRunti
         </aside>
         <section className="mw-wall-center">
           <header className="mw-wall-heading"><div><p>{date}</p><h2>지금 <em>{bubbles.bubbles.length}</em>개의 구름이<br />머물고 있어요</h2></div><time>{time}</time></header>
-          {!bubbles.bubbles.length && <div className="mw-empty"><WeatherIcon /><p>첫번째 구름을 남겨볼까요</p></div>}
         </section>
         <MoodForecast bubbles={bubbles.bubbles} />
       </div>
     </div>
     <section ref={sceneElement} className="mw-spotlight" hidden={!spotlight} aria-live="polite" aria-label="새로운 메시지">
-      {spotlight && <div className="mw-spotlight-inner" key={spotlight.id}>
+      {spotlight && <div className="mw-spotlight-inner has-mood-bg" key={spotlight.id}>
+        <MoodBackground emotion={spotlight.sceneId} content={spotlight.content} seed={spotlight.sceneSeed ?? spotlight.id} side="left" />
         <SceneParticles item={spotlight} /><EmotionMark className="mw-scene-mark" sceneId={spotlight.sceneId} />
         <header><span className="mw-emotion-pill">{theme.label}</span><p>새 구름이 도착했어요</p></header>
         <p className="mw-full-message" style={{ '--message-font': [...spotlight.content].length > 24 ? 4.5 : 5.1667 }}>{spotlight.content}</p>
