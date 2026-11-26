@@ -9,7 +9,7 @@
 | 조건 | 노트북 서버에 유리한 이유 |
 | --- | --- |
 | 전광판은 개관 시간에만 켠다 | 서비스가 필요한 시간이 노트북이 켜져 있는 시간과 같다. 전광판이 꺼지면 접수도 `DISPLAY_OFFLINE`으로 막힌다 |
-| 글은 최대 1시간, 화면 캐시는 자정까지만 남는다 | 백업할 장기 데이터가 거의 없다. 노트북이 고장 나도 잃는 것은 운영자 계정과 장치 등록 정도다 |
+| 표시를 시작한 글은 최대 1시간, 완료 구름은 최근 30개까지만 남는다 | 서버·화면 캐시 모두 장기 보관용 원문을 두지 않는다. 운영자 계정·장치 등록·접수 기록은 별도로 유지한다 |
 | 직원은 켜기/끄기만 한다 | 아이콘 두 개로 끝난다. 클라우드 콘솔이나 월 서버 비용이 없다 |
 
 **전제 조건:** 아래 조건을 충족하지 못하면 클라우드 구성으로 돌아간다.
@@ -37,7 +37,7 @@
   - 기존 15초 화면 QR은 칸당 1.16px이라 LED에서 읽히지 않았다.
 - **Windows 설정:** 디스플레이 배율은 100%를 권장한다. 다른 배율에서도 정수 배를 계산하지만, 100%가 가장 선명하다.
 - **동작 고정:** Windows "애니메이션 효과" 설정과 관계없이 구름이 움직인다. 공용 전광판에서는 노트북의 설정이 관람자의 선호를 뜻하지 않기 때문이다.
-- **움직이는 구름 수:** 화면에서 움직이는 구름은 최신 30개로 제한한다. 제목의 개수와 무드 예보는 그날 받은 구름 전체로 계산한다. 값은 [DisplayApp.jsx](../frontend/src/display/DisplayApp.jsx)의 `MAX_DRIFTING_CLOUDS`에서 바꾼다.
+- **움직이는 구름 수:** 완료된 구름 중 아직 만료되지 않은 최근 30개만 남긴다. 제목의 개수와 무드 예보도 이 같은 목록으로 계산한다. 30개 제한은 서버·브라우저 캐시·[DisplayApp.jsx](../frontend/src/display/DisplayApp.jsx)에 함께 적용되므로 화면 상수만 바꾸어 정책을 변경하지 않는다.
 
 ## 3. 구성
 
@@ -151,23 +151,27 @@ flowchart LR
 
 `main`에 병합한 수정은 노트북이 받아 빌드해야 전광판에 반영된다. 매일 자동으로 받지는 않는다. 팀이 실수로 깨진 코드를 병합해도 다음 날 아침 전광판이 바로 망가지지 않게 하려는 것이다. 폐관 뒤나 이용자가 적은 시간에 진행한다.
 
+**`0010_cloud_retention` 최초 적용:** 기존에 설치된 업데이트 아이콘만 실행하면 구버전 updater가 API를 켠 채 DB를 변경할 수 있다. 새 소스를 먼저 받은 뒤 [새 런처를 재설치하는 절차](../ops/display-launcher/README.md#0010_cloud_retention-최초-업그레이드)를 거쳐 아이콘을 실행하거나, 아래 수동 절차로 진행한다. 노트북 브라우저만 닫아서는 별도 전광판에서 들어오는 구버전 API 쓰기를 막을 수 없다.
+
 **평소: 바탕화면 [무드월 업데이트] 한 번.** 묻는 창에서 "예"를 누르면 나머지는 자동이다. 보통 3~10분 걸린다. [Update-Moodwall.ps1](../ops/display-launcher/Update-Moodwall.ps1)이 하는 일은 다음과 같다.
 
 1. 전광판 창을 닫는다.
 2. 팀 저장소의 `main`을 받는다. 노트북이 `main`이 아니거나, 노트북에서 고친 파일이 있거나, 팀 저장소와 갈라져 있으면 아무것도 바꾸지 않고 멈춘다.
 3. 바뀐 곳만 다시 만든다.
    - `frontend/`·`clients/`가 바뀌었으면 화면을 빌드한다.
-   - `backend/`·`infra/`·`compose*.yaml`이 바뀌었으면 서버 이미지를 빌드하고, DB 마이그레이션(이미 적용된 것은 건너뜀)을 실행한 뒤 서버를 다시 켠다.
+   - `backend/`·`infra/`·`compose*.yaml`이 바뀌었으면 서버 이미지를 빌드하고, `api`·`worker`를 중지한 뒤 DB 마이그레이션(이미 적용된 것은 건너뜀)을 실행한다. 성공한 뒤에만 같은 버전의 서버를 다시 켠다.
    - `ops/display-launcher/`가 바뀌었으면 바탕화면 아이콘과 스크립트를 다시 설치한다. 최초 설치 때 고른 compose 파일과 자동 시작 설정은 그대로 둔다.
    - 마지막으로 빌드한 커밋을 `%LOCALAPPDATA%\Moodwall\DisplayLauncher\update-state.json`에 기록한다. 기록이 없거나 누가 손으로 받았으면 화면과 서버를 모두 다시 만든다.
 4. 끝나면 **무드월 켜기**를 자동으로 실행한다.
-5. 실패하면 이유를 창으로 알린다. DB 마이그레이션 전에 실패했으면 이전 버전으로 되돌리고 다시 빌드한다. 자세한 기록은 `%LOCALAPPDATA%\Moodwall\DisplayLauncher\Logs\update.log`에 남는다.
+5. 실패하면 이유를 창으로 알린다. DB 마이그레이션을 시도하기 전에 실패했으면 이전 버전으로 되돌리고 다시 빌드한다. 마이그레이션을 시도한 뒤 실패하면 서버를 멈춘 상태로 유지하며, 구버전으로 자동 롤백하지 않는다. 담당자가 오류를 해결한 뒤 같은 버전으로 다시 업데이트한다. 자세한 기록은 `%LOCALAPPDATA%\Moodwall\DisplayLauncher\Logs\update.log`에 남는다.
 
 새 버전이 없으면 "이미 최신 버전이에요"라고 알리고 끝난다.
 
 **처음 한 번만: 아이콘이 아직 없을 때.** 이 기능이 생기기 전에 설치한 노트북에는 아이콘이 없다. 저장소 폴더(예: `C:\moodwall`)의 PowerShell에 아래 한 줄을 붙여 넣는다. 받기, 화면·서버 전체 빌드, 아이콘 추가, 전광판 켜기까지 한 번에 된다.
 ```powershell
-git pull --ff-only origin main; powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\display-launcher\Update-Moodwall.ps1 -Yes
+git pull --ff-only origin main
+if ($LASTEXITCODE -ne 0) { throw '새 소스를 받지 못했습니다.' }
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\display-launcher\Update-Moodwall.ps1 -Yes
 ```
 그다음부터는 바탕화면 **무드월 업데이트**만 쓴다.
 
@@ -190,17 +194,22 @@ git pull --ff-only origin main; powershell -NoProfile -ExecutionPolicy Bypass -F
    ```powershell
    npm --prefix frontend ci; npm --prefix frontend run build
    ```
-4. **`backend/`가 바뀐 경우에만** 서버를 다시 빌드한다. 최초 설치(4절 5단계)와 같은 compose 파일 목록을 쓴다. 감정 모델을 쓰면 `compose.library.yaml` 앞에 `-f compose.gemini-emotion.yaml`을 넣는다. 2단계 목록에 `backend/app/migrations/`가 있으면 DB 마이그레이션도 실행한다.
+4. **`backend/`·`infra/`·`compose*.yaml`이 바뀐 경우** 서버를 다시 빌드한다. 최초 설치(4절 5단계)와 같은 compose 파일 목록을 쓴다. 감정 모델을 쓰면 `compose.library.yaml` 앞에 `-f compose.gemini-emotion.yaml`을 넣는다. 구버전 `api`·`worker`를 먼저 중지하고 DB 마이그레이션을 실행한다(이미 적용된 것은 건너뜀). 각 단계가 성공한 뒤에만 다음 단계를 진행하며, 마이그레이션 실패 시 서비스를 멈춘 상태로 유지한다.
    ```powershell
    $c = "-f","compose.yaml","-f","compose.frontend.yaml","-f","compose.gemini.yaml","-f","compose.library.yaml"
    docker compose @c build api worker migrate
-   docker compose @c run --rm migrate   # backend/app/migrations/ 가 바뀐 경우에만
-   docker compose @c up -d api worker
+   if ($LASTEXITCODE -ne 0) { throw '서버 빌드 실패' }
+   docker compose @c stop --timeout 30 api worker
+   if ($LASTEXITCODE -ne 0) { throw '구버전 서버 중지 실패: 마이그레이션을 진행하지 않습니다.' }
+   docker compose @c run --rm migrate
+   if ($LASTEXITCODE -ne 0) { throw 'DB 업데이트 실패: 서버를 멈춘 상태로 유지합니다.' }
+   docker compose @c up -d --no-build api worker
+   if ($LASTEXITCODE -ne 0) { throw '새 서버 시작 실패: 이전 버전으로 되돌리지 않습니다.' }
    ```
 5. **무드월 켜기**를 누른다. 화면 HTML은 캐시하지 않으므로(`Cache-Control: no-store`) 새로 연 창은 새 코드를 쓴다. 이미 열려 있던 창은 끄고 다시 켠다.
 6. 확인한다. 휴대폰으로 글을 하나 보내 15초 동안 표시된 뒤 구름으로 남는지 본다.
 
-문제가 생기면 이전 버전으로 되돌린다. 3단계를 다시 실행하면 화면도 이전 버전으로 돌아간다.
+DB 마이그레이션을 시도한 뒤에는 성공 여부와 관계없이 이전 코드로 재기동하지 않는다. `0010_cloud_retention`은 이전 버전과 완료 순번 계약이 다르고, 최신 30개를 초과한 완료 본문을 삭제하므로 데이터 복원 없는 downgrade를 지원하지 않는다. 오류를 해결한 뒤 같은 버전으로 다시 배포한다. 화면만 바꾼 업데이트에서 문제가 생겼고 DB 마이그레이션을 시도하지 않았다면 이전 버전의 화면으로 되돌릴 수 있다.
 ```powershell
 git checkout "HEAD@{1}"; npm --prefix frontend run build
 ```
@@ -209,7 +218,8 @@ git checkout "HEAD@{1}"; npm --prefix frontend run build
 ## 6. 자정·운영 시간
 
 - **운영 시간:** 직원이 켜고 끄는 시간이 곧 운영 시간이다. 전광판이 꺼져 있으면 30초 안에 온라인 허가가 끝나고, 새 접수는 기존 `DISPLAY_OFFLINE`으로 거절된다. 폐관 뒤 글이 아무에게도 보이지 않고 사라지는 것은 의도한 동작이다. 요일·공휴일별 자동 일정은 없다.
-- **00시 초기화:** 노트북이 켜져 있으면 KST 자정에 화면의 모든 구름이 지워진다. 1시간 이내 글과 투명 구름 모두 해당하며, 1시간 규칙과 무관하다. 기준은 서버 시각이다.
+- **글과 구름 퇴장:** 최초 표시 시작 승인 후 1시간 또는 31번째 완료 시 가장 먼저 완료된 글부터 서버 원문과 브라우저 캐시에서 제거한다. 글 없는 윤곽만 만료 시 약 0.9초, 개수 제한 시 약 1.2초 동안 사라지는 효과를 보여준다. 대기·재생 중 글은 30개 제한에 포함하지 않는다.
+- **00시 초기화:** 노트북이 켜져 있으면 KST 자정에 화면의 남은 구름이 모두 지워진다. 1시간 이내 글도 해당하며, 기준은 서버 시각이다.
   - 브라우저 저장소도 함께 비운다. 꺼져 있었다면 다음 시작 때 전날 캐시를 먼저 지운다.
   - 서버는 자정 20초 전부터 새 접수와 재생 시작을 막고, 전날 글은 `DAY_ENDED`로 끝낸다.
   - 자동 시험: [playback-bubble-cache.test.mjs](../clients/display/playback-bubble-cache.test.mjs)의 "KST midnight clears every cloud…".

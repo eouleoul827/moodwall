@@ -123,8 +123,13 @@ function Build-Server {
     $docker = Start-DockerEngine
     Invoke-Checked $docker (Get-MoodwallComposeArguments $script:Server @('build', 'api', 'worker', 'migrate')) '서버 빌드에 실패했어요.' 1800 | Out-Null
     if ($Migrate) {
+        # The LED's own browser can still be connected after Close-Wall closes
+        # the laptop browser. Stop every old writer before upgrading the schema.
+        Invoke-Checked $docker (Get-MoodwallComposeArguments $script:Server @('stop', '--timeout', '30', 'api', 'worker')) 'DB 업데이트 전에 서버를 멈추지 못했어요.' 300 | Out-Null
+        # From this point the schema may have changed, even if migration reports
+        # failure. Never roll back to old code or restart writers automatically.
         $script:Migrated = $true
-        Invoke-Checked $docker (Get-MoodwallComposeArguments $script:Server @('run', '--rm', 'migrate')) 'DB 업데이트에 실패했어요.' 600 | Out-Null
+        Invoke-Checked $docker (Get-MoodwallComposeArguments $script:Server @('run', '--rm', 'migrate')) 'DB 업데이트에 실패했어요. 서버는 멈춘 상태로 유지합니다.' 600 | Out-Null
     }
     Invoke-Checked $docker (Get-MoodwallComposeArguments $script:Server @('up', '-d', '--no-build', 'api', 'worker')) '서버를 다시 켜지 못했어요.' 300 | Out-Null
 }
