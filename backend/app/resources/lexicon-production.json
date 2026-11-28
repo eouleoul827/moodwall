@@ -1,0 +1,24 @@
+{
+  "lexicon_version": "lexicon-v1",
+  "normalization_version": "modern-hangul-jamo-v1",
+  "starter_only": false,
+  "provenance": "Reviewed 2026-11-26 by the AI owner as a finite pre-filter in front of Claude moderation (backend/inference/claude_analyzer.py), which handles variants and context. Expand with team review.",
+  "rules": [
+    {
+      "rule_id": "ko-explicit-001",
+      "key": ["ㅆ", "ㅣ", "ㅂ", "ㅏ", "ㄹ"],
+      "scope": "EXACT_TOKEN",
+      "separator_after_keys": [1],
+      "optional_insert_after": { "key_index": 1, "token": "ㅣ", "max": 1 },
+      "evidence": "CONFIRMED"
+    },
+    {
+      "rule_id": "ko-explicit-002",
+      "key": ["ㅅ", "ㅣ", "ㅂ", "ㅏ", "ㄹ"],
+      "scope": "EXACT_TOKEN",
+      "separator_after_keys": [1],
+      "evidence": "CONFIRMED"
+    }
+  ],
+  "sha256": "c174861fd88eea0dcaad16da14c1160e030eb5e078917a8ff84b852f4dd5abc9"
+}
